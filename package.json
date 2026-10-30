@@ -1,0 +1,35 @@
+{
+  "name": "effect-cqrs",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CQRS and event sourcing for Effect v4",
+  "type": "module",
+  "license": "MIT",
+  "author": "David Nussio",
+  "packageManager": "pnpm@10.34.7",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "example": "node examples/todo/main.ts"
+  },
+  "peerDependencies": {
+    "effect": "^4.0.6"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "^4.0.6",
+    "@effect/sql-sqlite-node": "^4.0.6",
+    "@effect/vitest": "^4.0.6",
+    "@types/node": "^24.0.0",
+    "effect": "^4.0.6",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
