@@ -286,6 +286,40 @@ describe("ViewModels", () => {
         }).pipe(Effect.provide(Storage), Effect.provideService(References.MinimumLogLevel, "None")))
     }
 
+    it.effect("starts again from the shortest delay after moving on", () =>
+      Effect.gen(function*() {
+        const failing = new Set([1, 501])
+        const Flaky = ViewModel.make({
+          name: "flaky",
+          aggregates: [Todo],
+          dispose: Effect.void,
+          handlers: {
+            TodoCreated: (_, { position }) => failing.delete(position) ? Effect.fail("broken") : Effect.void
+          }
+        })
+        const todos = yield* AggregateService.make(Todo)
+        for (let index = 0; index < 600; index++) {
+          yield* todos.commands.createTodo(`todo-${index}`, { title: "Buy Milk" })
+        }
+
+        yield* Effect.gen(function*() {
+          const viewModels = yield* ViewModel.ViewModels
+          const failedAt = (position: number) =>
+            lastErrorOf(viewModels).pipe(
+              Effect.tap(() => Effect.yieldNow),
+              Effect.repeat({ until: (error) => Option.exists(error, (error) => error.position === position) })
+            )
+
+          // Each failure waits for the same 100 millis, or `caughtUp` would never return.
+          yield* failedAt(1)
+          yield* TestClock.adjust("100 millis")
+          yield* failedAt(501)
+          yield* TestClock.adjust("100 millis")
+
+          yield* viewModels.caughtUp()
+        }).pipe(Effect.provide(ViewModel.layer([Flaky])), Effect.scoped)
+      }).pipe(Effect.provide(Storage), Effect.provideService(References.MinimumLogLevel, "None")))
+
     it.live("exposes the failure while stalled", () =>
       Effect.gen(function*() {
         const Stuck = ViewModel.make({
@@ -311,6 +345,59 @@ describe("ViewModels", () => {
           assert.strictEqual(timedOut._tag, "TimeoutError")
         }).pipe(Effect.provide(ViewModel.layer([Stuck])), Effect.scoped)
       }).pipe(Effect.provide(Storage), Effect.provideService(References.MinimumLogLevel, "None")))
+  })
+
+  describe("under load", () => {
+    const Counter = ViewModel.make({
+      name: "counter",
+      aggregates: [Todo],
+      dispose: Effect.void,
+      handlers: { TodoCreated: () => Effect.void }
+    })
+
+    for (const concurrency of [32, "unbounded"] as const) {
+      it.effect(`gets a turn during a burst of commands, with concurrency ${concurrency}`, () =>
+        Effect.gen(function*() {
+          const todos = yield* AggregateService.make(Todo)
+          const viewModels = yield* ViewModel.ViewModels
+
+          yield* Effect.forEach(
+            Array.from({ length: 5_000 }, (_, index) => `todo-${index}`),
+            (id) => todos.commands.createTodo(id, { title: "Buy Milk" }),
+            { concurrency, discard: true }
+          )
+
+          const [status] = yield* viewModels.status
+          assert.isAbove(status!.position, 0)
+        }).pipe(Effect.provide(ViewModel.layer([Counter]).pipe(Layer.provideMerge(Storage)))))
+    }
+
+    it.effect("saves checkpoints now and then, and where it got to when it stops", () =>
+      Effect.gen(function*() {
+        const saved: Array<number> = []
+        const todos = yield* AggregateService.make(Todo)
+
+        yield* Effect.gen(function*() {
+          const viewModels = yield* ViewModel.ViewModels
+          for (let index = 0; index < 1_250; index++) {
+            const { position } = yield* todos.commands.createTodo(`todo-${index}`, { title: "Buy Milk" })
+            yield* viewModels.caughtUp(position)
+          }
+          assert.deepStrictEqual(saved, [500, 1_000])
+        }).pipe(
+          Effect.provide(ViewModel.layer([Counter])),
+          Effect.provideService(
+            Checkpoints.Checkpoints,
+            Checkpoints.Checkpoints.of({
+              get: () => Effect.succeed(0),
+              set: (_, position) => Effect.sync(() => void saved.push(position))
+            })
+          ),
+          Effect.scoped
+        )
+
+        assert.deepStrictEqual(saved, [500, 1_000, 1_250])
+      }).pipe(Effect.provide(EventStore.layerMemory)))
   })
 
   describe("on SQLite", () => {

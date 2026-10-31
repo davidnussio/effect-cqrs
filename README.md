@@ -67,7 +67,8 @@ const Todo = Aggregate.make<TodoState>()({
 
 The projection must cover every event or it doesn't compile. A handler returns one
 event, several, or `[]` to record nothing. It can use services, fail with typed
-errors, and may run more than once, so it should only decide.
+errors, and may run more than once, so it should only decide. Projections and
+handlers must not mutate the state, which is kept between commands.
 
 ## Run commands
 
@@ -89,9 +90,14 @@ const program = Effect.gen(function*() {
 }).pipe(Effect.provide(EventStore.layerMemory))
 ```
 
-Writers use optimistic concurrency: a command that loses a race reloads the state
-and decides again, up to `maxRetries` times (5 by default), then fails with
+Commands on one stream take turns inside a service, so they can't race. A handler must
+not run a command on its own stream, which would wait for itself. Across processes
+writers use optimistic concurrency: a command that loses a race backs off, reloads the
+state and decides again, up to `maxRetries` times (5 by default), then fails with
 `ConcurrencyConflict`.
+
+The service remembers the state of recent aggregates (`stateCacheSize`, 10,000 by
+default), so a command only reads the events it hasn't seen.
 
 ## Project into view models
 
@@ -205,6 +211,17 @@ Another database needs an `EventStore.Backend`: `append`, `readBatch` and `head`
 Positions must follow commit order, so a backend on a database with concurrent
 writers has to guarantee that itself.
 
+## Performance
+
+On a SQLite file a command takes about 0.1 ms, however long its stream is and however
+many events the store holds, and a million events replay in under 5 seconds. The first
+use of a stream after a restart replays it, at about 3 µs per event. See the
+[performance and stress report](bench/REPORT.md) for the numbers and the remaining
+limits.
+
+`pnpm bench` measures each operation and `pnpm stress` loads the framework while
+checking that nothing is lost.
+
 ## Coming from moleculer-cqrs
 
 | moleculer-cqrs | effect-cqrs |
@@ -236,7 +253,9 @@ store, so `replay` is for rebuilding, not for recovery.
   point to wire into your own HTTP or RPC layer.
 - **SQLite and memory only.** There are no adapters for MongoDB, MySQL or PostgreSQL.
 - **No code generator.** There is no equivalent of `cqrs generate`.
-- **No snapshots.** State is rebuilt from every event of a stream on each command.
+- **No persistent snapshots.** Recent state is only kept in memory, so after a restart
+  each stream is replayed the first time it is used, at a cost that grows with its
+  length.
 - **No schema migration.** A stored event that no longer decodes fails with
   `EventDecodeError`, so evolve event schemas compatibly.
 - **Not published.** Packages expose TypeScript sources and there is no build step.

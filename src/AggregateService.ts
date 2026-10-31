@@ -2,9 +2,15 @@
  * Runs an aggregate against the {@link EventStore}: the `command`, `read-model`
  * and `history` actions of moleculer-cqrs, as a typed service.
  */
-import { Array as Arr, type DateTime, Effect, Schema, Stream } from "effect"
+import { Array as Arr, type DateTime, Effect, Schedule, Schema, Semaphore, Stream } from "effect"
 import * as Aggregate from "./Aggregate.ts"
-import { ConcurrencyConflict, EventStore, type EventStoreError, type StoredEvent } from "./EventStore.ts"
+import {
+  ConcurrencyConflict,
+  type EventFilter,
+  EventStore,
+  type EventStoreError,
+  type StoredEvent
+} from "./EventStore.ts"
 
 export class UnknownCommand extends Schema.TaggedError<UnknownCommand>()("UnknownCommand", {
   aggregateName: Schema.String,
@@ -111,11 +117,79 @@ export const makeEventEncoder = <A extends Aggregate.Any>(aggregate: A) => {
     )
 }
 
+interface Loaded<State> {
+  readonly state: State
+  readonly version: number
+  readonly position: number
+}
+
+/** Remembers recent states, dropping the least recently used. A `Map` iterates in insertion order. */
+const makeStateCache = <State>(capacity: number) => {
+  const entries = new Map<string, Loaded<State>>()
+  return {
+    get: (aggregateId: string) => {
+      const entry = entries.get(aggregateId)
+      if (entry !== undefined) {
+        entries.delete(aggregateId)
+        entries.set(aggregateId, entry)
+      }
+      return entry
+    },
+    set: (aggregateId: string, loaded: Loaded<State>) => {
+      if (capacity === 0 || (entries.get(aggregateId)?.position ?? 0) > loaded.position) return
+      entries.delete(aggregateId)
+      entries.set(aggregateId, loaded)
+      if (entries.size > capacity) entries.delete(entries.keys().next().value!)
+    }
+  }
+}
+
+/** Runs effects with the same key one at a time. A key only exists while it is in use. */
+const makeKeyedLock = () => {
+  const locks = new Map<string, { readonly semaphore: Semaphore.Semaphore; users: number }>()
+  return (key: string) => <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => {
+        const lock = locks.get(key) ?? { semaphore: Semaphore.makeUnsafe(1), users: 0 }
+        lock.users++
+        locks.set(key, lock)
+        return lock
+      }),
+      (lock) => lock.semaphore.withPermit(effect),
+      (lock) =>
+        Effect.sync(() => {
+          if (--lock.users === 0) locks.delete(key)
+        })
+    )
+}
+
+/**
+ * Gives other fibers a turn once in a while. `Effect.forEach` with `concurrency`
+ * carries on as long as items don't suspend, and a store on `node:sqlite` never does,
+ * so a bulk run would finish before any view model ran. Yielding per command is
+ * expensive, so it only happens when a millisecond has passed, using real time
+ * because this is about the CPU. The clock restarts after the yield rather than
+ * before it, so commands started meanwhile suspend too and the loop lets go.
+ */
+const makeTimeSlice = () => {
+  let started = performance.now()
+  return Effect.suspend(() =>
+    performance.now() - started < 1
+      ? Effect.void
+      : Effect.andThen(Effect.yieldNow, Effect.sync(() => void (started = performance.now())))
+  )
+}
+
+// Only a rival outside this service can cause a conflict, so give it room to finish.
+const conflictBackoff = Schedule.exponential("10 millis").pipe(Schedule.jittered)
+
 export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   aggregate: A,
   options?: {
     /** How many times a command is re-decided after losing a race. Defaults to 5. */
     readonly maxRetries?: number
+    /** How many aggregates keep their state in memory between commands. Defaults to 10,000. */
+    readonly stateCacheSize?: number
   }
 ) {
   const store = yield* EventStore
@@ -124,6 +198,9 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   const aggregateName = aggregate.name
   const decodeEvent = makeEventDecoder(aggregate)
   const encodeEvent = makeEventEncoder(aggregate)
+  const states = makeStateCache<Aggregate.State<A>>(options?.stateCacheSize ?? 10_000)
+  const lockStream = makeKeyedLock()
+  const timeSlice = makeTimeSlice()
 
   const replay = <Acc>(
     stream: Stream.Stream<StoredEvent, EventStoreError>,
@@ -139,19 +216,34 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
 
   const streamOf = (
     aggregateId: string,
-    range?: { readonly startTime?: DateTime.Utc | undefined; readonly finishTime?: DateTime.Utc | undefined }
+    range?: Pick<EventFilter, "startTime" | "finishTime" | "afterPosition">
   ) => store.read({ aggregateNames: [aggregateName], aggregateIds: [aggregateId], ...range })
 
-  const load = (aggregateId: string, finishTime?: DateTime.Utc) =>
+  const replayFrom = (
+    start: Loaded<Aggregate.State<A>>,
+    aggregateId: string,
+    finishTime?: DateTime.Utc
+  ) =>
     replay(
-      streamOf(aggregateId, { finishTime }),
-      { state: aggregate.initial as Aggregate.State<A>, version: 0, position: 0 },
+      streamOf(aggregateId, { finishTime, afterPosition: start.position }),
+      start,
       (acc, event, stored) => ({
         state: Aggregate.evolve(aggregate, acc.state, event, stored),
         version: stored.version,
         position: stored.position
       })
     )
+
+  const initial: Loaded<Aggregate.State<A>> = { state: aggregate.initial as Aggregate.State<A>, version: 0, position: 0 }
+
+  // Streams only grow, so a remembered state plus what came after it is the current
+  // state, even if another process wrote those events.
+  const load = (aggregateId: string, finishTime?: DateTime.Utc) =>
+    finishTime === undefined
+      ? replayFrom(states.get(aggregateId) ?? initial, aggregateId).pipe(
+        Effect.tap((loaded) => Effect.sync(() => states.set(aggregateId, loaded)))
+      )
+      : replayFrom(initial, aggregateId, finishTime)
 
   const decide = Effect.fnUntraced(function*(type: string, aggregateId: string, payload: unknown) {
     const { position, state, version } = yield* load(aggregateId)
@@ -170,13 +262,19 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     return { aggregateName, aggregateId, version: last.version, position: last.position, events }
   })
 
+  // Commands on one stream take turns, so they can't race each other and only a
+  // rival in another process causes a conflict. A handler must not run a command on
+  // its own stream, which would wait for itself.
   const execute = (type: string, aggregateId: string, payload: unknown) =>
     decide(type, aggregateId, payload).pipe(
       Effect.retry({
         times: maxRetries,
-        while: (error) => error instanceof ConcurrencyConflict
+        while: (error) => error instanceof ConcurrencyConflict,
+        schedule: conflictBackoff
       }),
       Effect.provideContext(context),
+      lockStream(aggregateId),
+      (decided) => Effect.andThen(timeSlice, decided),
       Effect.withSpan(`${aggregateName}.${type}`, { attributes: { "aggregate.id": aggregateId } })
     )
 

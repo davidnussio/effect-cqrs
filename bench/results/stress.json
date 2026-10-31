@@ -1,0 +1,668 @@
+{
+  "environment": {
+    "date": "2026-10-31T08:59:08.615Z",
+    "commit": "b46c324-dirty",
+    "node": "v26.13.0",
+    "effect": "4.0.6",
+    "sqlite": "3.54.1",
+    "cpu": "Apple M4 Pro",
+    "cores": 12,
+    "memoryGb": 24,
+    "platform": "darwin 27.2.0",
+    "scale": 1
+  },
+  "reports": [
+    {
+      "name": "ingest",
+      "metrics": {
+        "events": 1000000,
+        "streams": 10000,
+        "workers": 32,
+        "yieldToOthers": true,
+        "samples": [
+          {
+            "events": 100000,
+            "eventsPerSecond": 33111,
+            "viewModelLag": 0,
+            "heapMb": 40,
+            "rssMb": 298
+          },
+          {
+            "events": 200000,
+            "eventsPerSecond": 30300,
+            "viewModelLag": 0,
+            "heapMb": 36,
+            "rssMb": 298
+          },
+          {
+            "events": 300000,
+            "eventsPerSecond": 29919,
+            "viewModelLag": 0,
+            "heapMb": 36,
+            "rssMb": 298
+          },
+          {
+            "events": 400000,
+            "eventsPerSecond": 29804,
+            "viewModelLag": 0,
+            "heapMb": 36,
+            "rssMb": 215
+          },
+          {
+            "events": 500000,
+            "eventsPerSecond": 29725,
+            "viewModelLag": 0,
+            "heapMb": 36,
+            "rssMb": 215
+          },
+          {
+            "events": 600000,
+            "eventsPerSecond": 29650,
+            "viewModelLag": 0,
+            "heapMb": 36,
+            "rssMb": 220
+          },
+          {
+            "events": 700000,
+            "eventsPerSecond": 29535,
+            "viewModelLag": 0,
+            "heapMb": 36,
+            "rssMb": 220
+          },
+          {
+            "events": 800000,
+            "eventsPerSecond": 29268,
+            "viewModelLag": 0,
+            "heapMb": 36,
+            "rssMb": 212
+          },
+          {
+            "events": 900000,
+            "eventsPerSecond": 29080,
+            "viewModelLag": 0,
+            "heapMb": 36,
+            "rssMb": 212
+          },
+          {
+            "events": 1000000,
+            "eventsPerSecond": 28966,
+            "viewModelLag": 0,
+            "heapMb": 36,
+            "rssMb": 216
+          }
+        ],
+        "peakLag": 0,
+        "drainSeconds": 0.0013102910000015982,
+        "replaySeconds": 4.285590582999998,
+        "replayEventsPerSecond": 233340,
+        "databaseMb": 231
+      },
+      "violations": [],
+      "seconds": 39.904629
+    },
+    {
+      "name": "ingest, short streams",
+      "metrics": {
+        "events": 1000000,
+        "streams": 100000,
+        "workers": 32,
+        "yieldToOthers": true,
+        "samples": [
+          {
+            "events": 100000,
+            "eventsPerSecond": 33160,
+            "viewModelLag": 0,
+            "heapMb": 38,
+            "rssMb": 324
+          },
+          {
+            "events": 200000,
+            "eventsPerSecond": 33377,
+            "viewModelLag": 0,
+            "heapMb": 40,
+            "rssMb": 326
+          },
+          {
+            "events": 300000,
+            "eventsPerSecond": 32728,
+            "viewModelLag": 0,
+            "heapMb": 40,
+            "rssMb": 224
+          },
+          {
+            "events": 400000,
+            "eventsPerSecond": 32625,
+            "viewModelLag": 0,
+            "heapMb": 42,
+            "rssMb": 227
+          },
+          {
+            "events": 500000,
+            "eventsPerSecond": 32845,
+            "viewModelLag": 0,
+            "heapMb": 43,
+            "rssMb": 227
+          },
+          {
+            "events": 600000,
+            "eventsPerSecond": 32426,
+            "viewModelLag": 0,
+            "heapMb": 43,
+            "rssMb": 227
+          },
+          {
+            "events": 700000,
+            "eventsPerSecond": 27632,
+            "viewModelLag": 0,
+            "heapMb": 47,
+            "rssMb": 215
+          },
+          {
+            "events": 800000,
+            "eventsPerSecond": 28634,
+            "viewModelLag": 0,
+            "heapMb": 47,
+            "rssMb": 215
+          },
+          {
+            "events": 900000,
+            "eventsPerSecond": 27470,
+            "viewModelLag": 0,
+            "heapMb": 47,
+            "rssMb": 215
+          },
+          {
+            "events": 1000000,
+            "eventsPerSecond": 28949,
+            "viewModelLag": 0,
+            "heapMb": 48,
+            "rssMb": 206
+          }
+        ],
+        "peakLag": 0,
+        "drainSeconds": 0.0006531249999970896,
+        "replaySeconds": 4.701961583000011,
+        "replayEventsPerSecond": 212677,
+        "databaseMb": 232
+      },
+      "violations": [],
+      "seconds": 39.586738458
+    },
+    {
+      "name": "burst",
+      "metrics": {
+        "events": 200000,
+        "streams": 2000,
+        "workers": 32,
+        "yieldToOthers": false,
+        "samples": [
+          {
+            "events": 20000,
+            "eventsPerSecond": 30683,
+            "viewModelLag": 0,
+            "heapMb": 44,
+            "rssMb": 337
+          },
+          {
+            "events": 40000,
+            "eventsPerSecond": 25494,
+            "viewModelLag": 0,
+            "heapMb": 45,
+            "rssMb": 338
+          },
+          {
+            "events": 60000,
+            "eventsPerSecond": 26890,
+            "viewModelLag": 0,
+            "heapMb": 45,
+            "rssMb": 338
+          },
+          {
+            "events": 80000,
+            "eventsPerSecond": 7238,
+            "viewModelLag": 0,
+            "heapMb": 45,
+            "rssMb": 225
+          },
+          {
+            "events": 100000,
+            "eventsPerSecond": 11222,
+            "viewModelLag": 0,
+            "heapMb": 45,
+            "rssMb": 226
+          },
+          {
+            "events": 120000,
+            "eventsPerSecond": 18501,
+            "viewModelLag": 0,
+            "heapMb": 45,
+            "rssMb": 229
+          },
+          {
+            "events": 140000,
+            "eventsPerSecond": 11320,
+            "viewModelLag": 0,
+            "heapMb": 45,
+            "rssMb": 229
+          },
+          {
+            "events": 160000,
+            "eventsPerSecond": 14579,
+            "viewModelLag": 0,
+            "heapMb": 45,
+            "rssMb": 229
+          },
+          {
+            "events": 180000,
+            "eventsPerSecond": 12678,
+            "viewModelLag": 0,
+            "heapMb": 45,
+            "rssMb": 229
+          },
+          {
+            "events": 200000,
+            "eventsPerSecond": 22024,
+            "viewModelLag": 0,
+            "heapMb": 45,
+            "rssMb": 244
+          }
+        ],
+        "peakLag": 10,
+        "drainSeconds": 0.0008260420000005979,
+        "replaySeconds": 0.9803756670000002,
+        "replayEventsPerSecond": 204003,
+        "databaseMb": 49
+      },
+      "violations": [],
+      "seconds": 14.976632750000004
+    },
+    {
+      "name": "contention",
+      "metrics": {
+        "cases": [
+          {
+            "backend": "memory",
+            "processes": 1,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 25922,
+            "latencyMs": {
+              "p50": 0.03308399999514222,
+              "p95": 0.0745829999941634,
+              "p99": 1.1095829999976559,
+              "max": 1.193583000000217
+            }
+          },
+          {
+            "backend": "memory",
+            "processes": 1,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 27876,
+            "latencyMs": {
+              "p50": 0.032042000006185845,
+              "p95": 0.05324999999720603,
+              "p99": 7.361625000005006,
+              "max": 7.622416999991401
+            }
+          },
+          {
+            "backend": "memory",
+            "processes": 1,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 25907,
+            "latencyMs": {
+              "p50": 0.03295799999614246,
+              "p95": 1.9433339999959571,
+              "p99": 32.89375000000291,
+              "max": 33.11108400000376
+            }
+          },
+          {
+            "backend": "memory",
+            "processes": 1,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 28014,
+            "latencyMs": {
+              "p50": 0.031209000007947907,
+              "p95": 48.71208399999887,
+              "p99": 67.48666599999706,
+              "max": 68.18070900000748
+            }
+          },
+          {
+            "backend": "memory",
+            "processes": 2,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 667,
+            "commandsPerSecond": 272,
+            "latencyMs": {
+              "p50": 9.808041999989655,
+              "p95": 12.61737500000163,
+              "p99": 13.26379199999792,
+              "max": 14.220375000004424
+            }
+          },
+          {
+            "backend": "memory",
+            "processes": 2,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 134,
+            "commandsPerSecond": 1358,
+            "latencyMs": {
+              "p50": 8.65258399999584,
+              "p95": 12.470833999992465,
+              "p99": 13.418458999993163,
+              "max": 15.307124999992084
+            }
+          },
+          {
+            "backend": "memory",
+            "processes": 2,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 32,
+            "commandsPerSecond": 6071,
+            "latencyMs": {
+              "p50": 7.672375000009197,
+              "p95": 12.064666000005673,
+              "p99": 14.513332999995328,
+              "max": 15.082874999992782
+            }
+          },
+          {
+            "backend": "memory",
+            "processes": 2,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 13,
+            "commandsPerSecond": 12490,
+            "latencyMs": {
+              "p50": 7.5942919999943115,
+              "p95": 30.277874999999767,
+              "p99": 37.89929200000188,
+              "max": 38.38295799998741
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "processes": 1,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 7246,
+            "latencyMs": {
+              "p50": 0.1289169999945443,
+              "p95": 1.2746669999905862,
+              "p99": 1.3581249999988358,
+              "max": 1.7800829999905545
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "processes": 1,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 7183,
+            "latencyMs": {
+              "p50": 0.1279999999969732,
+              "p95": 8.015375000002678,
+              "p99": 8.53162500000326,
+              "max": 9.26212499999383
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "processes": 1,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 7413,
+            "latencyMs": {
+              "p50": 0.12641700000676792,
+              "p95": 35.06625000000349,
+              "p99": 35.36374999998952,
+              "max": 35.53712500000256
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "processes": 1,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 7401,
+            "latencyMs": {
+              "p50": 0.12575000000651926,
+              "p95": 140.5035829999979,
+              "p99": 142.46358399999735,
+              "max": 142.96487500000512
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "processes": 2,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 667,
+            "commandsPerSecond": 239,
+            "latencyMs": {
+              "p50": 10.897833000009996,
+              "p95": 14.48162500000035,
+              "p99": 15.68329200000153,
+              "max": 24.044292000005953
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "processes": 2,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 134,
+            "commandsPerSecond": 1351,
+            "latencyMs": {
+              "p50": 8.238666999997804,
+              "p95": 12.276458000007551,
+              "p99": 12.81204199999047,
+              "max": 13.794833999985713
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "processes": 2,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 40,
+            "commandsPerSecond": 4209,
+            "latencyMs": {
+              "p50": 7.290582999994513,
+              "p95": 27.150332999997772,
+              "p99": 30.447790999998688,
+              "max": 38.451874999998836
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "processes": 2,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 29,
+            "commandsPerSecond": 4395,
+            "latencyMs": {
+              "p50": 10.382874999995693,
+              "p95": 76.0008749999979,
+              "p99": 80.98362499999348,
+              "max": 87.8753330000036
+            }
+          }
+        ]
+      },
+      "violations": [],
+      "seconds": 21.669207999999998
+    },
+    {
+      "name": "flaky view model",
+      "metrics": {
+        "events": 50000,
+        "injectedFailures": 8,
+        "duplicates": 1992,
+        "seconds": 1.1270528750000084
+      },
+      "violations": [],
+      "seconds": 1.5646655420000024
+    },
+    {
+      "name": "restart",
+      "metrics": {
+        "events": 100000,
+        "restarts": 20,
+        "duplicates": 1962
+      },
+      "violations": [],
+      "seconds": 1.627232250000001
+    },
+    {
+      "name": "crash",
+      "metrics": {
+        "kills": 8,
+        "acknowledgedCommands": 9359,
+        "storedEvents": 46795,
+        "committedButUnacknowledged": 0
+      },
+      "violations": [],
+      "seconds": 5.238521957999998
+    },
+    {
+      "name": "slow consumer",
+      "metrics": {
+        "events": 20000,
+        "peakLag": 19115,
+        "writeSeconds": 1.492947874999998,
+        "drainSeconds": 22.099619791000006,
+        "heapGrowthMb": 3
+      },
+      "violations": [],
+      "seconds": 23.698031541999995
+    },
+    {
+      "name": "subscribers",
+      "metrics": {
+        "subscribers": 20,
+        "events": 20000,
+        "deliveriesPerSecond": 41622
+      },
+      "violations": [],
+      "seconds": 9.611097917000006
+    },
+    {
+      "name": "huge command",
+      "metrics": {
+        "cases": [
+          {
+            "backend": "memory",
+            "count": 10000,
+            "stored": true,
+            "seconds": 0.011727084000012837
+          },
+          {
+            "backend": "memory",
+            "count": 100000,
+            "stored": true,
+            "seconds": 0.12259908300000825
+          },
+          {
+            "backend": "memory",
+            "count": 200000,
+            "stored": true,
+            "seconds": 0.24202254199999151
+          },
+          {
+            "backend": "memory",
+            "count": 500000,
+            "stored": true,
+            "seconds": 0.6076806670000078
+          },
+          {
+            "backend": "memory",
+            "count": 1000000,
+            "stored": true,
+            "seconds": 1.2157271250000048
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 10000,
+            "stored": true,
+            "seconds": 0.0867649580000143
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 100000,
+            "stored": true,
+            "seconds": 0.8293330000000133
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 200000,
+            "stored": true,
+            "seconds": 1.6953266670000158
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 500000,
+            "stored": true,
+            "seconds": 4.219651291999995
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 1000000,
+            "stored": true,
+            "seconds": 8.685161083000013
+          }
+        ]
+      },
+      "violations": [],
+      "seconds": 17.734790625000024
+    }
+  ]
+}

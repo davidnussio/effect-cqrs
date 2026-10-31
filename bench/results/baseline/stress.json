@@ -1,0 +1,668 @@
+{
+  "environment": {
+    "date": "2026-10-31T08:31:47.624Z",
+    "commit": "b46c324",
+    "node": "v26.13.0",
+    "effect": "4.0.6",
+    "sqlite": "3.54.1",
+    "cpu": "Apple M4 Pro",
+    "cores": 12,
+    "memoryGb": 24,
+    "platform": "darwin 27.2.0",
+    "scale": 1
+  },
+  "reports": [
+    {
+      "name": "ingest",
+      "metrics": {
+        "events": 1000000,
+        "streams": 10000,
+        "workers": 32,
+        "yieldToOthers": true,
+        "samples": [
+          {
+            "events": 100000,
+            "eventsPerSecond": 37823,
+            "viewModelLag": 72680,
+            "heapMb": 37,
+            "rssMb": 256
+          },
+          {
+            "events": 200000,
+            "eventsPerSecond": 31998,
+            "viewModelLag": 144680,
+            "heapMb": 32,
+            "rssMb": 252
+          },
+          {
+            "events": 300000,
+            "eventsPerSecond": 27890,
+            "viewModelLag": 217180,
+            "heapMb": 33,
+            "rssMb": 253
+          },
+          {
+            "events": 400000,
+            "eventsPerSecond": 28986,
+            "viewModelLag": 289180,
+            "heapMb": 34,
+            "rssMb": 201
+          },
+          {
+            "events": 500000,
+            "eventsPerSecond": 26239,
+            "viewModelLag": 361680,
+            "heapMb": 34,
+            "rssMb": 201
+          },
+          {
+            "events": 600000,
+            "eventsPerSecond": 23768,
+            "viewModelLag": 433680,
+            "heapMb": 35,
+            "rssMb": 206
+          },
+          {
+            "events": 700000,
+            "eventsPerSecond": 19920,
+            "viewModelLag": 506180,
+            "heapMb": 36,
+            "rssMb": 219
+          },
+          {
+            "events": 800000,
+            "eventsPerSecond": 19326,
+            "viewModelLag": 578680,
+            "heapMb": 36,
+            "rssMb": 228
+          },
+          {
+            "events": 900000,
+            "eventsPerSecond": 18513,
+            "viewModelLag": 650680,
+            "heapMb": 37,
+            "rssMb": 219
+          },
+          {
+            "events": 1000000,
+            "eventsPerSecond": 18024,
+            "viewModelLag": 723180,
+            "heapMb": 37,
+            "rssMb": 235
+          }
+        ],
+        "drainSeconds": 3.4086248750000014,
+        "replaySeconds": 4.566841584000001,
+        "replayEventsPerSecond": 218970,
+        "databaseMb": 196
+      },
+      "violations": [],
+      "seconds": 52.32543033300001
+    },
+    {
+      "name": "ingest, short streams",
+      "metrics": {
+        "events": 1000000,
+        "streams": 100000,
+        "workers": 32,
+        "yieldToOthers": true,
+        "samples": [
+          {
+            "events": 100000,
+            "eventsPerSecond": 44485,
+            "viewModelLag": 72680,
+            "heapMb": 34,
+            "rssMb": 328
+          },
+          {
+            "events": 200000,
+            "eventsPerSecond": 45528,
+            "viewModelLag": 144680,
+            "heapMb": 35,
+            "rssMb": 328
+          },
+          {
+            "events": 300000,
+            "eventsPerSecond": 44973,
+            "viewModelLag": 217180,
+            "heapMb": 36,
+            "rssMb": 329
+          },
+          {
+            "events": 400000,
+            "eventsPerSecond": 44613,
+            "viewModelLag": 289180,
+            "heapMb": 37,
+            "rssMb": 237
+          },
+          {
+            "events": 500000,
+            "eventsPerSecond": 44288,
+            "viewModelLag": 361680,
+            "heapMb": 37,
+            "rssMb": 237
+          },
+          {
+            "events": 600000,
+            "eventsPerSecond": 45022,
+            "viewModelLag": 433680,
+            "heapMb": 39,
+            "rssMb": 238
+          },
+          {
+            "events": 700000,
+            "eventsPerSecond": 45843,
+            "viewModelLag": 506180,
+            "heapMb": 39,
+            "rssMb": 242
+          },
+          {
+            "events": 800000,
+            "eventsPerSecond": 44786,
+            "viewModelLag": 578680,
+            "heapMb": 40,
+            "rssMb": 242
+          },
+          {
+            "events": 900000,
+            "eventsPerSecond": 45490,
+            "viewModelLag": 650680,
+            "heapMb": 41,
+            "rssMb": 209
+          },
+          {
+            "events": 1000000,
+            "eventsPerSecond": 43977,
+            "viewModelLag": 723180,
+            "heapMb": 41,
+            "rssMb": 211
+          }
+        ],
+        "drainSeconds": 3.507679165999987,
+        "replaySeconds": 4.825912125000003,
+        "replayEventsPerSecond": 207215,
+        "databaseMb": 196
+      },
+      "violations": [],
+      "seconds": 33.12235179100001
+    },
+    {
+      "name": "burst",
+      "metrics": {
+        "events": 200000,
+        "streams": 2000,
+        "workers": 32,
+        "yieldToOthers": false,
+        "samples": [
+          {
+            "events": 20000,
+            "eventsPerSecond": 48907,
+            "viewModelLag": 20000,
+            "heapMb": 42,
+            "rssMb": 344
+          },
+          {
+            "events": 40000,
+            "eventsPerSecond": 38178,
+            "viewModelLag": 40000,
+            "heapMb": 42,
+            "rssMb": 344
+          },
+          {
+            "events": 60000,
+            "eventsPerSecond": 32075,
+            "viewModelLag": 60000,
+            "heapMb": 42,
+            "rssMb": 344
+          },
+          {
+            "events": 80000,
+            "eventsPerSecond": 28696,
+            "viewModelLag": 80000,
+            "heapMb": 42,
+            "rssMb": 345
+          },
+          {
+            "events": 100000,
+            "eventsPerSecond": 26546,
+            "viewModelLag": 100000,
+            "heapMb": 42,
+            "rssMb": 345
+          },
+          {
+            "events": 120000,
+            "eventsPerSecond": 23712,
+            "viewModelLag": 120000,
+            "heapMb": 42,
+            "rssMb": 345
+          },
+          {
+            "events": 140000,
+            "eventsPerSecond": 21821,
+            "viewModelLag": 140000,
+            "heapMb": 42,
+            "rssMb": 344
+          },
+          {
+            "events": 160000,
+            "eventsPerSecond": 21357,
+            "viewModelLag": 160000,
+            "heapMb": 42,
+            "rssMb": 344
+          },
+          {
+            "events": 180000,
+            "eventsPerSecond": 19605,
+            "viewModelLag": 180000,
+            "heapMb": 42,
+            "rssMb": 344
+          },
+          {
+            "events": 200000,
+            "eventsPerSecond": 17705,
+            "viewModelLag": 200000,
+            "heapMb": 42,
+            "rssMb": 344
+          }
+        ],
+        "drainSeconds": 0.999897542000006,
+        "replaySeconds": 0.9599922500000102,
+        "replayEventsPerSecond": 208335,
+        "databaseMb": 42
+      },
+      "violations": [],
+      "seconds": 10.403882584000007
+    },
+    {
+      "name": "contention",
+      "metrics": {
+        "cases": [
+          {
+            "backend": "memory",
+            "ioGap": false,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 1999,
+            "gaveUp": 1,
+            "conflicts": 263,
+            "commandsPerSecond": 1064,
+            "latencyMs": {
+              "p50": 1.489292000012938,
+              "p95": 4.55204200001026,
+              "p99": 5.004791999992449,
+              "max": 7.307665999993333
+            }
+          },
+          {
+            "backend": "memory",
+            "ioGap": false,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 1989,
+            "gaveUp": 11,
+            "conflicts": 2770,
+            "commandsPerSecond": 407,
+            "latencyMs": {
+              "p50": 7.569875000001048,
+              "p95": 48.5054999999993,
+              "p99": 53.369416000001365,
+              "max": 63.92287500000384
+            }
+          },
+          {
+            "backend": "memory",
+            "ioGap": false,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 1337,
+            "gaveUp": 663,
+            "conflicts": 5643,
+            "commandsPerSecond": 212,
+            "latencyMs": {
+              "p50": 37.526457999993,
+              "p95": 221.58000000000175,
+              "p99": 310.9760830000014,
+              "max": 333.7362080000021
+            }
+          },
+          {
+            "backend": "memory",
+            "ioGap": false,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 1074,
+            "gaveUp": 926,
+            "conflicts": 5906,
+            "commandsPerSecond": 199,
+            "latencyMs": {
+              "p50": 182.96595800000068,
+              "p95": 745.7598749999888,
+              "p99": 789.8735829999932,
+              "max": 803.2415829999954
+            }
+          },
+          {
+            "backend": "memory",
+            "ioGap": true,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 1899,
+            "gaveUp": 101,
+            "conflicts": 1140,
+            "commandsPerSecond": 802,
+            "latencyMs": {
+              "p50": 1.4561249999969732,
+              "p95": 7.095000000001164,
+              "p99": 9.706166000003577,
+              "max": 11.538082999992184
+            }
+          },
+          {
+            "backend": "memory",
+            "ioGap": true,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 1258,
+            "gaveUp": 742,
+            "conflicts": 5465,
+            "commandsPerSecond": 351,
+            "latencyMs": {
+              "p50": 5.369749999998021,
+              "p95": 39.586542000004556,
+              "p99": 45.21958299999824,
+              "max": 51.924041999998735
+            }
+          },
+          {
+            "backend": "memory",
+            "ioGap": true,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 517,
+            "gaveUp": 1483,
+            "conflicts": 8916,
+            "commandsPerSecond": 238,
+            "latencyMs": {
+              "p50": 33.353332999991835,
+              "p95": 77.27695899999526,
+              "p99": 80.54958299999998,
+              "max": 80.83387499999662
+            }
+          },
+          {
+            "backend": "memory",
+            "ioGap": true,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 160,
+            "gaveUp": 1840,
+            "conflicts": 11055,
+            "commandsPerSecond": 172,
+            "latencyMs": {
+              "p50": 63.25625000000582,
+              "p95": 108.99258299999929,
+              "p99": 109.56254099999205,
+              "max": 110.44454199999745
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "ioGap": false,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 1958,
+            "gaveUp": 42,
+            "conflicts": 401,
+            "commandsPerSecond": 249,
+            "latencyMs": {
+              "p50": 8.27620899998874,
+              "p95": 16.047624999991967,
+              "p99": 23.186333000005106,
+              "max": 79.3071670000063
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "ioGap": false,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 1655,
+            "gaveUp": 345,
+            "conflicts": 3765,
+            "commandsPerSecond": 125,
+            "latencyMs": {
+              "p50": 42.23874999998952,
+              "p95": 150.60779099998763,
+              "p99": 217.71875,
+              "max": 254.49312500000815
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "ioGap": false,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 631,
+            "gaveUp": 1369,
+            "conflicts": 8669,
+            "commandsPerSecond": 45,
+            "latencyMs": {
+              "p50": 189.30087499998626,
+              "p95": 522.7608329999784,
+              "p99": 677.3218749999942,
+              "max": 713.2112080000225
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "ioGap": false,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 267,
+            "gaveUp": 1733,
+            "conflicts": 10425,
+            "commandsPerSecond": 36,
+            "latencyMs": {
+              "p50": 496.4374170000083,
+              "p95": 681.8762080000015,
+              "p99": 688.360875000013,
+              "max": 780.8691669999971
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "ioGap": true,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 1940,
+            "gaveUp": 60,
+            "conflicts": 595,
+            "commandsPerSecond": 268,
+            "latencyMs": {
+              "p50": 7.335290999995777,
+              "p95": 14.198417000006884,
+              "p99": 25.01516700000502,
+              "max": 31.30229199997848
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "ioGap": true,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 1474,
+            "gaveUp": 526,
+            "conflicts": 5039,
+            "commandsPerSecond": 104,
+            "latencyMs": {
+              "p50": 50.43895899999188,
+              "p95": 157.1550419999985,
+              "p99": 194.02225000000908,
+              "max": 237.546875
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "ioGap": true,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 434,
+            "gaveUp": 1566,
+            "conflicts": 9411,
+            "commandsPerSecond": 54,
+            "latencyMs": {
+              "p50": 125.4364999999816,
+              "p95": 271.76425000000745,
+              "p99": 279.59679199999664,
+              "max": 280.372000000003
+            }
+          },
+          {
+            "backend": "sqlite-file",
+            "ioGap": true,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 152,
+            "gaveUp": 1848,
+            "conflicts": 11103,
+            "commandsPerSecond": 42,
+            "latencyMs": {
+              "p50": 223.76108399999794,
+              "p95": 390.0567499999888,
+              "p99": 410.3748750000086,
+              "max": 414.2853339999856
+            }
+          }
+        ]
+      },
+      "violations": [],
+      "seconds": 103.258492625
+    },
+    {
+      "name": "flaky view model",
+      "metrics": {
+        "events": 50000,
+        "injectedFailures": 8,
+        "duplicates": 1992,
+        "seconds": 25.879123125000014
+      },
+      "violations": [],
+      "seconds": 26.29623550000001
+    },
+    {
+      "name": "restart",
+      "metrics": {
+        "events": 100000,
+        "restarts": 20,
+        "duplicates": 2743
+      },
+      "violations": [],
+      "seconds": 1.76678233300001
+    },
+    {
+      "name": "crash",
+      "metrics": {
+        "kills": 8,
+        "acknowledgedCommands": 3291,
+        "storedEvents": 16455,
+        "committedButUnacknowledged": 0
+      },
+      "violations": [],
+      "seconds": 5.351293791999982
+    },
+    {
+      "name": "slow consumer",
+      "metrics": {
+        "events": 20000,
+        "peakLag": 11443,
+        "writeSeconds": 8.805385333000013,
+        "drainSeconds": 13.229138124999997,
+        "heapGrowthMb": 1
+      },
+      "violations": [],
+      "seconds": 22.120795417000014
+    },
+    {
+      "name": "subscribers",
+      "metrics": {
+        "subscribers": 20,
+        "events": 20000,
+        "deliveriesPerSecond": 21211
+      },
+      "violations": [],
+      "seconds": 18.860223666000035
+    },
+    {
+      "name": "huge command",
+      "metrics": {
+        "cases": [
+          {
+            "backend": "memory",
+            "count": 10000,
+            "stored": true,
+            "seconds": 0.011723916999995709
+          },
+          {
+            "backend": "memory",
+            "count": 100000,
+            "stored": true,
+            "seconds": 0.1288249590000487
+          },
+          {
+            "backend": "memory",
+            "count": 200000,
+            "stored": false,
+            "seconds": 0.25312066600000255,
+            "error": "RangeError: Maximum call stack size exceeded"
+          },
+          {
+            "backend": "memory",
+            "count": 500000,
+            "stored": false,
+            "seconds": 0.6261673329999903,
+            "error": "RangeError: Maximum call stack size exceeded"
+          },
+          {
+            "backend": "memory",
+            "count": 1000000,
+            "stored": false,
+            "seconds": 1.2728735420000157,
+            "error": "RangeError: Maximum call stack size exceeded"
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 10000,
+            "stored": true,
+            "seconds": 0.08421275000000605
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 100000,
+            "stored": true,
+            "seconds": 0.819107250000001
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 200000,
+            "stored": true,
+            "seconds": 1.6814496250000084
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 500000,
+            "stored": true,
+            "seconds": 4.159025874999992
+          },
+          {
+            "backend": "sqlite-memory",
+            "count": 1000000,
+            "stored": true,
+            "seconds": 8.402990125000011
+          }
+        ]
+      },
+      "violations": [],
+      "seconds": 17.46032333300001
+    }
+  ]
+}

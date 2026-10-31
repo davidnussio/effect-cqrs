@@ -1,6 +1,6 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
-import { Cause, DateTime, Duration, Effect, Exit, Layer, Ref, Schema, Stream } from "effect"
+import { Cause, DateTime, Duration, Effect, Exit, Fiber, Layer, Ref, Schema, Stream } from "effect"
 import { TestClock } from "effect/testing"
 import { Aggregate, AggregateService, EventStore, SqliteEventStore } from "effect-cqrs"
 import { Todo, TodoEvent } from "../examples/todo/aggregate.ts"
@@ -101,60 +101,205 @@ describe("AggregateService", () => {
       })
     })
 
-    it.effect("retries a command that lost a race, deciding again on fresh state", () =>
+    const incrementTogether = (
+      counters: ReadonlyArray<AggregateService.AggregateService<typeof Counter>>,
+      limit = 100
+    ) =>
+      Effect.all(
+        counters.map((service) => Effect.exit(service.commands.increment("counter-1", { limit }))),
+        { concurrency: "unbounded" }
+      )
+
+    const countingConflicts = Effect.gen(function*() {
+      const store = yield* EventStore.EventStore
+      const conflicts = yield* Ref.make(0)
+      const counting = EventStore.EventStore.of({
+        ...store,
+        append: (input) => store.append(input).pipe(Effect.tapError(() => Ref.update(conflicts, (n) => n + 1)))
+      })
+      const counters = yield* AggregateService.make(Counter).pipe(
+        Effect.provideService(EventStore.EventStore, counting)
+      )
+      return { conflicts, counters }
+    })
+
+    for (
+      const [name, storage] of [
+        ["memory", EventStore.layerMemory],
+        ["SQLite", SqliteEventStore.layer().pipe(Layer.provide(SqliteClient.layer({ filename: ":memory:" })))]
+      ] as const
+    ) {
+      it.effect(`runs concurrent commands on one stream in turn on ${name}, so they can't conflict`, () =>
+        Effect.gen(function*() {
+          const { conflicts, counters } = yield* countingConflicts
+
+          const exits = yield* incrementTogether(Array.from({ length: 16 }, () => counters))
+
+          assert.isTrue(exits.every(Exit.isSuccess))
+          assert.strictEqual(yield* Ref.get(conflicts), 0)
+          assert.strictEqual(yield* counters.readModel("counter-1"), 16)
+        }).pipe(Effect.provide(storage)))
+    }
+
+    it.effect("decides each turn on the state the previous one left", () =>
       Effect.gen(function*() {
         const counters = yield* AggregateService.make(Counter)
 
-        yield* Effect.all(
-          Array.from({ length: 4 }, () => counters.commands.increment("counter-1", { limit: 100 })),
-          { concurrency: "unbounded" }
-        )
+        const exits = yield* incrementTogether([counters, counters, counters], 1)
 
-        assert.strictEqual(yield* counters.readModel("counter-1"), 4)
+        assert.strictEqual(exits.filter(Exit.isSuccess).length, 1)
+        assert.strictEqual(yield* counters.readModel("counter-1"), 1)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
-    it.effect("retries on SQLite too", () =>
+    it.effect("frees the stream when a command fails", () =>
       Effect.gen(function*() {
         const counters = yield* AggregateService.make(Counter)
 
-        yield* Effect.all(
-          Array.from({ length: 4 }, () => counters.commands.increment("counter-1", { limit: 100 })),
-          { concurrency: "unbounded" }
-        )
+        const error = yield* Effect.flip(counters.commands.increment("counter-1", { limit: 0 }))
+        yield* counters.commands.increment("counter-1", { limit: 1 })
 
-        assert.strictEqual(yield* counters.readModel("counter-1"), 4)
-      }).pipe(
-        Effect.provide(SqliteEventStore.layer().pipe(Layer.provide(SqliteClient.layer({ filename: ":memory:" }))))
-      ))
-
-    it.effect("re-decides during a retry, so a losing command can be rejected", () =>
-      Effect.gen(function*() {
-        const counters = yield* AggregateService.make(Counter)
-
-        const exits = yield* Effect.all(
-          Array.from({ length: 3 }, () => Effect.exit(counters.commands.increment("counter-1", { limit: 1 }))),
-          { concurrency: "unbounded" }
-        )
-
-        assert.strictEqual(exits.filter((exit) => exit._tag === "Success").length, 1)
+        assert.strictEqual(error._tag, "Limited")
         assert.strictEqual(yield* counters.readModel("counter-1"), 1)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("frees the stream when a command is interrupted", () =>
+      Effect.gen(function*() {
+        const Stuck = Aggregate.make<number>()({
+          name: "stuck",
+          events: Events,
+          initial: 0,
+          projection: { Incremented: (total, { by }) => total + by }
+        })
+          .command("hang", { payload: Schema.Struct({}), handler: () => Effect.never })
+          .command("increment", {
+            payload: Schema.Struct({}),
+            handler: () => Effect.succeed(Events.cases.Incremented.make({ by: 1 }))
+          })
+        const service = yield* AggregateService.make(Stuck)
+
+        const hanging = yield* Effect.forkChild(service.commands.hang("a", {}))
+        yield* Effect.yieldNow
+        yield* Fiber.interrupt(hanging)
+        yield* service.commands.increment("a", {})
+
+        assert.strictEqual(yield* service.readModel("a"), 1)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    // Two services on one store stand in for two processes: no lock covers both.
+    it.live("retries a command that lost a race to another process, on fresh state", () =>
+      Effect.gen(function*() {
+        const first = yield* AggregateService.make(Counter)
+        const second = yield* AggregateService.make(Counter)
+
+        const exits = yield* incrementTogether([first, second, first, second])
+
+        assert.isTrue(exits.every(Exit.isSuccess))
+        assert.strictEqual(yield* first.readModel("counter-1"), 4)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.live("re-decides during a retry, so a losing command can be rejected", () =>
+      Effect.gen(function*() {
+        const first = yield* AggregateService.make(Counter)
+        const second = yield* AggregateService.make(Counter)
+
+        const exits = yield* incrementTogether([first, second], 1)
+
+        assert.strictEqual(exits.filter(Exit.isSuccess).length, 1)
+        assert.strictEqual(yield* first.readModel("counter-1"), 1)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("surfaces the conflict once retries run out", () =>
       Effect.gen(function*() {
-        const counters = yield* AggregateService.make(Counter, { maxRetries: 0 })
+        const first = yield* AggregateService.make(Counter, { maxRetries: 0 })
+        const second = yield* AggregateService.make(Counter, { maxRetries: 0 })
 
-        const exits = yield* Effect.all(
-          [
-            Effect.exit(counters.commands.increment("counter-1", { limit: 100 })),
-            Effect.exit(counters.commands.increment("counter-1", { limit: 100 }))
-          ],
-          { concurrency: "unbounded" }
-        )
+        const exits = yield* incrementTogether([first, second])
 
         const failures = exits.flatMap((exit) => Exit.isFailure(exit) ? [Cause.squash(exit.cause)] : [])
         assert.strictEqual(failures.length, 1)
         assert.instanceOf(failures[0], EventStore.ConcurrencyConflict)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+  })
+
+  describe("state cache", () => {
+    const Events = Schema.TaggedUnion({ Incremented: {} })
+    const Counter = Aggregate.make<number>()({
+      name: "counter",
+      events: Events,
+      initial: 0,
+      projection: { Incremented: (total) => total + 1 }
+    }).command("increment", {
+      payload: Schema.Struct({}),
+      handler: () => Effect.succeed(Events.cases.Incremented.make({}))
+    })
+
+    const recordingReads = (options?: { readonly stateCacheSize?: number }) =>
+      Effect.gen(function*() {
+        const store = yield* EventStore.EventStore
+        const reads: Array<number> = []
+        const counters = yield* AggregateService.make(Counter, options).pipe(
+          Effect.provideService(
+            EventStore.EventStore,
+            EventStore.EventStore.of({
+              ...store,
+              read: (filter) => {
+                reads.push(filter?.afterPosition ?? 0)
+                return store.read(filter)
+              }
+            })
+          )
+        )
+        return { counters, reads }
+      })
+
+    it.effect("only reads what came after the state it remembers", () =>
+      Effect.gen(function*() {
+        const { counters, reads } = yield* recordingReads()
+
+        yield* counters.commands.increment("a", {})
+        yield* counters.commands.increment("a", {})
+        yield* counters.commands.increment("a", {})
+
+        // Each command remembers the state it decided on, without its own event.
+        assert.deepStrictEqual(reads, [0, 0, 1])
+        assert.strictEqual(yield* counters.readModel("a"), 3)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("sees what another process wrote after the state it remembers", () =>
+      Effect.gen(function*() {
+        const first = yield* AggregateService.make(Counter)
+        const second = yield* AggregateService.make(Counter)
+
+        yield* first.commands.increment("a", {})
+        yield* second.commands.increment("a", {})
+        yield* second.commands.increment("a", {})
+
+        assert.strictEqual(yield* first.readModel("a"), 3)
+        assert.strictEqual((yield* first.commands.increment("a", {})).version, 4)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("forgets the least recently used state past its size", () =>
+      Effect.gen(function*() {
+        const { counters, reads } = yield* recordingReads({ stateCacheSize: 1 })
+
+        yield* counters.commands.increment("a", {})
+        yield* counters.commands.increment("a", {})
+        yield* counters.commands.increment("b", {})
+        yield* counters.commands.increment("a", {})
+
+        assert.deepStrictEqual(reads, [0, 0, 0, 0])
+        assert.strictEqual(yield* counters.readModel("a"), 3)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("can be turned off", () =>
+      Effect.gen(function*() {
+        const { counters, reads } = yield* recordingReads({ stateCacheSize: 0 })
+
+        yield* counters.commands.increment("a", {})
+        yield* counters.commands.increment("a", {})
+        yield* counters.commands.increment("a", {})
+
+        assert.deepStrictEqual(reads, [0, 0, 0])
       }).pipe(Effect.provide(EventStore.layerMemory)))
   })
 

@@ -143,15 +143,36 @@ const matches = (filter: EventFilter, event: StoredEvent): boolean =>
   (filter.startTime === undefined || !DateTime.isLessThan(event.timestamp, filter.startTime)) &&
   (filter.finishTime === undefined || DateTime.isLessThan(event.timestamp, filter.finishTime))
 
+/** The index of the first event past `position`, in events sorted by position. */
+const firstAfter = (events: ReadonlyArray<StoredEvent>, position: number): number => {
+  let low = 0
+  let high = events.length
+  while (low < high) {
+    const middle = (low + high) >>> 1
+    if (events[middle]!.position <= position) low = middle + 1
+    else high = middle
+  }
+  return low
+}
+
+const streamKey = (aggregateName: string, aggregateId: string) => JSON.stringify([aggregateName, aggregateId])
+
 export const makeMemory: Effect.Effect<EventStore["Service"], EventStoreError> = Effect.gen(function*() {
   const events: Array<StoredEvent> = []
-  const versions = new Map<string, number>()
+  const streams = new Map<string, Array<StoredEvent>>()
+
+  // Every command reads one stream, which shouldn't cost a walk through the whole log.
+  const candidates = ({ aggregateIds, aggregateNames }: EventFilter): ReadonlyArray<StoredEvent> =>
+    aggregateNames?.length === 1 && aggregateIds?.length === 1
+      ? streams.get(streamKey(aggregateNames[0]!, aggregateIds[0]!)) ?? []
+      : events
 
   return yield* make({
     append: Effect.fnUntraced(function*(input) {
       const timestamp = yield* DateTime.now
-      const stream = JSON.stringify([input.aggregateName, input.aggregateId])
-      const version = versions.get(stream) ?? 0
+      const key = streamKey(input.aggregateName, input.aggregateId)
+      const stream = streams.get(key) ?? []
+      const version = stream.length
       if (version !== input.expectedVersion) {
         return yield* new ConcurrencyConflict({
           aggregateName: input.aggregateName,
@@ -168,15 +189,19 @@ export const makeMemory: Effect.Effect<EventStore["Service"], EventStoreError> =
         payload: event.payload,
         timestamp
       }))
-      events.push(...stored)
-      versions.set(stream, version + stored.length)
+      for (const event of stored) {
+        events.push(event)
+        stream.push(event)
+      }
+      streams.set(key, stream)
       return stored
     }),
     readBatch: (filter, afterPosition, limit) =>
       Effect.sync(() => {
+        const source = candidates(filter)
         const batch: Array<StoredEvent> = []
-        for (let index = afterPosition; index < events.length && batch.length < limit; index++) {
-          const event = events[index]!
+        for (let index = firstAfter(source, afterPosition); index < source.length && batch.length < limit; index++) {
+          const event = source[index]!
           if (matches(filter, event)) batch.push(event)
         }
         return batch

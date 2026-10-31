@@ -1,6 +1,7 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it, layer } from "@effect/vitest"
 import { DateTime, Duration, Effect, Fiber, Layer, Stream } from "effect"
+import { SqlClient } from "effect/sql"
 import { TestClock } from "effect/testing"
 import { Checkpoints, EventStore, SqliteEventStore } from "effect-cqrs"
 import { mkdtempSync } from "node:fs"
@@ -150,6 +151,20 @@ for (const [name, adapter] of Object.entries(adapters)) {
         const events = yield* Fiber.join(fiber)
         assert.deepStrictEqual(events.map((event) => event.position), [2, 4])
       }).pipe(Effect.provide(adapter)))
+
+    it.effect("reads one stream from a position, among other streams", () =>
+      Effect.gen(function*() {
+        yield* append("a", 0, "A1")
+        yield* append("b", 0, "B1")
+        yield* append("a", 1, "A2")
+        yield* append("b", 1, "B2")
+        yield* append("a", 2, "A3")
+
+        const events = yield* read({ aggregateNames: ["test"], aggregateIds: ["a"], afterPosition: 1 })
+
+        assert.deepStrictEqual(events.map((event) => event.type), ["A2", "A3"])
+        assert.deepStrictEqual(yield* read({ aggregateNames: ["test"], aggregateIds: ["missing"] }), [])
+      }).pipe(Effect.provide(adapter)))
   })
 }
 
@@ -165,7 +180,36 @@ describe("EventStore pagination", () => {
         assert.strictEqual(events.length, total)
         assert.deepStrictEqual(events.map((event) => event.position), Array.from({ length: total }, (_, i) => i + 1))
       }).pipe(Effect.provide(adapter)))
+
+    it.effect(`pages through one stream of ${name}, keeping to its events`, () =>
+      Effect.gen(function*() {
+        const total = 1203
+        for (let version = 0; version < total; version++) {
+          yield* append("a", version, `A${version}`)
+          yield* append("b", version, `B${version}`)
+        }
+
+        const events = yield* read({ aggregateNames: ["test"], aggregateIds: ["a"] })
+
+        assert.deepStrictEqual(events.map((event) => event.version), Array.from({ length: total }, (_, i) => i + 1))
+      }).pipe(Effect.provide(adapter)))
   }
+
+  it.effect("takes a batch too big to pass as function arguments", () =>
+    Effect.gen(function*() {
+      const total = 200_000
+
+      const store = yield* EventStore.EventStore
+
+      yield* store.append({
+        aggregateName: "test",
+        aggregateId: "a",
+        expectedVersion: 0,
+        events: Array.from({ length: total }, () => ({ type: "A", payload: null }))
+      })
+
+      assert.strictEqual(yield* store.head, total)
+    }).pipe(Effect.provide(adapters.memory)))
 })
 
 describe("SqliteEventStore", () => {
@@ -212,6 +256,22 @@ describe("SqliteEventStore", () => {
       assert.strictEqual(failure._tag, "EventStoreError")
       assert.strictEqual((yield* read()).length, 0)
     }).pipe(Effect.provide(adapters.sqlite)))
+
+  it.effect("reads a stream in position order without sorting it", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+
+      const plan = yield* sql.unsafe<{ readonly detail: string }>(
+        `EXPLAIN QUERY PLAN SELECT * FROM cqrs_events
+         WHERE position > ? AND aggregate_name IN (?) AND aggregate_id IN (?) ORDER BY position LIMIT 500`,
+        [0, "test", "a"]
+      )
+
+      assert.isFalse(plan.some(({ detail }) => detail.includes("TEMP B-TREE")))
+      assert.isTrue(plan.some(({ detail }) => detail.includes("cqrs_events_stream_idx")))
+    }).pipe(
+      Effect.provide(SqliteEventStore.layer().pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))))
+    ))
 
   layer(
     SqliteEventStore.layer({ eventsTable: "custom_events" }).pipe(

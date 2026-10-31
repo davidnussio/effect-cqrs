@@ -18,7 +18,9 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "example": "node examples/todo/main.ts"
+    "example": "node examples/todo/main.ts",
+    "bench": "node bench/performance.ts",
+    "stress": "node --expose-gc bench/stress.ts"
   },
   "peerDependencies": {
     "effect": "^4.0.6"

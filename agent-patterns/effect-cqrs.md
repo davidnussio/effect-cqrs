@@ -74,6 +74,18 @@ TodoEvent.cases.TodoCreated.make({ title, createdAt }) // fills in _tag
   non-empty array, so per-page checkpoints come for free.
 - `Stream.runFoldEffect` is the effectful fold. Its initial value is a thunk.
 
+## Scheduling
+
+- `Effect.forEach` with `concurrency` starts each item in a fresh fiber and carries on
+  while items finish without suspending. Each fiber has its own operation budget, so
+  no other fiber runs until the loop ends. `node:sqlite` is synchronous, which makes
+  this real. A sequential loop is one fiber, so it yields by itself.
+- Yield before the work, not after it. With `concurrency: "unbounded"` every item still
+  runs to its end before the loop lets go if the yield comes last.
+- `Effect.yieldNow` isn't free: per command it halved the throughput of the memory
+  store. Yield on a time slice instead, as `makeTimeSlice` does in `AggregateService`.
+  Restart the slice after the yield, so items started in the meantime suspend too.
+
 ## SQL
 
 - `sql.withTransaction` works as a pipe step. `sql.in("column", values)` with an

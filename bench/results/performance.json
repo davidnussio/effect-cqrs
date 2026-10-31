@@ -1,0 +1,1142 @@
+{
+  "environment": {
+    "date": "2026-10-31T08:57:00.075Z",
+    "commit": "b46c324-dirty",
+    "node": "v26.13.0",
+    "effect": "4.0.6",
+    "sqlite": "3.54.1",
+    "cpu": "Apple M4 Pro",
+    "cores": 12,
+    "memoryGb": 24,
+    "platform": "darwin 27.2.0",
+    "scale": 1
+  },
+  "rounds": 5,
+  "plans": {
+    "read one stream": [
+      "SEARCH cqrs_events USING INDEX cqrs_events_stream_idx (aggregate_name=? AND aggregate_id=? AND position>?)"
+    ],
+    "read for a view model": [
+      "SEARCH cqrs_events USING INDEX cqrs_events_type_idx (type=? AND position>?)",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "read one event type": [
+      "SEARCH cqrs_events USING INDEX cqrs_events_type_idx (type=? AND position>?)"
+    ],
+    "version check": [
+      "SEARCH cqrs_events USING COVERING INDEX sqlite_autoindex_cqrs_events_1 (aggregate_name=? AND aggregate_id=?)"
+    ]
+  },
+  "results": [
+    {
+      "scenario": "append",
+      "backend": "memory",
+      "label": "1 event per append",
+      "count": 200000,
+      "unit": "events/s",
+      "rate": 265292,
+      "range": [
+        242002,
+        269291
+      ]
+    },
+    {
+      "scenario": "append",
+      "backend": "sqlite-memory",
+      "label": "1 event per append",
+      "count": 20000,
+      "unit": "events/s",
+      "rate": 32214,
+      "range": [
+        31534,
+        32693
+      ]
+    },
+    {
+      "scenario": "append",
+      "backend": "sqlite-file",
+      "label": "1 event per append",
+      "count": 20000,
+      "unit": "events/s",
+      "rate": 12972,
+      "range": [
+        12796,
+        13227
+      ]
+    },
+    {
+      "scenario": "append",
+      "backend": "memory",
+      "label": "100 events per append",
+      "count": 200000,
+      "unit": "events/s",
+      "rate": 1057616,
+      "range": [
+        1046988,
+        1072023
+      ]
+    },
+    {
+      "scenario": "append",
+      "backend": "sqlite-memory",
+      "label": "100 events per append",
+      "count": 200000,
+      "unit": "events/s",
+      "rate": 123604,
+      "range": [
+        122811,
+        124772
+      ]
+    },
+    {
+      "scenario": "append",
+      "backend": "sqlite-file",
+      "label": "100 events per append",
+      "count": 200000,
+      "unit": "events/s",
+      "rate": 111816,
+      "range": [
+        111237,
+        112093
+      ]
+    },
+    {
+      "scenario": "command",
+      "backend": "memory",
+      "label": "new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 62940,
+      "range": [
+        59219,
+        69966
+      ]
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-memory",
+      "label": "new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 17257,
+      "range": [
+        16686,
+        17684
+      ]
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-file",
+      "label": "new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 9770,
+      "range": [
+        9641,
+        9900
+      ]
+    },
+    {
+      "scenario": "cold load",
+      "backend": "memory",
+      "label": "stream of 1",
+      "count": 200,
+      "rate": 148153,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.005624999997962732,
+        "p95": 0.010666999995009974,
+        "p99": 0.020624999997380655,
+        "max": 0.05733400000463007
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "memory",
+      "label": "stream of 1",
+      "count": 200,
+      "rate": 61009,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.014749999994819518,
+        "p95": 0.0297500000015134,
+        "p99": 0.042832999999518506,
+        "max": 0.04666700000234414
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "memory",
+      "label": "stream of 10",
+      "count": 200,
+      "rate": 68909,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.013208000003942288,
+        "p95": 0.027416999997512903,
+        "p99": 0.03029199999582488,
+        "max": 0.04416700000001583
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "memory",
+      "label": "stream of 10",
+      "count": 200,
+      "rate": 61530,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.014582999996491708,
+        "p95": 0.028582999999343883,
+        "p99": 0.03408399999898393,
+        "max": 0.04499999999825377
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "memory",
+      "label": "stream of 100",
+      "count": 200,
+      "rate": 10993,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.08904199999960838,
+        "p95": 0.10716600000159815,
+        "p99": 0.12108299999817973,
+        "max": 0.29979099999764003
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "memory",
+      "label": "stream of 100",
+      "count": 200,
+      "rate": 65346,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.013417000001936685,
+        "p95": 0.027375000005122274,
+        "p99": 0.03404199999931734,
+        "max": 0.06779100000130711
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "memory",
+      "label": "stream of 1000",
+      "count": 100,
+      "rate": 1257,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.78416599999764,
+        "p95": 0.8709999999991851,
+        "p99": 0.9297920000026352,
+        "max": 0.9396669999987353
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "memory",
+      "label": "stream of 1000",
+      "count": 100,
+      "rate": 63286,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.013500000000931323,
+        "p95": 0.028124999997089617,
+        "p99": 0.03195800000685267,
+        "max": 0.09895900000265101
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "memory",
+      "label": "stream of 10000",
+      "count": 50,
+      "rate": 129,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 7.705541000002995,
+        "p95": 7.891541999997571,
+        "p99": 8.05391700000473,
+        "max": 8.05391700000473
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "memory",
+      "label": "stream of 10000",
+      "count": 50,
+      "rate": 51436,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.016500000005180482,
+        "p95": 0.0365830000009737,
+        "p99": 0.09962500000256114,
+        "max": 0.09962500000256114
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "memory",
+      "label": "stream of 100000",
+      "count": 10,
+      "rate": 13,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 75.80975000000035,
+        "p95": 77.5513329999958,
+        "p99": 77.5513329999958,
+        "max": 77.5513329999958
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "memory",
+      "label": "stream of 100000",
+      "count": 10,
+      "rate": 33903,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.017207999997481238,
+        "p95": 0.12199999999575084,
+        "p99": 0.12199999999575084,
+        "max": 0.12199999999575084
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-memory",
+      "label": "stream of 1",
+      "count": 200,
+      "rate": 43687,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.022667000004730653,
+        "p95": 0.02862499999901047,
+        "p99": 0.03704199999629054,
+        "max": 0.0385420000020531
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-memory",
+      "label": "stream of 1",
+      "count": 200,
+      "rate": 16233,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.05966700000135461,
+        "p95": 0.07641699999658158,
+        "p99": 0.08320899999671383,
+        "max": 0.17799999999988358
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-memory",
+      "label": "stream of 10",
+      "count": 200,
+      "rate": 18910,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.05025000000023283,
+        "p95": 0.06641599999420578,
+        "p99": 0.12395799999649171,
+        "max": 0.5050840000039898
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-memory",
+      "label": "stream of 10",
+      "count": 200,
+      "rate": 14998,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.05733299999701558,
+        "p95": 0.084208000000217,
+        "p99": 0.1482079999987036,
+        "max": 0.8293329999942216
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-memory",
+      "label": "stream of 100",
+      "count": 200,
+      "rate": 3279,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.2964589999974123,
+        "p95": 0.3397079999995185,
+        "p99": 0.585332999995444,
+        "max": 0.939250000003085
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-memory",
+      "label": "stream of 100",
+      "count": 200,
+      "rate": 16233,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.05758400000195252,
+        "p95": 0.07533300000068266,
+        "p99": 0.16741700000420678,
+        "max": 0.21233299999585142
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-memory",
+      "label": "stream of 1000",
+      "count": 100,
+      "rate": 364,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 2.7432090000002063,
+        "p95": 2.8331249999973807,
+        "p99": 2.9040839999943273,
+        "max": 3.084708000002138
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-memory",
+      "label": "stream of 1000",
+      "count": 100,
+      "rate": 15730,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.05979200000001583,
+        "p95": 0.07783300000301097,
+        "p99": 0.08800000000337604,
+        "max": 0.1968330000017886
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-memory",
+      "label": "stream of 10000",
+      "count": 50,
+      "rate": 37,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 27.275708000001032,
+        "p95": 27.84649999999965,
+        "p99": 28.638459000001603,
+        "max": 28.638459000001603
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-memory",
+      "label": "stream of 10000",
+      "count": 50,
+      "rate": 11174,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.0788749999992433,
+        "p95": 0.14100000000325963,
+        "p99": 0.28266699999949196,
+        "max": 0.28266699999949196
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-memory",
+      "label": "stream of 100000",
+      "count": 10,
+      "rate": 4,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 267.0930410000001,
+        "p95": 270.7535839999982,
+        "p99": 270.7535839999982,
+        "max": 270.7535839999982
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-memory",
+      "label": "stream of 100000",
+      "count": 10,
+      "rate": 10086,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.07391700000152923,
+        "p95": 0.27516599999944447,
+        "p99": 0.27516599999944447,
+        "max": 0.27516599999944447
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-file",
+      "label": "stream of 1",
+      "count": 200,
+      "rate": 42577,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.023291999998036772,
+        "p95": 0.027457999996840954,
+        "p99": 0.038667000000714324,
+        "max": 0.05679199999576667
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-file",
+      "label": "stream of 1",
+      "count": 200,
+      "rate": 9339,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.10333300000638701,
+        "p95": 0.13141699999687262,
+        "p99": 0.15200000000186265,
+        "max": 0.4030410000050324
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-file",
+      "label": "stream of 10",
+      "count": 200,
+      "rate": 19932,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.04670800000167219,
+        "p95": 0.06383400000049733,
+        "p99": 0.07395800000085728,
+        "max": 0.3974999999991269
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-file",
+      "label": "stream of 10",
+      "count": 200,
+      "rate": 8904,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.10362500000337604,
+        "p95": 0.13333300000522286,
+        "p99": 0.21066699999937555,
+        "max": 0.6072920000005979
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-file",
+      "label": "stream of 100",
+      "count": 200,
+      "rate": 3225,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.2960830000010901,
+        "p95": 0.3945419999945443,
+        "p99": 0.517374999995809,
+        "max": 1.6297919999997248
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-file",
+      "label": "stream of 100",
+      "count": 200,
+      "rate": 7768,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.11549999999988358,
+        "p95": 0.16220800000155577,
+        "p99": 0.2166670000005979,
+        "max": 1.1158339999965392
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-file",
+      "label": "stream of 1000",
+      "count": 100,
+      "rate": 360,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 2.7745839999988675,
+        "p95": 2.8983750000043074,
+        "p99": 2.9370419999977457,
+        "max": 3.075750000003609
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-file",
+      "label": "stream of 1000",
+      "count": 100,
+      "rate": 6990,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.10758299999724841,
+        "p95": 0.16933399999834364,
+        "p99": 0.36987499999668216,
+        "max": 2.6561250000013388
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-file",
+      "label": "stream of 10000",
+      "count": 50,
+      "rate": 36,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 27.90116599999601,
+        "p95": 28.97608400000172,
+        "p99": 30.781958000006853,
+        "max": 30.781958000006853
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-file",
+      "label": "stream of 10000",
+      "count": 50,
+      "rate": 6069,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.14083299999765586,
+        "p95": 0.2396249999947031,
+        "p99": 0.7139160000006086,
+        "max": 0.7139160000006086
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "sqlite-file",
+      "label": "stream of 100000",
+      "count": 10,
+      "rate": 4,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 275.67779199999495,
+        "p95": 280.1134170000005,
+        "p99": 280.1134170000005,
+        "max": 280.1134170000005
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "sqlite-file",
+      "label": "stream of 100000",
+      "count": 10,
+      "rate": 4597,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.1482079999987036,
+        "p95": 0.7455420000042068,
+        "p99": 0.7455420000042068,
+        "max": 0.7455420000042068
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "memory",
+      "label": "1000 events stored",
+      "count": 200,
+      "rate": 63588,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.014250000000174623,
+        "p95": 0.029999999998835847,
+        "p99": 0.03866600000037579,
+        "max": 0.05691599999408936
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "memory",
+      "label": "10000 events stored",
+      "count": 200,
+      "rate": 54494,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.014374999998835847,
+        "p95": 0.030125000004773028,
+        "p99": 0.03404199999931734,
+        "max": 0.5690830000021379
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "memory",
+      "label": "100000 events stored",
+      "count": 200,
+      "rate": 31900,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.021500000002561137,
+        "p95": 0.02833400000235997,
+        "p99": 0.07645900000352412,
+        "max": 1.644625000000815
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "memory",
+      "label": "1000000 events stored",
+      "count": 200,
+      "rate": 30485,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.022124999995867256,
+        "p95": 0.02883299999666633,
+        "p99": 0.1028329999971902,
+        "max": 1.482292000000598
+      }
+    },
+    {
+      "scenario": "read",
+      "backend": "memory",
+      "label": "whole log",
+      "count": 1000000,
+      "rate": 36727573,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "store size",
+      "backend": "sqlite-memory",
+      "label": "1000 events stored",
+      "count": 200,
+      "rate": 15689,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.05979200000001583,
+        "p95": 0.07954100000642939,
+        "p99": 0.1358749999999418,
+        "max": 0.16970900000160327
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "sqlite-memory",
+      "label": "10000 events stored",
+      "count": 200,
+      "rate": 15063,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.06145799999649171,
+        "p95": 0.08041699999739649,
+        "p99": 0.08379200000490528,
+        "max": 0.6366669999988517
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "sqlite-memory",
+      "label": "100000 events stored",
+      "count": 200,
+      "rate": 16330,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.05916599999909522,
+        "p95": 0.07633299999724841,
+        "p99": 0.08991599999717437,
+        "max": 0.14929100000153994
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "sqlite-memory",
+      "label": "1000000 events stored",
+      "count": 200,
+      "rate": 15652,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.05670800000370946,
+        "p95": 0.07704200000443961,
+        "p99": 0.1814579999918351,
+        "max": 0.6162909999984549
+      }
+    },
+    {
+      "scenario": "read",
+      "backend": "sqlite-memory",
+      "label": "whole log",
+      "count": 1000000,
+      "rate": 525082,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "store size",
+      "backend": "sqlite-file",
+      "label": "1000 events stored",
+      "count": 200,
+      "rate": 9051,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.10358399999677204,
+        "p95": 0.13079199999629054,
+        "p99": 0.1487079999933485,
+        "max": 0.8784580000065034
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "sqlite-file",
+      "label": "10000 events stored",
+      "count": 200,
+      "rate": 8348,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.10808299999916926,
+        "p95": 0.13241700000071432,
+        "p99": 0.1849579999980051,
+        "max": 1.0994580000115093
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "sqlite-file",
+      "label": "100000 events stored",
+      "count": 200,
+      "rate": 8895,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.09949999999662396,
+        "p95": 0.12762499999371357,
+        "p99": 0.23858399999153335,
+        "max": 1.1090420000109589
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "sqlite-file",
+      "label": "1000000 events stored",
+      "count": 200,
+      "rate": 7813,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.11533299999427982,
+        "p95": 0.1657909999921685,
+        "p99": 0.268833000009181,
+        "max": 1.0785000000032596
+      }
+    },
+    {
+      "scenario": "read",
+      "backend": "sqlite-file",
+      "label": "whole log",
+      "count": 1000000,
+      "rate": 514771,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "memory",
+      "label": "catch up",
+      "count": 204000,
+      "rate": 632506,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "memory",
+      "label": "replay",
+      "count": 204000,
+      "rate": 658218,
+      "range": [
+        629592,
+        661498
+      ],
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "memory",
+      "label": "catch up, 2% wanted",
+      "count": 204000,
+      "rate": 24275238,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "sqlite-memory",
+      "label": "catch up",
+      "count": 204000,
+      "rate": 258514,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "sqlite-memory",
+      "label": "replay",
+      "count": 204000,
+      "rate": 260149,
+      "range": [
+        257789,
+        262651
+      ],
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "sqlite-memory",
+      "label": "catch up, 2% wanted",
+      "count": 204000,
+      "rate": 14265276,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "sqlite-file",
+      "label": "catch up",
+      "count": 204000,
+      "rate": 254430,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "sqlite-file",
+      "label": "replay",
+      "count": 204000,
+      "rate": 255594,
+      "range": [
+        253744,
+        257618
+      ],
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "sqlite-file",
+      "label": "catch up, 2% wanted",
+      "count": 204000,
+      "rate": 13565521,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "read your writes",
+      "backend": "memory",
+      "label": "command + caughtUp",
+      "count": 2000,
+      "rate": 23056,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.04025000000547152,
+        "p95": 0.05633300000044983,
+        "p99": 0.06637499999487773,
+        "max": 0.4681669999990845
+      }
+    },
+    {
+      "scenario": "read your writes",
+      "backend": "sqlite-memory",
+      "label": "command + caughtUp",
+      "count": 2000,
+      "rate": 9131,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.10491599999659229,
+        "p95": 0.12620900000911206,
+        "p99": 0.1880830000009155,
+        "max": 0.5776250000053551
+      }
+    },
+    {
+      "scenario": "read your writes",
+      "backend": "sqlite-file",
+      "label": "command + caughtUp",
+      "count": 2000,
+      "rate": 6389,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.15004199999384582,
+        "p95": 0.18166599998949096,
+        "p99": 0.3411669999914011,
+        "max": 0.7515419999981532
+      }
+    },
+    {
+      "scenario": "fan out",
+      "backend": "memory",
+      "label": "1 view models",
+      "count": 5000,
+      "rate": 34634,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "memory",
+      "label": "10 view models",
+      "count": 5000,
+      "rate": 11581,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "memory",
+      "label": "50 view models",
+      "count": 5000,
+      "rate": 2930,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "sqlite-memory",
+      "label": "1 view models",
+      "count": 5000,
+      "rate": 10461,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "sqlite-memory",
+      "label": "10 view models",
+      "count": 5000,
+      "rate": 6493,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "sqlite-memory",
+      "label": "50 view models",
+      "count": 5000,
+      "rate": 2459,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "sqlite-file",
+      "label": "1 view models",
+      "count": 5000,
+      "rate": 7120,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "sqlite-file",
+      "label": "10 view models",
+      "count": 5000,
+      "rate": 4854,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "sqlite-file",
+      "label": "50 view models",
+      "count": 5000,
+      "rate": 2179,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "memory",
+      "label": "1 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 67374,
+      "range": [
+        61684,
+        67859
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "memory",
+      "label": "16 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 74265,
+      "range": [
+        74016,
+        75193
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "memory",
+      "label": "256 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 72445,
+      "range": [
+        71759,
+        73059
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "sqlite-memory",
+      "label": "1 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 17080,
+      "range": [
+        16782,
+        17237
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "sqlite-memory",
+      "label": "16 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 18045,
+      "range": [
+        17364,
+        18265
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "sqlite-memory",
+      "label": "256 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 18134,
+      "range": [
+        17742,
+        18271
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "sqlite-file",
+      "label": "1 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 9539,
+      "range": [
+        9376,
+        9610
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "sqlite-file",
+      "label": "16 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 9659,
+      "range": [
+        9577,
+        9795
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "sqlite-file",
+      "label": "256 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 9634,
+      "range": [
+        9546,
+        9730
+      ]
+    }
+  ]
+}

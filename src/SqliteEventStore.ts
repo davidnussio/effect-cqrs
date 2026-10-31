@@ -45,6 +45,11 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
   yield* sql`
     CREATE INDEX IF NOT EXISTS ${sql(`${indexPrefix}_type_idx`)} ON ${events} (type, position)
   `.pipe(Effect.mapError(storeError("initialize")))
+  // Reads pages of one stream by position. Without it each page sorts the whole stream.
+  yield* sql`
+    CREATE INDEX IF NOT EXISTS ${sql(`${indexPrefix}_stream_idx`)}
+    ON ${events} (aggregate_name, aggregate_id, position)
+  `.pipe(Effect.mapError(storeError("initialize")))
 
   const columns = sql.literal(`
     position,
