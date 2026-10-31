@@ -216,7 +216,7 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
 
   const streamOf = (
     aggregateId: string,
-    range?: Pick<EventFilter, "startTime" | "finishTime" | "afterPosition">
+    range?: Pick<EventFilter, "startTime" | "finishTime" | "afterPosition" | "afterVersion">
   ) => store.read({ aggregateNames: [aggregateName], aggregateIds: [aggregateId], ...range })
 
   const replayFrom = (
@@ -225,7 +225,7 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     finishTime?: DateTime.Utc
   ) =>
     replay(
-      streamOf(aggregateId, { finishTime, afterPosition: start.position }),
+      streamOf(aggregateId, { finishTime, afterPosition: start.position, afterVersion: start.version }),
       start,
       (acc, event, stored) => ({
         state: Aggregate.evolve(aggregate, acc.state, event, stored),

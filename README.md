@@ -207,6 +207,26 @@ Tables are created on startup. Use durable checkpoints only with a durable view
 model: an in-memory view model paired with `Checkpoints.layerMemory` rebuilds itself
 on every start, which is usually what you want.
 
+For PostgreSQL, provide an `effect/sql` PostgreSQL client:
+
+```ts
+import { PgClient } from "@effect/sql-pg"
+import { PostgresEventStore } from "effect-cqrs"
+
+const Storage = Layer.merge(PostgresEventStore.layer(), PostgresEventStore.layerCheckpoints()).pipe(
+  Layer.provide(PgClient.layer({ url: Redacted.make("postgres://localhost:5432/cqrs") }))
+)
+```
+
+Writers wait for each other at one step of each commit, which keeps positions in commit
+order. Several processes can write to one database, but a view model only wakes on
+appends from its own process. After a bulk load, run `ANALYZE`, or reads for view models
+are slow until autovacuum gets to the table.
+
+To run the tests on Postgres, `docker compose up -d --wait` starts one, and setting
+`POSTGRES_URL=postgres://postgres:postgres@localhost:5432/cqrs` includes it in
+`pnpm test`.
+
 Another database needs an `EventStore.Backend`: `append`, `readBatch` and `head`.
 Positions must follow commit order, so a backend on a database with concurrent
 writers has to guarantee that itself.
@@ -214,10 +234,10 @@ writers has to guarantee that itself.
 ## Performance
 
 On a SQLite file a command takes about 0.1 ms, however long its stream is and however
-many events the store holds, and a million events replay in under 5 seconds. The first
-use of a stream after a restart replays it, at about 3 µs per event. See the
-[performance and stress report](bench/REPORT.md) for the numbers and the remaining
-limits.
+many events the store holds, and a million events replay in under 5 seconds. On Postgres
+a command takes about 1 ms. The first use of a stream after a restart replays it, at
+about 3 µs per event. See the [performance and stress report](bench/REPORT.md) for the
+numbers and the remaining limits.
 
 `pnpm bench` measures each operation and `pnpm stress` loads the framework while
 checking that nothing is lost.
@@ -248,10 +268,10 @@ store, so `replay` is for rebuilding, not for recovery.
 
 ## Limitations
 
-- **Single process.** New events wake subscribers in the same process only. There
-  is no transport equivalent to the Moleculer broker, so `dispatch` is the entry
+- **New events stay in their process.** They wake subscribers in the same process only.
+  There is no transport equivalent to the Moleculer broker, so `dispatch` is the entry
   point to wire into your own HTTP or RPC layer.
-- **SQLite and memory only.** There are no adapters for MongoDB, MySQL or PostgreSQL.
+- **SQLite, PostgreSQL and memory only.** There are no adapters for MongoDB or MySQL.
 - **No code generator.** There is no equivalent of `cqrs generate`.
 - **No persistent snapshots.** Recent state is only kept in memory, so after a restart
   each stream is replayed the first time it is used, at a cost that grows with its

@@ -7,6 +7,7 @@ import { Checkpoints, EventStore, SqliteEventStore } from "effect-cqrs"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { postgresUrl, temporaryPostgres } from "../bench/common.ts"
 
 const append = (aggregateId: string, expectedVersion: number, ...types: ReadonlyArray<string>) =>
   EventStore.EventStore.use((store) =>
@@ -23,7 +24,9 @@ const read = (filter?: EventStore.EventFilter) =>
 
 const adapters = {
   memory: EventStore.layerMemory,
-  sqlite: SqliteEventStore.layer().pipe(Layer.provide(SqliteClient.layer({ filename: ":memory:" })))
+  sqlite: SqliteEventStore.layer().pipe(Layer.provide(SqliteClient.layer({ filename: ":memory:" }))),
+  // Needs the database of `docker-compose.yml` and POSTGRES_URL.
+  ...(postgresUrl === undefined ? {} : { postgres: Layer.suspend(temporaryPostgres) })
 }
 
 for (const [name, adapter] of Object.entries(adapters)) {
@@ -165,6 +168,37 @@ for (const [name, adapter] of Object.entries(adapters)) {
         assert.deepStrictEqual(events.map((event) => event.type), ["A2", "A3"])
         assert.deepStrictEqual(yield* read({ aggregateNames: ["test"], aggregateIds: ["missing"] }), [])
       }).pipe(Effect.provide(adapter)))
+
+    it.effect("reads one stream from a version", () =>
+      Effect.gen(function*() {
+        yield* append("a", 0, "A1", "A2")
+        yield* append("b", 0, "B1")
+        yield* append("a", 2, "A3")
+
+        const events = yield* read({ aggregateNames: ["test"], aggregateIds: ["a"], afterPosition: 1, afterVersion: 1 })
+
+        assert.deepStrictEqual(events.map((event) => event.type), ["A2", "A3"])
+      }).pipe(Effect.provide(adapter)))
+
+    it.effect("follows one stream among others, past what the filter skips", () =>
+      Effect.gen(function*() {
+        const store = yield* EventStore.EventStore
+        yield* append("a", 0, "A1")
+        yield* append("b", 0, "B1")
+        const fiber = yield* store.subscribe({ aggregateNames: ["test"], aggregateIds: ["a"] }).pipe(
+          Stream.take(3),
+          Stream.runCollect,
+          Effect.forkChild
+        )
+        yield* Effect.yieldNow
+        yield* append("b", 1, "B2")
+        yield* append("a", 1, "A2")
+        yield* append("a", 2, "A3")
+
+        const events = yield* Fiber.join(fiber)
+
+        assert.deepStrictEqual(events.map((event) => event.type), ["A1", "A2", "A3"])
+      }).pipe(Effect.provide(adapter)))
   })
 }
 
@@ -263,12 +297,13 @@ describe("SqliteEventStore", () => {
 
       const plan = yield* sql.unsafe<{ readonly detail: string }>(
         `EXPLAIN QUERY PLAN SELECT * FROM cqrs_events
-         WHERE position > ? AND aggregate_name IN (?) AND aggregate_id IN (?) ORDER BY position LIMIT 500`,
-        [0, "test", "a"]
+         WHERE position > ? AND version > ? AND aggregate_name IN (?) AND aggregate_id IN (?)
+         ORDER BY version LIMIT 500`,
+        [0, 0, "test", "a"]
       )
 
       assert.isFalse(plan.some(({ detail }) => detail.includes("TEMP B-TREE")))
-      assert.isTrue(plan.some(({ detail }) => detail.includes("cqrs_events_stream_idx")))
+      assert.isTrue(plan.some(({ detail }) => detail.includes("aggregate_id=? AND version>?")))
     }).pipe(
       Effect.provide(SqliteEventStore.layer().pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))))
     ))

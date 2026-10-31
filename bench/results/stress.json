@@ -1,7 +1,7 @@
 {
   "environment": {
-    "date": "2026-10-31T08:59:08.615Z",
-    "commit": "b46c324-dirty",
+    "date": "2026-10-31T09:56:19.498Z",
+    "commit": "4f59c1d-dirty",
     "node": "v26.13.0",
     "effect": "4.0.6",
     "sqlite": "3.54.1",
@@ -22,83 +22,83 @@
         "samples": [
           {
             "events": 100000,
-            "eventsPerSecond": 33111,
+            "eventsPerSecond": 31032,
             "viewModelLag": 0,
-            "heapMb": 40,
-            "rssMb": 298
+            "heapMb": 41,
+            "rssMb": 308
           },
           {
             "events": 200000,
-            "eventsPerSecond": 30300,
+            "eventsPerSecond": 27763,
             "viewModelLag": 0,
             "heapMb": 36,
-            "rssMb": 298
+            "rssMb": 305
           },
           {
             "events": 300000,
-            "eventsPerSecond": 29919,
+            "eventsPerSecond": 28223,
             "viewModelLag": 0,
             "heapMb": 36,
-            "rssMb": 298
+            "rssMb": 305
           },
           {
             "events": 400000,
-            "eventsPerSecond": 29804,
+            "eventsPerSecond": 29104,
             "viewModelLag": 0,
             "heapMb": 36,
-            "rssMb": 215
+            "rssMb": 225
           },
           {
             "events": 500000,
-            "eventsPerSecond": 29725,
+            "eventsPerSecond": 29305,
             "viewModelLag": 0,
             "heapMb": 36,
-            "rssMb": 215
+            "rssMb": 226
           },
           {
             "events": 600000,
-            "eventsPerSecond": 29650,
+            "eventsPerSecond": 28567,
             "viewModelLag": 0,
             "heapMb": 36,
-            "rssMb": 220
+            "rssMb": 226
           },
           {
             "events": 700000,
-            "eventsPerSecond": 29535,
+            "eventsPerSecond": 27169,
             "viewModelLag": 0,
             "heapMb": 36,
-            "rssMb": 220
+            "rssMb": 219
           },
           {
             "events": 800000,
-            "eventsPerSecond": 29268,
+            "eventsPerSecond": 28274,
             "viewModelLag": 0,
             "heapMb": 36,
-            "rssMb": 212
+            "rssMb": 221
           },
           {
             "events": 900000,
-            "eventsPerSecond": 29080,
+            "eventsPerSecond": 28306,
             "viewModelLag": 0,
             "heapMb": 36,
-            "rssMb": 212
+            "rssMb": 221
           },
           {
             "events": 1000000,
-            "eventsPerSecond": 28966,
+            "eventsPerSecond": 28197,
             "viewModelLag": 0,
             "heapMb": 36,
-            "rssMb": 216
+            "rssMb": 221
           }
         ],
         "peakLag": 0,
-        "drainSeconds": 0.0013102910000015982,
-        "replaySeconds": 4.285590582999998,
-        "replayEventsPerSecond": 233340,
-        "databaseMb": 231
+        "drainSeconds": 0.0007354590000031749,
+        "replaySeconds": 4.622218958999998,
+        "replayEventsPerSecond": 216346,
+        "databaseMb": 196
       },
       "violations": [],
-      "seconds": 39.904629
+      "seconds": 42.021668250000005
     },
     {
       "name": "ingest, short streams",
@@ -110,83 +110,83 @@
         "samples": [
           {
             "events": 100000,
-            "eventsPerSecond": 33160,
+            "eventsPerSecond": 31659,
             "viewModelLag": 0,
-            "heapMb": 38,
-            "rssMb": 324
+            "heapMb": 40,
+            "rssMb": 335
           },
           {
             "events": 200000,
-            "eventsPerSecond": 33377,
+            "eventsPerSecond": 31087,
             "viewModelLag": 0,
-            "heapMb": 40,
-            "rssMb": 326
+            "heapMb": 42,
+            "rssMb": 240
           },
           {
             "events": 300000,
-            "eventsPerSecond": 32728,
+            "eventsPerSecond": 30578,
             "viewModelLag": 0,
-            "heapMb": 40,
-            "rssMb": 224
+            "heapMb": 42,
+            "rssMb": 240
           },
           {
             "events": 400000,
-            "eventsPerSecond": 32625,
+            "eventsPerSecond": 30659,
             "viewModelLag": 0,
-            "heapMb": 42,
-            "rssMb": 227
+            "heapMb": 44,
+            "rssMb": 245
           },
           {
             "events": 500000,
-            "eventsPerSecond": 32845,
+            "eventsPerSecond": 31526,
             "viewModelLag": 0,
-            "heapMb": 43,
-            "rssMb": 227
+            "heapMb": 45,
+            "rssMb": 245
           },
           {
             "events": 600000,
-            "eventsPerSecond": 32426,
+            "eventsPerSecond": 29896,
             "viewModelLag": 0,
-            "heapMb": 43,
-            "rssMb": 227
+            "heapMb": 45,
+            "rssMb": 210
           },
           {
             "events": 700000,
-            "eventsPerSecond": 27632,
+            "eventsPerSecond": 31627,
             "viewModelLag": 0,
-            "heapMb": 47,
-            "rssMb": 215
+            "heapMb": 49,
+            "rssMb": 223
           },
           {
             "events": 800000,
-            "eventsPerSecond": 28634,
+            "eventsPerSecond": 30440,
             "viewModelLag": 0,
-            "heapMb": 47,
-            "rssMb": 215
+            "heapMb": 49,
+            "rssMb": 223
           },
           {
             "events": 900000,
-            "eventsPerSecond": 27470,
+            "eventsPerSecond": 30250,
             "viewModelLag": 0,
-            "heapMb": 47,
-            "rssMb": 215
+            "heapMb": 49,
+            "rssMb": 223
           },
           {
             "events": 1000000,
-            "eventsPerSecond": 28949,
+            "eventsPerSecond": 30418,
             "viewModelLag": 0,
-            "heapMb": 48,
-            "rssMb": 206
+            "heapMb": 50,
+            "rssMb": 220
           }
         ],
         "peakLag": 0,
-        "drainSeconds": 0.0006531249999970896,
-        "replaySeconds": 4.701961583000011,
-        "replayEventsPerSecond": 212677,
-        "databaseMb": 232
+        "drainSeconds": 0.0007224580000038259,
+        "replaySeconds": 4.649648291999998,
+        "replayEventsPerSecond": 215070,
+        "databaseMb": 196
       },
       "violations": [],
-      "seconds": 39.586738458
+      "seconds": 39.585529458
     },
     {
       "name": "burst",
@@ -198,83 +198,83 @@
         "samples": [
           {
             "events": 20000,
-            "eventsPerSecond": 30683,
+            "eventsPerSecond": 31447,
             "viewModelLag": 0,
-            "heapMb": 44,
-            "rssMb": 337
+            "heapMb": 46,
+            "rssMb": 365
           },
           {
             "events": 40000,
-            "eventsPerSecond": 25494,
+            "eventsPerSecond": 26694,
             "viewModelLag": 0,
-            "heapMb": 45,
-            "rssMb": 338
+            "heapMb": 47,
+            "rssMb": 366
           },
           {
             "events": 60000,
-            "eventsPerSecond": 26890,
+            "eventsPerSecond": 16601,
             "viewModelLag": 0,
-            "heapMb": 45,
-            "rssMb": 338
+            "heapMb": 47,
+            "rssMb": 233
           },
           {
             "events": 80000,
-            "eventsPerSecond": 7238,
+            "eventsPerSecond": 23841,
             "viewModelLag": 0,
-            "heapMb": 45,
-            "rssMb": 225
+            "heapMb": 47,
+            "rssMb": 238
           },
           {
             "events": 100000,
-            "eventsPerSecond": 11222,
+            "eventsPerSecond": 26534,
             "viewModelLag": 0,
-            "heapMb": 45,
-            "rssMb": 226
+            "heapMb": 47,
+            "rssMb": 238
           },
           {
             "events": 120000,
-            "eventsPerSecond": 18501,
+            "eventsPerSecond": 19770,
             "viewModelLag": 0,
-            "heapMb": 45,
-            "rssMb": 229
+            "heapMb": 47,
+            "rssMb": 238
           },
           {
             "events": 140000,
-            "eventsPerSecond": 11320,
+            "eventsPerSecond": 26760,
             "viewModelLag": 0,
-            "heapMb": 45,
-            "rssMb": 229
+            "heapMb": 47,
+            "rssMb": 238
           },
           {
             "events": 160000,
-            "eventsPerSecond": 14579,
+            "eventsPerSecond": 26756,
             "viewModelLag": 0,
-            "heapMb": 45,
-            "rssMb": 229
+            "heapMb": 47,
+            "rssMb": 239
           },
           {
             "events": 180000,
-            "eventsPerSecond": 12678,
+            "eventsPerSecond": 25675,
             "viewModelLag": 0,
-            "heapMb": 45,
-            "rssMb": 229
+            "heapMb": 47,
+            "rssMb": 239
           },
           {
             "events": 200000,
-            "eventsPerSecond": 22024,
+            "eventsPerSecond": 18116,
             "viewModelLag": 0,
-            "heapMb": 45,
-            "rssMb": 244
+            "heapMb": 47,
+            "rssMb": 239
           }
         ],
         "peakLag": 10,
-        "drainSeconds": 0.0008260420000005979,
-        "replaySeconds": 0.9803756670000002,
-        "replayEventsPerSecond": 204003,
-        "databaseMb": 49
+        "drainSeconds": 0.00250616699999955,
+        "replaySeconds": 0.9095620419999905,
+        "replayEventsPerSecond": 219886,
+        "databaseMb": 42
       },
       "violations": [],
-      "seconds": 14.976632750000004
+      "seconds": 10.037222250000006
     },
     {
       "name": "contention",
@@ -288,12 +288,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 0,
-            "commandsPerSecond": 25922,
+            "commandsPerSecond": 27891,
             "latencyMs": {
-              "p50": 0.03308399999514222,
-              "p95": 0.0745829999941634,
-              "p99": 1.1095829999976559,
-              "max": 1.193583000000217
+              "p50": 0.032124999997904524,
+              "p95": 0.04995799998869188,
+              "p99": 1.1002089999965392,
+              "max": 1.4703749999898719
             }
           },
           {
@@ -304,12 +304,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 0,
-            "commandsPerSecond": 27876,
+            "commandsPerSecond": 29083,
             "latencyMs": {
-              "p50": 0.032042000006185845,
-              "p95": 0.05324999999720603,
-              "p99": 7.361625000005006,
-              "max": 7.622416999991401
+              "p50": 0.03191599999263417,
+              "p95": 0.04162499999802094,
+              "p99": 7.36120800000208,
+              "max": 7.4036249999917345
             }
           },
           {
@@ -320,12 +320,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 0,
-            "commandsPerSecond": 25907,
+            "commandsPerSecond": 29168,
             "latencyMs": {
-              "p50": 0.03295799999614246,
-              "p95": 1.9433339999959571,
-              "p99": 32.89375000000291,
-              "max": 33.11108400000376
+              "p50": 0.03116700000828132,
+              "p95": 0.15216599999985192,
+              "p99": 32.46725000000151,
+              "max": 32.56445800000802
             }
           },
           {
@@ -336,12 +336,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 0,
-            "commandsPerSecond": 28014,
+            "commandsPerSecond": 29208,
             "latencyMs": {
-              "p50": 0.031209000007947907,
-              "p95": 48.71208399999887,
-              "p99": 67.48666599999706,
-              "max": 68.18070900000748
+              "p50": 0.03066699999908451,
+              "p95": 47.110541999994894,
+              "p99": 64.77491700000246,
+              "max": 65.48087500000838
             }
           },
           {
@@ -352,12 +352,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 667,
-            "commandsPerSecond": 272,
+            "commandsPerSecond": 274,
             "latencyMs": {
-              "p50": 9.808041999989655,
-              "p95": 12.61737500000163,
-              "p99": 13.26379199999792,
-              "max": 14.220375000004424
+              "p50": 9.850374999994528,
+              "p95": 12.551292000003741,
+              "p99": 12.977292000010493,
+              "max": 13.377583000008599
             }
           },
           {
@@ -368,12 +368,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 134,
-            "commandsPerSecond": 1358,
+            "commandsPerSecond": 1348,
             "latencyMs": {
-              "p50": 8.65258399999584,
-              "p95": 12.470833999992465,
-              "p99": 13.418458999993163,
-              "max": 15.307124999992084
+              "p50": 8.427665999988676,
+              "p95": 12.552084000009927,
+              "p99": 13.440666999988025,
+              "max": 14.981124999991152
             }
           },
           {
@@ -384,12 +384,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 32,
-            "commandsPerSecond": 6071,
+            "commandsPerSecond": 5876,
             "latencyMs": {
-              "p50": 7.672375000009197,
-              "p95": 12.064666000005673,
-              "p99": 14.513332999995328,
-              "max": 15.082874999992782
+              "p50": 7.813999999998487,
+              "p95": 12.327040999996825,
+              "p99": 12.864750000007916,
+              "max": 13.025792000000365
             }
           },
           {
@@ -399,13 +399,13 @@
             "commands": 2000,
             "acknowledged": 2000,
             "gaveUp": 0,
-            "conflicts": 13,
-            "commandsPerSecond": 12490,
+            "conflicts": 15,
+            "commandsPerSecond": 9727,
             "latencyMs": {
-              "p50": 7.5942919999943115,
-              "p95": 30.277874999999767,
-              "p99": 37.89929200000188,
-              "max": 38.38295799998741
+              "p50": 6.807583999994677,
+              "p95": 31.03962500000489,
+              "p99": 35.29054200000246,
+              "max": 36.184207999991486
             }
           },
           {
@@ -416,12 +416,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 0,
-            "commandsPerSecond": 7246,
+            "commandsPerSecond": 7396,
             "latencyMs": {
-              "p50": 0.1289169999945443,
-              "p95": 1.2746669999905862,
-              "p99": 1.3581249999988358,
-              "max": 1.7800829999905545
+              "p50": 0.1244589999987511,
+              "p95": 1.2778330000001006,
+              "p99": 1.3532090000080643,
+              "max": 2.3000000000029104
             }
           },
           {
@@ -432,12 +432,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 0,
-            "commandsPerSecond": 7183,
+            "commandsPerSecond": 6647,
             "latencyMs": {
-              "p50": 0.1279999999969732,
-              "p95": 8.015375000002678,
-              "p99": 8.53162500000326,
-              "max": 9.26212499999383
+              "p50": 0.13420800000312738,
+              "p95": 8.168000000005122,
+              "p99": 8.68991700001061,
+              "max": 9.683834000010393
             }
           },
           {
@@ -448,12 +448,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 0,
-            "commandsPerSecond": 7413,
+            "commandsPerSecond": 7682,
             "latencyMs": {
-              "p50": 0.12641700000676792,
-              "p95": 35.06625000000349,
-              "p99": 35.36374999998952,
-              "max": 35.53712500000256
+              "p50": 0.1204169999982696,
+              "p95": 34.847083000000566,
+              "p99": 35.10129200000665,
+              "max": 35.25174999999581
             }
           },
           {
@@ -464,12 +464,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 0,
-            "commandsPerSecond": 7401,
+            "commandsPerSecond": 7406,
             "latencyMs": {
-              "p50": 0.12575000000651926,
-              "p95": 140.5035829999979,
-              "p99": 142.46358399999735,
-              "max": 142.96487500000512
+              "p50": 0.12470899999607354,
+              "p95": 140.96591700000863,
+              "p99": 143.8248339999991,
+              "max": 144.45066699999734
             }
           },
           {
@@ -480,12 +480,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 667,
-            "commandsPerSecond": 239,
+            "commandsPerSecond": 251,
             "latencyMs": {
-              "p50": 10.897833000009996,
-              "p95": 14.48162500000035,
-              "p99": 15.68329200000153,
-              "max": 24.044292000005953
+              "p50": 10.621832999997423,
+              "p95": 13.559875000006286,
+              "p99": 14.375500000009197,
+              "max": 17.30058400001144
             }
           },
           {
@@ -496,12 +496,12 @@
             "acknowledged": 2000,
             "gaveUp": 0,
             "conflicts": 134,
-            "commandsPerSecond": 1351,
+            "commandsPerSecond": 1349,
             "latencyMs": {
-              "p50": 8.238666999997804,
-              "p95": 12.276458000007551,
-              "p99": 12.81204199999047,
-              "max": 13.794833999985713
+              "p50": 8.406583000003593,
+              "p95": 12.4251660000009,
+              "p99": 13.001250000001164,
+              "max": 13.823667000004207
             }
           },
           {
@@ -511,13 +511,13 @@
             "commands": 2000,
             "acknowledged": 2000,
             "gaveUp": 0,
-            "conflicts": 40,
-            "commandsPerSecond": 4209,
+            "conflicts": 43,
+            "commandsPerSecond": 3547,
             "latencyMs": {
-              "p50": 7.290582999994513,
-              "p95": 27.150332999997772,
-              "p99": 30.447790999998688,
-              "max": 38.451874999998836
+              "p50": 7.438832999992883,
+              "p95": 31.723334000009345,
+              "p99": 33.072749999992084,
+              "max": 34.38025000000198
             }
           },
           {
@@ -527,19 +527,19 @@
             "commands": 2000,
             "acknowledged": 2000,
             "gaveUp": 0,
-            "conflicts": 29,
-            "commandsPerSecond": 4395,
+            "conflicts": 27,
+            "commandsPerSecond": 4385,
             "latencyMs": {
-              "p50": 10.382874999995693,
-              "p95": 76.0008749999979,
-              "p99": 80.98362499999348,
-              "max": 87.8753330000036
+              "p50": 16.09120900000562,
+              "p95": 82.40029200000572,
+              "p99": 85.85491699998965,
+              "max": 88.2379590000055
             }
           }
         ]
       },
       "violations": [],
-      "seconds": 21.669207999999998
+      "seconds": 21.332088916000007
     },
     {
       "name": "flaky view model",
@@ -547,53 +547,54 @@
         "events": 50000,
         "injectedFailures": 8,
         "duplicates": 1992,
-        "seconds": 1.1270528750000084
+        "seconds": 1.106091374999989
       },
       "violations": [],
-      "seconds": 1.5646655420000024
+      "seconds": 1.5049125829999976
     },
     {
       "name": "restart",
       "metrics": {
         "events": 100000,
         "restarts": 20,
-        "duplicates": 1962
+        "duplicates": 2509
       },
       "violations": [],
-      "seconds": 1.627232250000001
+      "seconds": 1.5411710420000018
     },
     {
       "name": "crash",
       "metrics": {
-        "kills": 8,
-        "acknowledgedCommands": 9359,
-        "storedEvents": 46795,
-        "committedButUnacknowledged": 0
+        "kills": 24,
+        "writersAtOnce": 3,
+        "acknowledgedCommands": 13593,
+        "storedEvents": 67975,
+        "committedButUnacknowledged": 10
       },
       "violations": [],
-      "seconds": 5.238521957999998
+      "seconds": 7.086303291999997
     },
     {
       "name": "slow consumer",
       "metrics": {
         "events": 20000,
-        "peakLag": 19115,
-        "writeSeconds": 1.492947874999998,
-        "drainSeconds": 22.099619791000006,
+        "peakLag": 19057,
+        "writeSeconds": 1.4936215410000004,
+        "drainSeconds": 21.840730958999995,
         "heapGrowthMb": 3
       },
       "violations": [],
-      "seconds": 23.698031541999995
+      "seconds": 23.43580537500001
     },
     {
       "name": "subscribers",
       "metrics": {
         "subscribers": 20,
         "events": 20000,
-        "deliveriesPerSecond": 41622
+        "deliveriesPerSecond": 41455
       },
       "violations": [],
-      "seconds": 9.611097917000006
+      "seconds": 9.649797458000016
     },
     {
       "name": "huge command",
@@ -603,66 +604,66 @@
             "backend": "memory",
             "count": 10000,
             "stored": true,
-            "seconds": 0.011727084000012837
+            "seconds": 0.011207792000001063
           },
           {
             "backend": "memory",
             "count": 100000,
             "stored": true,
-            "seconds": 0.12259908300000825
+            "seconds": 0.12311249999998836
           },
           {
             "backend": "memory",
             "count": 200000,
             "stored": true,
-            "seconds": 0.24202254199999151
+            "seconds": 0.24202929199999199
           },
           {
             "backend": "memory",
             "count": 500000,
             "stored": true,
-            "seconds": 0.6076806670000078
+            "seconds": 0.6077936250000202
           },
           {
             "backend": "memory",
             "count": 1000000,
             "stored": true,
-            "seconds": 1.2157271250000048
+            "seconds": 1.2291459580000081
           },
           {
             "backend": "sqlite-memory",
             "count": 10000,
             "stored": true,
-            "seconds": 0.0867649580000143
+            "seconds": 0.09885866699999314
           },
           {
             "backend": "sqlite-memory",
             "count": 100000,
             "stored": true,
-            "seconds": 0.8293330000000133
+            "seconds": 0.760236042000004
           },
           {
             "backend": "sqlite-memory",
             "count": 200000,
             "stored": true,
-            "seconds": 1.6953266670000158
+            "seconds": 1.4986897079999908
           },
           {
             "backend": "sqlite-memory",
             "count": 500000,
             "stored": true,
-            "seconds": 4.219651291999995
+            "seconds": 3.849803749999992
           },
           {
             "backend": "sqlite-memory",
             "count": 1000000,
             "stored": true,
-            "seconds": 8.685161083000013
+            "seconds": 7.96183937500001
           }
         ]
       },
       "violations": [],
-      "seconds": 17.734790625000024
+      "seconds": 16.396654540999997
     }
   ]
 }

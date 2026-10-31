@@ -1,0 +1,511 @@
+{
+  "environment": {
+    "date": "2026-10-31T10:06:22.267Z",
+    "commit": "4f59c1d-dirty",
+    "node": "v26.13.0",
+    "effect": "4.0.6",
+    "sqlite": "3.54.1",
+    "cpu": "Apple M4 Pro",
+    "cores": 12,
+    "memoryGb": 24,
+    "platform": "darwin 27.2.0",
+    "scale": 1
+  },
+  "reports": [
+    {
+      "name": "ingest",
+      "metrics": {
+        "events": 1000000,
+        "streams": 10000,
+        "workers": 32,
+        "yieldToOthers": true,
+        "samples": [
+          {
+            "events": 100000,
+            "eventsPerSecond": 5153,
+            "viewModelLag": 100,
+            "heapMb": 36,
+            "rssMb": 250
+          },
+          {
+            "events": 200000,
+            "eventsPerSecond": 8465,
+            "viewModelLag": 100,
+            "heapMb": 38,
+            "rssMb": 201
+          },
+          {
+            "events": 300000,
+            "eventsPerSecond": 8053,
+            "viewModelLag": 530,
+            "heapMb": 38,
+            "rssMb": 201
+          },
+          {
+            "events": 400000,
+            "eventsPerSecond": 8823,
+            "viewModelLag": 1420,
+            "heapMb": 38,
+            "rssMb": 176
+          },
+          {
+            "events": 500000,
+            "eventsPerSecond": 9458,
+            "viewModelLag": 0,
+            "heapMb": 38,
+            "rssMb": 175
+          },
+          {
+            "events": 600000,
+            "eventsPerSecond": 9705,
+            "viewModelLag": 0,
+            "heapMb": 38,
+            "rssMb": 175
+          },
+          {
+            "events": 700000,
+            "eventsPerSecond": 9905,
+            "viewModelLag": 0,
+            "heapMb": 38,
+            "rssMb": 174
+          },
+          {
+            "events": 800000,
+            "eventsPerSecond": 8560,
+            "viewModelLag": 0,
+            "heapMb": 38,
+            "rssMb": 174
+          },
+          {
+            "events": 900000,
+            "eventsPerSecond": 10078,
+            "viewModelLag": 0,
+            "heapMb": 38,
+            "rssMb": 174
+          },
+          {
+            "events": 1000000,
+            "eventsPerSecond": 9208,
+            "viewModelLag": 0,
+            "heapMb": 38,
+            "rssMb": 173
+          }
+        ],
+        "peakLag": 3830,
+        "drainSeconds": 0.0010282500000030267,
+        "replaySeconds": 12.430075208000009,
+        "replayEventsPerSecond": 80450,
+        "databaseMb": 312
+      },
+      "violations": [],
+      "seconds": 135.011093708
+    },
+    {
+      "name": "ingest, short streams",
+      "metrics": {
+        "events": 1000000,
+        "streams": 100000,
+        "workers": 32,
+        "yieldToOthers": true,
+        "samples": [
+          {
+            "events": 100000,
+            "eventsPerSecond": 4195,
+            "viewModelLag": 120,
+            "heapMb": 38,
+            "rssMb": 185
+          },
+          {
+            "events": 200000,
+            "eventsPerSecond": 8690,
+            "viewModelLag": 400,
+            "heapMb": 40,
+            "rssMb": 190
+          },
+          {
+            "events": 300000,
+            "eventsPerSecond": 6711,
+            "viewModelLag": 0,
+            "heapMb": 40,
+            "rssMb": 171
+          },
+          {
+            "events": 400000,
+            "eventsPerSecond": 10299,
+            "viewModelLag": 0,
+            "heapMb": 42,
+            "rssMb": 169
+          },
+          {
+            "events": 500000,
+            "eventsPerSecond": 9205,
+            "viewModelLag": 0,
+            "heapMb": 42,
+            "rssMb": 169
+          },
+          {
+            "events": 600000,
+            "eventsPerSecond": 9982,
+            "viewModelLag": 0,
+            "heapMb": 42,
+            "rssMb": 168
+          },
+          {
+            "events": 700000,
+            "eventsPerSecond": 9780,
+            "viewModelLag": 0,
+            "heapMb": 46,
+            "rssMb": 181
+          },
+          {
+            "events": 800000,
+            "eventsPerSecond": 9255,
+            "viewModelLag": 0,
+            "heapMb": 47,
+            "rssMb": 175
+          },
+          {
+            "events": 900000,
+            "eventsPerSecond": 9983,
+            "viewModelLag": 0,
+            "heapMb": 47,
+            "rssMb": 177
+          },
+          {
+            "events": 1000000,
+            "eventsPerSecond": 6360,
+            "viewModelLag": 0,
+            "heapMb": 47,
+            "rssMb": 189
+          }
+        ],
+        "peakLag": 620,
+        "drainSeconds": 0.000889374999969732,
+        "replaySeconds": 13.056301749999983,
+        "replayEventsPerSecond": 76591,
+        "databaseMb": 320
+      },
+      "violations": [],
+      "seconds": 145.82915608300002
+    },
+    {
+      "name": "burst",
+      "metrics": {
+        "events": 200000,
+        "streams": 2000,
+        "workers": 32,
+        "yieldToOthers": false,
+        "samples": [
+          {
+            "events": 20000,
+            "eventsPerSecond": 7744,
+            "viewModelLag": 10,
+            "heapMb": 44,
+            "rssMb": 216
+          },
+          {
+            "events": 40000,
+            "eventsPerSecond": 4620,
+            "viewModelLag": 10,
+            "heapMb": 44,
+            "rssMb": 217
+          },
+          {
+            "events": 60000,
+            "eventsPerSecond": 3986,
+            "viewModelLag": 0,
+            "heapMb": 44,
+            "rssMb": 203
+          },
+          {
+            "events": 80000,
+            "eventsPerSecond": 4940,
+            "viewModelLag": 30,
+            "heapMb": 44,
+            "rssMb": 203
+          },
+          {
+            "events": 100000,
+            "eventsPerSecond": 5531,
+            "viewModelLag": 0,
+            "heapMb": 44,
+            "rssMb": 206
+          },
+          {
+            "events": 120000,
+            "eventsPerSecond": 8526,
+            "viewModelLag": 10,
+            "heapMb": 44,
+            "rssMb": 209
+          },
+          {
+            "events": 140000,
+            "eventsPerSecond": 11818,
+            "viewModelLag": 0,
+            "heapMb": 44,
+            "rssMb": 210
+          },
+          {
+            "events": 160000,
+            "eventsPerSecond": 6918,
+            "viewModelLag": 10,
+            "heapMb": 44,
+            "rssMb": 210
+          },
+          {
+            "events": 180000,
+            "eventsPerSecond": 4353,
+            "viewModelLag": 0,
+            "heapMb": 44,
+            "rssMb": 210
+          },
+          {
+            "events": 200000,
+            "eventsPerSecond": 6305,
+            "viewModelLag": 0,
+            "heapMb": 44,
+            "rssMb": 205
+          }
+        ],
+        "peakLag": 100,
+        "drainSeconds": 0.0009679579999647103,
+        "replaySeconds": 2.40118637499999,
+        "replayEventsPerSecond": 83292,
+        "databaseMb": 60
+      },
+      "violations": [],
+      "seconds": 37.38834941699996
+    },
+    {
+      "name": "contention",
+      "metrics": {
+        "cases": [
+          {
+            "backend": "postgres",
+            "processes": 1,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 743,
+            "latencyMs": {
+              "p50": 2.8367079999879934,
+              "p95": 3.819041999988258,
+              "p99": 4.8130419999943115,
+              "max": 6.646249999990687
+            }
+          },
+          {
+            "backend": "postgres",
+            "processes": 1,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 818,
+            "latencyMs": {
+              "p50": 11.157458000001498,
+              "p95": 14.23920900002122,
+              "p99": 17.669791999971494,
+              "max": 22.118207999970764
+            }
+          },
+          {
+            "backend": "postgres",
+            "processes": 1,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 817,
+            "latencyMs": {
+              "p50": 44.13254100002814,
+              "p95": 53.7839999999851,
+              "p99": 57.35491700004786,
+              "max": 59.25920799997402
+            }
+          },
+          {
+            "backend": "postgres",
+            "processes": 1,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 0,
+            "commandsPerSecond": 780,
+            "latencyMs": {
+              "p50": 188.60224999999627,
+              "p95": 214.81550000002608,
+              "p99": 225.420334000024,
+              "max": 226.6662500000093
+            }
+          },
+          {
+            "backend": "postgres",
+            "processes": 2,
+            "workers": 2,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 748,
+            "commandsPerSecond": 116,
+            "latencyMs": {
+              "p50": 17.23187499999767,
+              "p95": 39.973415999964345,
+              "p99": 46.88379199994961,
+              "max": 56.199666999978945
+            }
+          },
+          {
+            "backend": "postgres",
+            "processes": 2,
+            "workers": 8,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 291,
+            "commandsPerSecond": 354,
+            "latencyMs": {
+              "p50": 24.53833399998257,
+              "p95": 49.31358299998101,
+              "p99": 91.61804099997971,
+              "max": 143.45754100003978
+            }
+          },
+          {
+            "backend": "postgres",
+            "processes": 2,
+            "workers": 32,
+            "commands": 2000,
+            "acknowledged": 2000,
+            "gaveUp": 0,
+            "conflicts": 118,
+            "commandsPerSecond": 470,
+            "latencyMs": {
+              "p50": 49.724125000007916,
+              "p95": 157.46804200002225,
+              "p99": 170.37800000002608,
+              "max": 180.5782500000205
+            }
+          },
+          {
+            "backend": "postgres",
+            "processes": 2,
+            "workers": 128,
+            "commands": 2000,
+            "acknowledged": 1996,
+            "gaveUp": 4,
+            "conflicts": 54,
+            "commandsPerSecond": 660,
+            "latencyMs": {
+              "p50": 190.90762499999255,
+              "p95": 397.62195800000336,
+              "p99": 641.3697919999831,
+              "max": 656.6556659999769
+            }
+          }
+        ]
+      },
+      "violations": [],
+      "seconds": 40.65102575000003
+    },
+    {
+      "name": "flaky view model",
+      "metrics": {
+        "events": 50000,
+        "injectedFailures": 8,
+        "duplicates": 1992,
+        "seconds": 1.8615388750000275
+      },
+      "violations": [],
+      "seconds": 2.671754832999955
+    },
+    {
+      "name": "restart",
+      "metrics": {
+        "events": 100000,
+        "restarts": 20,
+        "duplicates": 2110
+      },
+      "violations": [],
+      "seconds": 5.543050209000008
+    },
+    {
+      "name": "crash",
+      "metrics": {
+        "kills": 24,
+        "writersAtOnce": 3,
+        "acknowledgedCommands": 3745,
+        "storedEvents": 18740,
+        "committedButUnacknowledged": 15
+      },
+      "violations": [],
+      "seconds": 7.6358722500000145
+    },
+    {
+      "name": "slow consumer",
+      "metrics": {
+        "events": 20000,
+        "peakLag": 2,
+        "writeSeconds": 41.07534612500004,
+        "drainSeconds": 0.004842833000002429,
+        "heapGrowthMb": 1
+      },
+      "violations": [],
+      "seconds": 41.16792999999999
+    },
+    {
+      "name": "subscribers",
+      "metrics": {
+        "subscribers": 20,
+        "events": 20000,
+        "deliveriesPerSecond": 10157
+      },
+      "violations": [],
+      "seconds": 39.397366125
+    },
+    {
+      "name": "huge command",
+      "metrics": {
+        "cases": [
+          {
+            "backend": "postgres",
+            "count": 10000,
+            "stored": true,
+            "seconds": 0.07561954099999275
+          },
+          {
+            "backend": "postgres",
+            "count": 100000,
+            "stored": true,
+            "seconds": 0.6391459579999792
+          },
+          {
+            "backend": "postgres",
+            "count": 200000,
+            "stored": true,
+            "seconds": 1.2662490420000394
+          },
+          {
+            "backend": "postgres",
+            "count": 500000,
+            "stored": true,
+            "seconds": 3.0124022920000133
+          },
+          {
+            "backend": "postgres",
+            "count": 1000000,
+            "stored": true,
+            "seconds": 6.35501345800003
+          }
+        ]
+      },
+      "violations": [],
+      "seconds": 11.466126542000042
+    }
+  ]
+}

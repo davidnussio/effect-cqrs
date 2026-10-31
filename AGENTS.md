@@ -10,7 +10,9 @@ CQRS and event sourcing for Effect v4, inspired by `repos/moleculer-cqrs`.
 - `pnpm bench`: measure performance, about 4 minutes
 - `pnpm stress`: run the stress scenarios at full size, about 5 minutes
 
-Run `pnpm check` and `pnpm test` before finishing any change.
+`docker compose up -d --wait` starts a Postgres. With `POSTGRES_URL=postgres://postgres:postgres@localhost:5432/cqrs` set, `pnpm test` covers it too. Without it those tests are skipped.
+
+Run `pnpm check` and `pnpm test` before finishing any change, with Postgres running if it touches a store.
 
 ## Vendored Repositories
 

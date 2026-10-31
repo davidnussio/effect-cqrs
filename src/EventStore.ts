@@ -55,7 +55,16 @@ export interface EventFilter {
   readonly startTime?: DateTime.Utc | undefined
   readonly finishTime?: DateTime.Utc | undefined
   readonly afterPosition?: number | undefined
+  /**
+   * For a filter on one stream: where to continue in it. Versions follow the stream's
+   * own index, so resuming there costs the same however far the log has moved on.
+   */
+  readonly afterVersion?: number | undefined
 }
+
+/** A filter on exactly one stream, which a store can read through that stream's index. */
+export const isOneStream = ({ aggregateIds, aggregateNames }: EventFilter): boolean =>
+  aggregateNames?.length === 1 && aggregateIds?.length === 1
 
 export class EventStore extends Context.Service<EventStore, {
   /** Appends atomically, failing if the stream moved past `expectedVersion`. */
@@ -101,27 +110,37 @@ export const make = Effect.fnUntraced(function*(backend: Backend, options?: { re
   )
 
   const read = (filter: EventFilter = {}) =>
-    Stream.paginate(filter.afterPosition ?? 0, (afterPosition) =>
-      backend.readBatch(filter, afterPosition, batchSize).pipe(
-        Effect.map((events) => {
-          const last = events.at(-1)
-          return [
-            events,
-            last === undefined || events.length < batchSize ? Option.none<number>() : Option.some(last.position)
-          ] as const
-        })
-      ))
+    Stream.paginate(
+      { afterPosition: filter.afterPosition ?? 0, afterVersion: filter.afterVersion ?? 0 },
+      ({ afterPosition, afterVersion }) =>
+        backend.readBatch({ ...filter, afterVersion }, afterPosition, batchSize).pipe(
+          Effect.map((events) => {
+            const last = events.at(-1)
+            return [
+              events,
+              last === undefined || events.length < batchSize
+                ? Option.none()
+                : Option.some({ afterPosition: last.position, afterVersion: last.version })
+            ] as const
+          })
+        )
+    )
 
   const subscribe = (filter: EventFilter = {}) =>
     Stream.unwrap(Effect.gen(function*() {
-      const cursor = yield* Ref.make(filter.afterPosition ?? 0)
+      const cursor = yield* Ref.make({ position: filter.afterPosition ?? 0, version: filter.afterVersion ?? 0 })
       return SubscriptionRef.changes(latest).pipe(
-        Stream.filterEffect((position) => Effect.map(Ref.get(cursor), (seen) => position > seen)),
+        Stream.filterEffect((position) => Effect.map(Ref.get(cursor), (seen) => position > seen.position)),
         Stream.flatMap((position) =>
-          Stream.unwrap(Effect.map(Ref.get(cursor), (afterPosition) => read({ ...filter, afterPosition }))).pipe(
-            Stream.tap((event) => Ref.set(cursor, event.position)),
+          Stream.unwrap(
+            Effect.map(Ref.get(cursor), (seen) =>
+              read({ ...filter, afterPosition: seen.position, afterVersion: seen.version }))
+          ).pipe(
+            Stream.tap((event) => Ref.set(cursor, { position: event.position, version: event.version })),
             // Events the filter skipped must not trigger another read.
-            Stream.ensuring(Ref.update(cursor, (seen) => Math.max(seen, position)))
+            Stream.ensuring(
+              Ref.update(cursor, (seen) => seen.position >= position ? seen : { ...seen, position })
+            )
           )
         )
       )
@@ -162,9 +181,9 @@ export const makeMemory: Effect.Effect<EventStore["Service"], EventStoreError> =
   const streams = new Map<string, Array<StoredEvent>>()
 
   // Every command reads one stream, which shouldn't cost a walk through the whole log.
-  const candidates = ({ aggregateIds, aggregateNames }: EventFilter): ReadonlyArray<StoredEvent> =>
-    aggregateNames?.length === 1 && aggregateIds?.length === 1
-      ? streams.get(streamKey(aggregateNames[0]!, aggregateIds[0]!)) ?? []
+  const candidates = (filter: EventFilter): ReadonlyArray<StoredEvent> =>
+    isOneStream(filter)
+      ? streams.get(streamKey(filter.aggregateNames![0]!, filter.aggregateIds![0]!)) ?? []
       : events
 
   return yield* make({

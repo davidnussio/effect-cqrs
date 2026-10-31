@@ -7,18 +7,18 @@
 import { Cause, Effect, Exit, Fiber, Layer, References, Stream } from "effect"
 import { Aggregate, AggregateService, EventStore, ViewModel } from "effect-cqrs"
 import { spawn } from "node:child_process"
-import { statSync } from "node:fs"
 import {
   Account,
   type Backend,
   crashEventsPerCommand,
+  type DurableBackend,
   megabytes,
   memoryUsage,
+  openStorage,
   seedStream,
-  sqliteStorage,
   storage,
   summarize,
-  temporaryFile,
+  temporaryDurable,
   timed
 } from "./common.ts"
 
@@ -39,6 +39,7 @@ export interface Sizes {
   readonly restartEvents: number
   readonly restarts: number
   readonly crashes: number
+  readonly crashWriters: number
   readonly slowEvents: number
   readonly subscribers: number
   readonly subscriberEvents: number
@@ -55,6 +56,7 @@ export const fullSizes: Sizes = {
   restartEvents: 100_000,
   restarts: 20,
   crashes: 8,
+  crashWriters: 3,
   slowEvents: 20_000,
   subscribers: 20,
   subscriberEvents: 20_000,
@@ -71,6 +73,7 @@ export const smokeSizes: Sizes = {
   restartEvents: 1_000,
   restarts: 2,
   crashes: 1,
+  crashWriters: 2,
   slowEvents: 100,
   subscribers: 3,
   subscriberEvents: 100,
@@ -181,12 +184,13 @@ const quiet = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
  */
 const ingest = (
   name: string,
+  backend: DurableBackend,
   events: number,
   options: { readonly eventsPerStream: number; readonly yieldToOthers: boolean }
 ) =>
   Effect.scoped(Effect.gen(function*() {
     const { check, violations } = makeChecks()
-    const filename = yield* temporaryFile("events.sqlite")
+    const { size, target } = yield* temporaryDurable(backend)
     const eventsPerCommand = 10
     const commands = Math.ceil(events / eventsPerCommand)
     const streams = Math.max(1, Math.round(events / options.eventsPerStream))
@@ -257,7 +261,7 @@ const ingest = (
       check(replay.value.eventCount === total, `replay delivered ${replay.value.eventCount} of ${total} events`)
       checkLedger("replay")
 
-      const database = statSync(filename).size + statSync(`${filename}-wal`).size
+      const database = yield* size
       return {
         name,
         metrics: {
@@ -275,7 +279,7 @@ const ingest = (
         violations: violations()
       } satisfies Report
     }).pipe(
-      Effect.provide(ViewModel.layer([ledger.viewModel]).pipe(Layer.provideMerge(sqliteStorage(filename))))
+      Effect.provide(ViewModel.layer([ledger.viewModel]).pipe(Layer.provideMerge(openStorage(backend, target))))
     )
   }))
 
@@ -288,11 +292,11 @@ const ingest = (
  * Both stores here are synchronous, so `append` yields first: that is the gap between
  * loading and appending that any store with a real round trip has.
  */
-const contention = (sizes: Sizes) =>
+const contention = (sizes: Sizes, backends: ReadonlyArray<Backend>) =>
   Effect.gen(function*() {
     const { check, violations } = makeChecks()
     const cases: Array<Record<string, unknown>> = []
-    for (const backend of ["memory", "sqlite-file"] satisfies ReadonlyArray<Backend>) {
+    for (const backend of backends) {
       for (const processes of [1, 2]) {
         for (const workers of sizes.contentionWorkers) {
           const result = yield* Effect.gen(function*() {
@@ -373,7 +377,7 @@ const contention = (sizes: Sizes) =>
   })
 
 /** A handler that fails now and then: the view model must stall, retry and skip nothing. */
-const flakyViewModel = (sizes: Sizes) =>
+const flakyViewModel = (sizes: Sizes, backend: Backend) =>
   Effect.gen(function*() {
     const { check, violations } = makeChecks()
     const pending = new Set(
@@ -410,10 +414,10 @@ const flakyViewModel = (sizes: Sizes) =>
       },
       violations: violations()
     } satisfies Report
-  }).pipe(Effect.provide(storage("sqlite-memory")))
+  }).pipe(Effect.provide(storage(backend)))
 
 /** Stops a durable view model mid-batch, over and over, while the log keeps growing. */
-const restart = (sizes: Sizes) =>
+const restart = (sizes: Sizes, backend: Backend) =>
   Effect.gen(function*() {
     const { check, violations } = makeChecks()
     const ledger = makeLedger("restarted")
@@ -440,12 +444,14 @@ const restart = (sizes: Sizes) =>
       metrics: { events: total, restarts: sizes.restarts, duplicates: ledger.stats.duplicates },
       violations: violations()
     } satisfies Report
-  }).pipe(Effect.provide(storage("sqlite-file")))
+  }).pipe(Effect.provide(storage(backend)))
 
-/** Runs the writer process for a while, kills it without warning and returns what it acknowledged. */
-const runUntilKilled = (filename: string, afterFirstAck: number) =>
+/** Runs a writer process for a while, kills it without warning and returns what it acknowledged. */
+const runUntilKilled = (backend: DurableBackend, target: string, afterFirstAck: number) =>
   Effect.callback<ReadonlyArray<number>>((resume) => {
-    const child = spawn(process.execPath, ["bench/crash-writer.ts", filename], { stdio: ["ignore", "pipe", "inherit"] })
+    const child = spawn(process.execPath, ["bench/crash-writer.ts", backend, target], {
+      stdio: ["ignore", "pipe", "inherit"]
+    })
     const acknowledged: Array<number> = []
     let pending = ""
     child.stdout.on("data", (chunk: Buffer) => {
@@ -457,22 +463,35 @@ const runUntilKilled = (filename: string, afterFirstAck: number) =>
     child.on("close", () => resume(Effect.succeed(acknowledged)))
   })
 
-/** Kills a writer process mid-commit: acknowledged events must survive and commands must stay whole. */
-const crash = (sizes: Sizes) =>
+/**
+ * Kills writer processes mid-commit, several at a time on the same streams:
+ * acknowledged events must survive, commands must stay whole and the log must have
+ * no gaps.
+ */
+const crash = (sizes: Sizes, backend: DurableBackend) =>
   Effect.scoped(Effect.gen(function*() {
     const { check, violations } = makeChecks()
-    const filename = yield* temporaryFile("events.sqlite")
+    const { target } = yield* temporaryDurable(backend)
+    // Creates the tables, which the writers would otherwise race to do.
+    yield* Effect.void.pipe(Effect.provide(openStorage(backend, target)))
     let acknowledged = 0
     let last = 0
     for (let round = 0; round < sizes.crashes; round++) {
-      const positions = yield* runUntilKilled(filename, 100 + (round % 4) * 150)
-      acknowledged += positions.length
-      last = Math.max(last, ...positions)
+      const writers = yield* Effect.forEach(
+        Array.from({ length: sizes.crashWriters }, (_, writer) => writer),
+        (writer) => runUntilKilled(backend, target, 100 + ((round + writer) % 4) * 150),
+        { concurrency: "unbounded" }
+      )
+      for (const positions of writers) {
+        acknowledged += positions.length
+        for (const position of positions) last = Math.max(last, position)
+      }
     }
     return yield* Effect.gen(function*() {
       const store = yield* EventStore.EventStore
       const head = yield* store.head
       check(head >= last, `the last acknowledged position ${last} is past the head ${head}`)
+      check(head >= acknowledged * crashEventsPerCommand, `${acknowledged} commands acknowledged, ${head} events stored`)
       check(head % crashEventsPerCommand === 0, `the log ends in the middle of a command, at ${head}`)
       const versions = yield* auditLog(head, check)
       for (const [id, version] of versions) {
@@ -481,18 +500,19 @@ const crash = (sizes: Sizes) =>
       return {
         name: "crash",
         metrics: {
-          kills: sizes.crashes,
+          kills: sizes.crashes * sizes.crashWriters,
+          writersAtOnce: sizes.crashWriters,
           acknowledgedCommands: acknowledged,
           storedEvents: head,
-          committedButUnacknowledged: head - last
+          committedButUnacknowledged: head - acknowledged * crashEventsPerCommand
         },
         violations: violations()
       } satisfies Report
-    }).pipe(Effect.provide(sqliteStorage(filename)))
+    }).pipe(Effect.provide(openStorage(backend, target)))
   }))
 
 /** A view model far slower than the writers: the backlog must drain, in order, without memory running away. */
-const slowConsumer = (sizes: Sizes) =>
+const slowConsumer = (sizes: Sizes, backend: Backend) =>
   Effect.gen(function*() {
     const { check, violations } = makeChecks()
     const ledger = makeLedger("slow", () => Effect.sleep("1 millis"))
@@ -535,12 +555,12 @@ const slowConsumer = (sizes: Sizes) =>
         violations: violations()
       } satisfies Report
     }).pipe(
-      Effect.provide(ViewModel.layer([ledger.viewModel]).pipe(Layer.provideMerge(storage("sqlite-memory"))))
+      Effect.provide(ViewModel.layer([ledger.viewModel]).pipe(Layer.provideMerge(storage(backend))))
     )
   })
 
 /** Everyone following the same log must see every event, in order. */
-const subscribers = (sizes: Sizes) =>
+const subscribers = (sizes: Sizes, backend: Backend) =>
   Effect.gen(function*() {
     const { check, violations } = makeChecks()
     const store = yield* EventStore.EventStore
@@ -574,14 +594,14 @@ const subscribers = (sizes: Sizes) =>
       },
       violations: violations()
     } satisfies Report
-  }).pipe(Effect.provide(storage("sqlite-memory")))
+  }).pipe(Effect.provide(storage(backend)))
 
 /** One command emitting a huge batch. It may be refused, but never half applied. */
-const hugeCommand = (sizes: Sizes) =>
+const hugeCommand = (sizes: Sizes, backends: ReadonlyArray<Backend>) =>
   Effect.gen(function*() {
     const { check, violations } = makeChecks()
     const cases: Array<Record<string, unknown>> = []
-    for (const backend of ["memory", "sqlite-memory"] satisfies ReadonlyArray<Backend>) {
+    for (const backend of backends) {
       for (const count of sizes.hugeCommands) {
         const result = yield* Effect.gen(function*() {
           const accounts = yield* AggregateService.make(Account)
@@ -606,20 +626,30 @@ const hugeCommand = (sizes: Sizes) =>
     return { name: "huge command", metrics: { cases }, violations: violations() } satisfies Report
   })
 
+/** The same scenarios on SQLite, with the memory store where it compares, or on Postgres. */
 export const scenarios = (
-  sizes: Sizes
-): ReadonlyArray<{ readonly name: string; readonly run: Effect.Effect<Report, unknown> }> => [
-  { name: "ingest", run: ingest("ingest", sizes.ingestEvents, { eventsPerStream: 100, yieldToOthers: true }) },
-  {
-    name: "ingest, short streams",
-    run: ingest("ingest, short streams", sizes.ingestEvents, { eventsPerStream: 10, yieldToOthers: true })
-  },
-  { name: "burst", run: ingest("burst", sizes.burstEvents, { eventsPerStream: 100, yieldToOthers: false }) },
-  { name: "contention", run: contention(sizes) },
-  { name: "flaky view model", run: flakyViewModel(sizes) },
-  { name: "restart", run: restart(sizes) },
-  { name: "crash", run: crash(sizes) },
-  { name: "slow consumer", run: slowConsumer(sizes) },
-  { name: "subscribers", run: subscribers(sizes) },
-  { name: "huge command", run: hugeCommand(sizes) }
-]
+  sizes: Sizes,
+  database: "sqlite" | "postgres" = "sqlite"
+): ReadonlyArray<{ readonly name: string; readonly run: Effect.Effect<Report, unknown> }> => {
+  const onPostgres = database === "postgres"
+  const durable = onPostgres ? "postgres" : "sqlite-file"
+  const quick = onPostgres ? "postgres" : "sqlite-memory"
+  return [
+    {
+      name: "ingest",
+      run: ingest("ingest", durable, sizes.ingestEvents, { eventsPerStream: 100, yieldToOthers: true })
+    },
+    {
+      name: "ingest, short streams",
+      run: ingest("ingest, short streams", durable, sizes.ingestEvents, { eventsPerStream: 10, yieldToOthers: true })
+    },
+    { name: "burst", run: ingest("burst", durable, sizes.burstEvents, { eventsPerStream: 100, yieldToOthers: false }) },
+    { name: "contention", run: contention(sizes, onPostgres ? ["postgres"] : ["memory", "sqlite-file"]) },
+    { name: "flaky view model", run: flakyViewModel(sizes, quick) },
+    { name: "restart", run: restart(sizes, durable) },
+    { name: "crash", run: crash(sizes, durable) },
+    { name: "slow consumer", run: slowConsumer(sizes, quick) },
+    { name: "subscribers", run: subscribers(sizes, quick) },
+    { name: "huge command", run: hugeCommand(sizes, onPostgres ? ["postgres"] : ["memory", "sqlite-memory"]) }
+  ]
+}

@@ -1,0 +1,402 @@
+{
+  "environment": {
+    "date": "2026-10-31T09:59:12.637Z",
+    "commit": "4f59c1d-dirty",
+    "node": "v26.13.0",
+    "effect": "4.0.6",
+    "sqlite": "3.54.1",
+    "cpu": "Apple M4 Pro",
+    "cores": 12,
+    "memoryGb": 24,
+    "platform": "darwin 27.2.0",
+    "scale": 1
+  },
+  "rounds": 5,
+  "plans": {
+    "read one stream": [
+      "SEARCH cqrs_events USING INDEX sqlite_autoindex_cqrs_events_1 (aggregate_name=? AND aggregate_id=? AND version>?)"
+    ],
+    "read for a view model": [
+      "SEARCH cqrs_events USING INDEX cqrs_events_type_idx (type=? AND position>?)",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "read one event type": [
+      "SEARCH cqrs_events USING INDEX cqrs_events_type_idx (type=? AND position>?)"
+    ],
+    "version check": [
+      "SEARCH cqrs_events USING COVERING INDEX sqlite_autoindex_cqrs_events_1 (aggregate_name=? AND aggregate_id=?)"
+    ]
+  },
+  "results": [
+    {
+      "scenario": "append",
+      "backend": "postgres",
+      "label": "1 event per append",
+      "count": 20000,
+      "unit": "events/s",
+      "rate": 803,
+      "range": [
+        707,
+        845
+      ]
+    },
+    {
+      "scenario": "append",
+      "backend": "postgres",
+      "label": "100 events per append",
+      "count": 200000,
+      "unit": "events/s",
+      "rate": 31423,
+      "range": [
+        18462,
+        36769
+      ]
+    },
+    {
+      "scenario": "command",
+      "backend": "postgres",
+      "label": "new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 793,
+      "range": [
+        731,
+        846
+      ]
+    },
+    {
+      "scenario": "cold load",
+      "backend": "postgres",
+      "label": "stream of 1",
+      "count": 200,
+      "rate": 10676,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.08437499997671694,
+        "p95": 0.12170800002058968,
+        "p99": 0.12679100001696497,
+        "max": 0.17162500001722947
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "postgres",
+      "label": "stream of 1",
+      "count": 200,
+      "rate": 1177,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.8261669999919832,
+        "p95": 0.9691670000029262,
+        "p99": 1.2629580000066198,
+        "max": 1.490458000014769
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "postgres",
+      "label": "stream of 10",
+      "count": 200,
+      "rate": 7517,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.13270799999008887,
+        "p95": 0.16495800000848249,
+        "p99": 0.23195799998939037,
+        "max": 0.48149999999441206
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "postgres",
+      "label": "stream of 10",
+      "count": 200,
+      "rate": 1190,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.8175420000043232,
+        "p95": 0.9181659999885596,
+        "p99": 1.2279580000031274,
+        "max": 1.4800839999807067
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "postgres",
+      "label": "stream of 100",
+      "count": 200,
+      "rate": 2709,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.3579590000153985,
+        "p95": 0.40737499998067506,
+        "p99": 0.6905419999966398,
+        "max": 0.757207999995444
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "postgres",
+      "label": "stream of 100",
+      "count": 200,
+      "rate": 1143,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.8261660000134725,
+        "p95": 1.0575420000241138,
+        "p99": 1.3332079999963753,
+        "max": 4.345458999974653
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "postgres",
+      "label": "stream of 1000",
+      "count": 100,
+      "rate": 299,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 3.3519169999926817,
+        "p95": 3.935291000001598,
+        "p99": 4.05995900000562,
+        "max": 4.117541000014171
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "postgres",
+      "label": "stream of 1000",
+      "count": 100,
+      "rate": 596,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 1.0702080000191927,
+        "p95": 3.84312500001397,
+        "p99": 6.406834000023082,
+        "max": 8.5930829999852
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "postgres",
+      "label": "stream of 10000",
+      "count": 50,
+      "rate": 22,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 43.637541000003694,
+        "p95": 65.10341700000572,
+        "p99": 65.92074999999022,
+        "max": 65.92074999999022
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "postgres",
+      "label": "stream of 10000",
+      "count": 50,
+      "rate": 139,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 4.386792000004789,
+        "p95": 6.712041999999201,
+        "p99": 143.91183399999863,
+        "max": 143.91183399999863
+      }
+    },
+    {
+      "scenario": "cold load",
+      "backend": "postgres",
+      "label": "stream of 100000",
+      "count": 10,
+      "rate": 2,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 551.9354170000006,
+        "p95": 654.9276250000112,
+        "p99": 654.9276250000112,
+        "max": 654.9276250000112
+      }
+    },
+    {
+      "scenario": "command",
+      "backend": "postgres",
+      "label": "stream of 100000",
+      "count": 10,
+      "rate": 197,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 3.282207999989623,
+        "p95": 15.266417000006186,
+        "p99": 15.266417000006186,
+        "max": 15.266417000006186
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "postgres",
+      "label": "1000 events stored",
+      "count": 200,
+      "rate": 656,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 1.5778340000251774,
+        "p95": 1.833042000012938,
+        "p99": 2.2883750000037253,
+        "max": 5.472917000006419
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "postgres",
+      "label": "10000 events stored",
+      "count": 200,
+      "rate": 1112,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 0.8420420000038575,
+        "p95": 1.1133750000153668,
+        "p99": 1.5508750000153668,
+        "max": 3.292875000013737
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "postgres",
+      "label": "100000 events stored",
+      "count": 200,
+      "rate": 784,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 1.2375409999804106,
+        "p95": 1.6057919999875594,
+        "p99": 1.9146250000048894,
+        "max": 3.82712500001071
+      }
+    },
+    {
+      "scenario": "store size",
+      "backend": "postgres",
+      "label": "1000000 events stored",
+      "count": 200,
+      "rate": 780,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 1.2233330000017304,
+        "p95": 1.7954160000081174,
+        "p99": 2.998583000007784,
+        "max": 5.392707999999402
+      }
+    },
+    {
+      "scenario": "read",
+      "backend": "postgres",
+      "label": "whole log",
+      "count": 1000000,
+      "rate": 237233,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "postgres",
+      "label": "catch up",
+      "count": 204000,
+      "rate": 22079,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "postgres",
+      "label": "replay",
+      "count": 204000,
+      "rate": 83789,
+      "range": [
+        80910,
+        91330
+      ],
+      "unit": "events/s"
+    },
+    {
+      "scenario": "view model",
+      "backend": "postgres",
+      "label": "catch up, 2% wanted",
+      "count": 204000,
+      "rate": 4406805,
+      "unit": "events/s"
+    },
+    {
+      "scenario": "read your writes",
+      "backend": "postgres",
+      "label": "command + caughtUp",
+      "count": 2000,
+      "rate": 646,
+      "unit": "commands/s",
+      "latencyMs": {
+        "p50": 1.4872080000350252,
+        "p95": 1.98233299999265,
+        "p99": 2.307749999978114,
+        "max": 8.809915999998339
+      }
+    },
+    {
+      "scenario": "fan out",
+      "backend": "postgres",
+      "label": "1 view models",
+      "count": 5000,
+      "rate": 687,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "postgres",
+      "label": "10 view models",
+      "count": 5000,
+      "rate": 621,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "fan out",
+      "backend": "postgres",
+      "label": "50 view models",
+      "count": 5000,
+      "rate": 245,
+      "unit": "commands/s"
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "postgres",
+      "label": "1 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 726,
+      "range": [
+        661,
+        820
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "postgres",
+      "label": "16 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 1122,
+      "range": [
+        718,
+        1443
+      ]
+    },
+    {
+      "scenario": "concurrency",
+      "backend": "postgres",
+      "label": "256 workers",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 1109,
+      "range": [
+        1012,
+        1282
+      ]
+    }
+  ]
+}

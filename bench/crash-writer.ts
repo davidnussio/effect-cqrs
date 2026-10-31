@@ -6,18 +6,19 @@
 import { NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import { AggregateService } from "effect-cqrs"
-import { Account, crashEventsPerCommand, sqliteStorage } from "./common.ts"
+import { Account, crashEventsPerCommand, type DurableBackend, openStorage } from "./common.ts"
 
 const program = Effect.gen(function*() {
   const accounts = yield* AggregateService.make(Account)
   for (let index = 0;; index++) {
-    const { position } = yield* accounts.commands.depositMany(`crash-${index % 50}`, {
+    // Other writers may be on the same stream, and losing to them isn't a failure.
+    const result = yield* accounts.commands.depositMany(`crash-${index % 50}`, {
       amount: 1,
       reference: `r-${process.pid}-${index}`,
       count: crashEventsPerCommand
-    })
-    process.stdout.write(`${position}\n`)
+    }).pipe(Effect.catchTag("ConcurrencyConflict", () => Effect.succeed(undefined)))
+    if (result !== undefined) process.stdout.write(`${result.position}\n`)
   }
-}).pipe(Effect.provide(sqliteStorage(process.argv[2]!)))
+}).pipe(Effect.provide(openStorage(process.argv[2] as DurableBackend, process.argv[3]!)))
 
 NodeRuntime.runMain(program)

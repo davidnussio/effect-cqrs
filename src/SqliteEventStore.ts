@@ -45,11 +45,6 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
   yield* sql`
     CREATE INDEX IF NOT EXISTS ${sql(`${indexPrefix}_type_idx`)} ON ${events} (type, position)
   `.pipe(Effect.mapError(storeError("initialize")))
-  // Reads pages of one stream by position. Without it each page sorts the whole stream.
-  yield* sql`
-    CREATE INDEX IF NOT EXISTS ${sql(`${indexPrefix}_stream_idx`)}
-    ON ${events} (aggregate_name, aggregate_id, position)
-  `.pipe(Effect.mapError(storeError("initialize")))
 
   const columns = sql.literal(`
     position,
@@ -108,15 +103,19 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
   }
 
   const readBatch = (filter: EventStore.EventFilter, afterPosition: number, limit: number) => {
+    const oneStream = EventStore.isOneStream(filter)
     const clauses = [
       sql`position > ${afterPosition}`,
+      ...(oneStream ? [sql`version > ${filter.afterVersion ?? 0}`] : []),
       ...(filter.aggregateNames === undefined ? [] : [sql.in("aggregate_name", filter.aggregateNames)]),
       ...(filter.aggregateIds === undefined ? [] : [sql.in("aggregate_id", filter.aggregateIds)]),
       ...(filter.eventTypes === undefined ? [] : [sql.in("type", filter.eventTypes)]),
       ...(filter.startTime === undefined ? [] : [sql`timestamp >= ${DateTime.toEpochMillis(filter.startTime)}`]),
       ...(filter.finishTime === undefined ? [] : [sql`timestamp < ${DateTime.toEpochMillis(filter.finishTime)}`])
     ]
-    return sql`SELECT ${columns} FROM ${events} WHERE ${sql.and(clauses)} ORDER BY position LIMIT ${limit}`.pipe(
+    // Inside a stream versions follow positions, and only versions are indexed.
+    const order = oneStream ? sql`version` : sql`position`
+    return sql`SELECT ${columns} FROM ${events} WHERE ${sql.and(clauses)} ORDER BY ${order} LIMIT ${limit}`.pipe(
       Effect.flatMap(decodeRows),
       Effect.mapError(storeError("read"))
     )

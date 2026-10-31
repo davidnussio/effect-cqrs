@@ -99,6 +99,9 @@ TodoEvent.cases.TodoCreated.make({ title, createdAt }) // fills in _tag
   read in pages.
 - Alias columns in SQL (`aggregate_id AS "aggregateId"`) so a query doesn't depend
   on the name transforms configured on the client.
+- `@effect/sql-pg` speaks the wire protocol itself and binds at most 32,767 parameters
+  to a statement. Convert `BIGINT` with `::float8` to get a number, and qualify the
+  column in `ORDER BY` so it doesn't mean the converted alias, which has no index.
 
 ## Testing
 

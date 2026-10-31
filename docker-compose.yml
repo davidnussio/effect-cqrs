@@ -1,0 +1,16 @@
+# A throwaway Postgres for `pnpm test`, `pnpm bench` and `pnpm stress`, with
+# POSTGRES_URL=postgres://postgres:postgres@localhost:5432/cqrs
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cqrs
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cqrs"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

@@ -6,7 +6,7 @@
  */
 import { NodeRuntime } from "@effect/platform-node"
 import { SqliteClient } from "@effect/sql-sqlite-node"
-import { Console, Effect, Layer, Stream } from "effect"
+import { Console, Effect, Layer, Option, Stream } from "effect"
 import { SqlClient } from "effect/sql"
 import { AggregateService, EventStore, SqliteEventStore, ViewModel } from "effect-cqrs"
 import {
@@ -112,6 +112,17 @@ const commandOnNewStreams = (backend: Backend) => {
 }
 
 /**
+ * Gives Postgres the statistics autovacuum would have within a minute, which the
+ * tables here don't live long enough to get.
+ */
+const analyze = Effect.serviceOption(SqlClient.SqlClient).pipe(
+  Effect.flatMap(Option.match({
+    onNone: () => Effect.void,
+    onSome: (sql) => Effect.orDie(Effect.asVoid(sql.unsafe("ANALYZE")))
+  }))
+)
+
+/**
  * Loads and commands against streams of a given length, all in one store so its
  * size doesn't change between lengths. A cold load replays the whole stream, as
  * the first use after a restart does.
@@ -134,6 +145,7 @@ const streamLength = (backend: Backend) =>
         yield* seedStream(`length-${length}-${stream}`, length)
       }
     }
+    yield* analyze
     for (let index = 0; index < scaled(2_000); index++) {
       yield* accounts.commands.deposit("warm-up", { amount: 1, reference: "r" })
     }
@@ -186,6 +198,7 @@ const storeSize = (backend: Backend) =>
         yield* seedStream(`filler-${target}-${chunk}`, Math.min(1_000, missing - chunk * 1_000))
       }
       size = yield* store.head
+      yield* analyze
       const commands = yield* sample(
         samples,
         (index) => accounts.commands.deposit(`size-${target}-${index}`, { amount: 1, reference: "r" })
@@ -259,6 +272,8 @@ const viewModelCatchUp = (backend: Backend) =>
       unit: "events/s"
     })
 
+    // The catch up above ran on a table just filled. What follows is a table in use.
+    yield* analyze
     const fresh = makeBalances("replayed")
     const rates = yield* Effect.gen(function*() {
       const viewModels = yield* ViewModel.ViewModels
@@ -375,8 +390,8 @@ const queryPlans = Effect.gen(function*() {
     )
   return {
     "read one stream": yield* plan(
-      `SELECT * FROM cqrs_events WHERE position > 0 AND aggregate_name IN ('account') AND aggregate_id IN ('a')
-       ORDER BY position LIMIT 500`
+      `SELECT * FROM cqrs_events WHERE position > 0 AND version > 0 AND aggregate_name IN ('account')
+       AND aggregate_id IN ('a') ORDER BY version LIMIT 500`
     ),
     "read for a view model": yield* plan(
       `SELECT * FROM cqrs_events WHERE position > 0 AND aggregate_name IN ('account')
@@ -416,7 +431,8 @@ const program = Effect.gen(function*() {
   }
   const plans = yield* queryPlans
   yield* Console.log(JSON.stringify(plans, null, 2))
-  yield* writeResults("performance", { environment: env, rounds: ROUNDS, plans, results })
+  const name = process.env.BENCH_BACKENDS === undefined ? "performance" : `performance-${backends.join("-")}`
+  yield* writeResults(name, { environment: env, rounds: ROUNDS, plans, results })
 })
 
 NodeRuntime.runMain(program)

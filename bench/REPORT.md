@@ -1,53 +1,59 @@
 # Performance and stress report
 
 Measured on 31 October 2026 on one laptop. "Before" is commit `b46c324`, and "after"
-is the same code with the seven fixes below. The raw numbers are in
-[results/](results/) and [results/baseline/](results/baseline/), and
+is the same code with the seven fixes below and a Postgres backend. The raw numbers are
+in [results/](results/) and [results/baseline/](results/baseline/), and
 [Reproduce](#reproduce) has the commands.
 
 ## Summary
 
-**Nothing was lost, before or after the fixes.** Ten stress scenarios broke no
-invariant. They included two runs of a million events, 8 `SIGKILL`s of a writer
-process, 20 view model restarts, injected handler failures and up to 128 writers on
-one stream. Every acknowledged event was stored exactly once, positions and versions
-had no gaps, and no killed command left part of its events behind.
+**Nothing was lost, before or after the fixes, on SQLite or on Postgres.** Ten stress
+scenarios broke no invariant. They included two runs of a million events, 24 `SIGKILL`s
+of writer processes running three at a time on the same streams, 20 view model
+restarts, injected handler failures and up to 128 writers on one stream. Every
+acknowledged event was stored exactly once, positions and versions had no gaps, and no
+killed command left part of its events behind.
 
 **The first run found seven problems, and all seven are fixed.** On a SQLite file
 unless noted:
 
 | | Before | After |
 | --- | ---: | ---: |
-| Command on a stream of 1,000 events | 3.09 ms | 0.11 ms |
-| Command on a stream of 100,000 events | 1,153 ms | 0.15 ms |
-| First load of a stream of 100,000 events | 1,153 ms | 276 ms |
+| Command on a stream of 1,000 events | 3.09 ms | 0.13 ms |
+| Command on a stream of 100,000 events | 1,153 ms | 0.14 ms |
+| First load of a stream of 100,000 events | 1,153 ms | 284 ms |
 | 128 writers on one stream: commands that gave up | 92% | 0% |
-| 128 writers on one stream: commands per second | 42 | 7,401 |
+| 128 writers on one stream: commands per second | 42 | 7,406 |
 | View model behind during a million-event ingest | 723,180 events | 0 at every sample |
-| Ingest and project a million events | 45.4 s | 33.4 s |
+| Ingest and project a million events | 45.4 s | 35.0 s |
 | 8 transient handler failures over 50,000 events | 25.9 s | 1.1 s |
-| Commands per second with 50 view models | 270 | 2,179 |
+| Commands per second with 50 view models | 270 | 1,920 |
 | Memory store, command with 1,000,000 events stored | 7.65 ms | 0.02 ms |
 | Memory store, one command of 1,000,000 events | `RangeError` | stored in 1.2 s |
 
-**The fixes have a price**, mostly on writes, because of one more index.
+**The fixes have a small price.**
 
 | | Before | After | Change |
 | --- | ---: | ---: | ---: |
-| Append, 100 events per transaction | 130,667 events/s | 111,816 events/s | -14% |
-| Append, 1 event per transaction | 13,535 events/s | 12,972 events/s | -4% |
-| Command on a new stream | 10,391/s | 9,770/s | -6% |
+| Append, 1 event per transaction | 13,535 events/s | 13,567 events/s | 0% |
+| Append, 100 events per transaction | 130,667 events/s | 117,367 events/s | -10% |
+| Command on a new stream | 10,391/s | 8,858/s | -15% |
 | Ingest and project on very short streams | 25.8 s | 32.5 s | +26% |
-| Database for a million events | 196 MB | 231 MB | +18% |
+| Database for a million events | 196 MB | 196 MB | 0% |
 
-The ingest got slower where nothing needed fixing: with one command per stream there
-is no replay to save. The view model now also does its work during the run rather
-than after it, and each of those commands pays for the extra index.
+The final run was about 10% slower on paths the fixes didn't touch, such as reading the
+whole log, so only the last two changes clearly come from the code. The ingest got
+slower where nothing needed fixing: with one command per stream there is no replay to
+save, and the view model now does its work during the run rather than after it.
 
 Two rules are new for applications. A handler must not run a command on its own stream,
 because it would wait for itself, and handlers and projections must not mutate the
 state, which is now kept between commands. A crash can also repeat up to two batches
 of events in a view model instead of one, which at-least-once handlers already allow.
+
+**Postgres works, at about a tenth of the commit rate of a SQLite file.** A command
+takes about 1 ms, and the store tops out near 1,100 commits per second, which batching
+works around. See [Postgres](#postgres), which also covers what running on it found.
 
 [Remaining limits](#remaining-limits) lists what the fixes don't solve.
 
@@ -59,17 +65,20 @@ of events in a view model instead of one, which at-least-once handlers already a
 | System | macOS, Darwin 27.2.0, in an ordinary desktop session |
 | Runtime | Node 26.13.0, Effect 4.0.6, SQLite 3.54.1 |
 | SQLite settings | WAL, `synchronous=FULL`, `fullfsync` off, one connection |
+| Postgres | 18.6 in Docker (OrbStack) on the same laptop, default settings, 10 connections |
 
-Three backends were measured: `memory`, `sqlite-memory` (`:memory:`) and `sqlite-file`
-(a temporary file on the SSD).
+Four backends were measured: `memory`, `sqlite-memory` (`:memory:`), `sqlite-file`
+(a temporary file on the SSD) and `postgres`, with `synchronous_commit` and `fsync` on
+and a store of its own for each run.
 
 The workload is a small `Account` aggregate in [common.ts](common.ts): payloads
 under 100 bytes and a one-line projection. An aggregate with larger events or a
 richer schema will spend longer decoding.
 
 Throughput figures are the median of 5 rounds on a fresh store, after one warm-up
-round that doesn't count. Rounds agreed within about 10%, and the ranges are in the raw
-data. Latency figures come from a single pass, after warming up on other streams.
+round that doesn't count. Rounds agreed within about 10% on SQLite and less well on
+Postgres, and the ranges are in the raw data. Latency figures come from a single pass,
+after warming up on other streams.
 
 ## The fixes
 
@@ -86,10 +95,10 @@ stand in for two processes. On a file:
 
 | Workers | Before: gave up | Before: per second | One process: gave up | One process: per second | Two processes: gave up | Two processes: conflicts | Two processes: per second |
 | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 2 | 3% | 268 | 0 | 7,246 | 0 | 667 | 239 |
-| 8 | 26% | 104 | 0 | 7,183 | 0 | 134 | 1,351 |
-| 32 | 78% | 54 | 0 | 7,413 | 0 | 40 | 4,209 |
-| 128 | 92% | 42 | 0 | 7,401 | 0 | 29 | 4,395 |
+| 2 | 3% | 268 | 0 | 7,396 | 0 | 667 | 251 |
+| 8 | 26% | 104 | 0 | 6,647 | 0 | 134 | 1,349 |
+| 32 | 78% | 54 | 0 | 7,682 | 0 | 43 | 3,547 |
+| 128 | 92% | 42 | 0 | 7,406 | 0 | 27 | 4,385 |
 
 ### 2. Long streams were slow, and worse than linearly on SQLite
 
@@ -99,8 +108,9 @@ There were two causes, and there are two fixes.
   10,000 most recently used aggregates (`makeStateCache`, set with `stateCacheSize`), so
   a command only reads events it hasn't seen. Those can come from another process,
   because a state plus what came after it is always the current state.
-- Each page of a stream read sorted the stream again. A new index on
-  `(aggregate_name, aggregate_id, position)`, created on startup, removes the sort.
+- Each page of a stream read sorted the stream again, because no index gives a
+  stream's events by position. Reads of one stream now go by `version`, which the
+  `UNIQUE` constraint already indexes (`afterVersion` in the event filter).
 
 p50 on a file. A cold load is what the first use after a restart costs.
 
@@ -108,10 +118,13 @@ p50 on a file. A cold load is what the first use after a restart costs.
 | ---: | ---: | ---: | ---: |
 | 1 | 0.11 ms | 0.02 ms | 0.10 ms |
 | 10 | 0.13 ms | 0.05 ms | 0.10 ms |
-| 100 | 0.38 ms | 0.30 ms | 0.12 ms |
-| 1,000 | 3.09 ms | 2.77 ms | 0.11 ms |
-| 10,000 | 36.71 ms | 27.90 ms | 0.14 ms |
-| 100,000 | 1,153 ms | 276 ms | 0.15 ms |
+| 100 | 0.38 ms | 0.30 ms | 0.11 ms |
+| 1,000 | 3.09 ms | 2.81 ms | 0.13 ms |
+| 10,000 | 36.71 ms | 30.94 ms | 0.16 ms |
+| 100,000 | 1,153 ms | 284 ms | 0.14 ms |
+
+A first version added an index on `(aggregate_name, aggregate_id, position)` instead.
+Reading by version needs no index of its own, which gave back its 18% of disk space.
 
 ### 3. View models lagged at full load and stopped during synchronous bursts
 
@@ -142,15 +155,16 @@ are within 500 events of the head share one read and its decoded events (`makeTa
 Checkpoints are saved every 500 events and when the view model stops
 (`checkpointInterval`), and a wake no longer queries the head.
 
-| View models | Before | After |
-| ---: | ---: | ---: |
-| 1 | 5,638 | 7,120 |
-| 10 | 1,302 | 4,854 |
-| 50 | 270 | 2,179 |
+| View models | Before | After | Postgres |
+| ---: | ---: | ---: | ---: |
+| 1 | 5,638 | 6,726 | 687 |
+| 10 | 1,302 | 4,797 | 621 |
+| 50 | 270 | 1,920 | 245 |
 
-Commands per second on a file. The cost per view model per event fell from about 72 µs
-to about 6.5 µs. Sharing the read accounted for most of the gain at 50 view models:
-coalescing checkpoints alone reached about 640 commands/s in a quick run.
+Commands per second on a file, and on Postgres. The cost per view model per event on a
+file fell from about 72 µs to about 7.6 µs. Sharing the read accounted for most of the
+gain at 50 view models: coalescing checkpoints alone reached about 640 commands/s in a
+quick run.
 
 ### 6. The memory store scanned the whole log on every read
 
@@ -159,15 +173,54 @@ and `firstAfter` in [EventStore.ts](../src/EventStore.ts)).
 
 | Events stored | Before | After |
 | ---: | ---: | ---: |
-| 1,000 | 34,189/s | 63,588/s |
-| 10,000 | 8,153/s | 54,494/s |
-| 100,000 | 1,218/s | 31,900/s |
-| 1,000,000 | 133/s | 30,485/s |
+| 1,000 | 34,189/s | 56,869/s |
+| 10,000 | 8,153/s | 61,653/s |
+| 100,000 | 1,218/s | 26,211/s |
+| 1,000,000 | 133/s | 29,078/s |
 
 ### 7. The memory store died on a command of 200,000 events
 
 `events.push(...stored)` passed every event as an argument and overflowed the stack.
 It is now a loop, and one command of 1,000,000 events takes 1.2 s.
+
+## Postgres
+
+`PostgresEventStore` runs the same store tests as the other backends, plus its own in
+`test/PostgresEventStore.test.ts`, and the same benchmark and stress scenarios.
+
+A sequence can't number events: transactions commit in a different order from the one
+they drew their numbers in, so a view model that has read up to 6 would never come back
+for a 5 that commits later. Positions come from a counter row instead, which an append
+holds until it commits. That keeps them in commit order with no gaps, and it is also
+why writes are serial.
+
+- **Commits top out near 1,100 per second.** Turning off `synchronous_commit` raised
+  that to 1,882, so waiting for the disk is about 40% of a commit. The rest is the 5 round
+  trips of an append, each to a server on the same machine, and a real network will
+  add to them. Workers don't help, because each commit holds the counter.
+- **Batching is the way around it.** 100 events per transaction reached 31,423 events/s,
+  and a command of 10 events sustained about 9,500 events/s.
+- **Bulk inserts are good.** One command of 1,000,000 events took 6.4 s, faster than
+  the 8.0 s of in-memory SQLite, because Postgres gets them in multi-row statements.
+- **Length of stream doesn't matter.** The benchmark showed 3 to 4 ms on streams of 10,000
+  events and more, but a controlled run alternating a stream of 10 events and one of
+  100,000 gave 1.1-1.3 ms and 1.0-1.5 ms. So that was something else happening at that
+  point of the run, most likely the work Postgres does after a bulk load.
+
+Running on it found three things, all handled or described here.
+
+- **`LIMIT` could send the planner through the whole log.** Looking for new events in a
+  long stream, it walked the primary key through every later event, removing 204,000 rows
+  and taking 11 ms. Reading by version, the fix in [finding 2](#2-long-streams-were-slow-and-worse-than-linearly-on-sqlite),
+  uses the stream's index whatever the statistics say.
+- **Tables are slow until they have statistics.** Autovacuum takes up to a minute to
+  analyze a new table, and until then each page for a view model sorted every matching
+  row: 19.5 ms against 0.06 ms after `ANALYZE`. That is why a catch-up on a table just
+  filled ran at 22,079 events/s against 83,789 after, and why ingest started at 5,153
+  events/s. It passes by itself. After a bulk load, run `ANALYZE` to skip the wait.
+- **This client binds at most 32,767 parameters to a statement**, not the 65,535 of the
+  protocol. A test of a large batch caught the first version of the adapter assuming
+  otherwise.
 
 ## Performance
 
@@ -178,104 +231,108 @@ Current numbers for what the fixes above don't already show.
 Events per second through `store.append`, and commands per second through the full
 path: validate, load, decide, encode, append.
 
-| | memory | sqlite-memory | sqlite-file |
-| --- | ---: | ---: | ---: |
-| Append, 1 event per transaction | 265,292 | 32,214 | 12,972 |
-| Append, 100 events per transaction | 1,057,616 | 123,604 | 111,816 |
-| Command on a new stream | 62,940 | 17,257 | 9,770 |
+| | memory | sqlite-memory | sqlite-file | postgres |
+| --- | ---: | ---: | ---: | ---: |
+| Append, 1 event per transaction | 260,336 | 32,140 | 13,567 | 803 |
+| Append, 100 events per transaction | 1,070,055 | 134,874 | 117,367 | 31,423 |
+| Command on a new stream | 60,165 | 16,044 | 8,858 | 793 |
 
-Batching matters more than anything else on a file: 100 events per transaction is
-almost 9 times faster than one, because the commit is what costs.
+Batching matters more than anything else on disk: 100 events per transaction is almost
+9 times faster than one on a file and 39 times on Postgres, because the commit is what
+costs.
 
 ### Store size
 
 p50 of a command on a new stream, with unrelated events already stored.
 
-| Events stored | memory | sqlite-memory | sqlite-file |
-| ---: | ---: | ---: | ---: |
-| 1,000 | 0.01 ms | 0.06 ms | 0.10 ms |
-| 10,000 | 0.01 ms | 0.06 ms | 0.11 ms |
-| 100,000 | 0.02 ms | 0.06 ms | 0.10 ms |
-| 1,000,000 | 0.02 ms | 0.06 ms | 0.12 ms |
+| Events stored | memory | sqlite-memory | sqlite-file | postgres |
+| ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 0.01 ms | 0.06 ms | 0.11 ms | 1.58 ms |
+| 10,000 | 0.01 ms | 0.06 ms | 0.12 ms | 0.84 ms |
+| 100,000 | 0.02 ms | 0.06 ms | 0.11 ms | 1.24 ms |
+| 1,000,000 | 0.02 ms | 0.06 ms | 0.11 ms | 1.22 ms |
 
 ### Reads and view models
 
-| Events per second | memory | sqlite-memory | sqlite-file |
-| --- | ---: | ---: | ---: |
-| Read the whole log, 1,000,000 events | 36,727,573 | 525,082 | 514,771 |
-| View model catching up, 204,000 events | 632,506 | 258,514 | 254,430 |
-| Replay, 204,000 events | 658,218 | 260,149 | 255,594 |
+| Events per second | memory | sqlite-memory | sqlite-file | postgres |
+| --- | ---: | ---: | ---: | ---: |
+| Read the whole log, 1,000,000 events | 112,858,856 | 492,788 | 476,466 | 237,233 |
+| View model catching up, 204,000 events | 553,386 | 221,822 | 220,351 | 22,079 |
+| Replay, 204,000 events | 583,620 | 239,374 | 235,703 | 83,789 |
 
-The memory read does no decoding, so it says little about the framework. It also fell
-from 101 million events/s, which has no practical effect at that speed. A view model
-that wants 2% of the events skipped the rest through the type index, finishing a
-204,000-event log in 15 ms on a file.
+The memory read does no decoding, so it says little about the framework. The Postgres
+catch-up ran on a table just filled, and the replay after `ANALYZE`. A view model that
+wants 2% of the events skipped the rest through the type index, finishing a 204,000-event
+log in 18 ms on a file and 46 ms on Postgres.
 
 | Read your own write, command + `caughtUp` | p50 | p99 | per second |
 | --- | ---: | ---: | ---: |
-| memory | 0.04 ms | 0.07 ms | 23,056 |
-| sqlite-memory | 0.10 ms | 0.19 ms | 9,131 |
-| sqlite-file | 0.15 ms | 0.34 ms | 6,389 |
+| memory | 0.04 ms | 0.13 ms | 20,971 |
+| sqlite-memory | 0.11 ms | 0.27 ms | 8,162 |
+| sqlite-file | 0.16 ms | 0.50 ms | 5,731 |
+| postgres | 1.49 ms | 2.31 ms | 646 |
 
 ### Concurrency
 
 Commands per second on separate streams, by number of concurrent workers:
 
-| Workers | memory | sqlite-memory | sqlite-file |
-| ---: | ---: | ---: | ---: |
-| 1 | 67,374 | 17,080 | 9,539 |
-| 16 | 74,265 | 18,045 | 9,659 |
-| 256 | 72,445 | 18,134 | 9,634 |
+| Workers | memory | sqlite-memory | sqlite-file | postgres |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 61,257 | 16,396 | 8,582 | 726 |
+| 16 | 67,608 | 16,796 | 8,892 | 1,122 |
+| 256 | 63,272 | 16,479 | 8,381 | 1,109 |
 
 Concurrency adds almost no throughput. Everything runs on one thread and `node:sqlite` is
-synchronous, so concurrent workers take turns. It adds no meaningful overhead either.
+synchronous, so workers take turns there, and on Postgres they queue for the counter.
+It adds no meaningful overhead either.
 
 ## Stress
 
-All 10 scenarios held their invariants.
+All 10 scenarios held their invariants on both databases.
 
-| Scenario | Load | Result |
-| --- | --- | --- |
-| Ingest | 1,000,000 events, 10,000 streams, 32 workers, view model following | 33 s, view model level with the head |
-| Ingest, short streams | The same over 100,000 streams | 33 s, view model level with the head |
-| Burst | 200,000 events with nothing yielding | Peak view model lag of 10 events |
-| Contention | 2,000 commands on one stream, 2 to 128 workers, 1 or 2 processes | Nobody gave up, and conflicts only came from the other process |
-| Flaky view model | 8 injected failures over 50,000 events | Recovered, no gaps, 1,992 events repeated, 1.1 s |
-| Restart | 20 stops mid-batch over 100,000 events | No gaps, 1,962 events repeated |
-| Crash | 8 `SIGKILL`s of a writer process | All 9,359 acknowledged commands survived, none torn |
-| Slow consumer | 1 ms per event against a sequential writer | Peak lag 19,115 events, drained in 22 s, 3 MB of heap growth |
-| Subscribers | 20 subscribers, 20,000 events | All in order, 41,622 deliveries per second |
-| Huge command | One command of up to 1,000,000 events | Memory stored it in 1.2 s, in-memory SQLite in 8.7 s |
+| Scenario | Load | SQLite | Postgres |
+| --- | --- | --- | --- |
+| Ingest | 1,000,000 events, 10,000 streams, 32 workers, view model following | 35 s, view model level with the head | 118 s, peak lag 3,830 events |
+| Ingest, short streams | The same over 100,000 streams | 33 s, view model level with the head | 128 s, peak lag 620 events |
+| Burst | 200,000 events with nothing yielding | Peak lag 10 events | Peak lag 100 events |
+| Contention | 2,000 commands on one stream, 2 to 128 workers, 1 or 2 services | Nobody gave up | Nobody gave up with one service, 4 of 2,000 with two at 128 workers |
+| Flaky view model | 8 injected failures over 50,000 events | No gaps, 1.1 s | No gaps, 1.9 s |
+| Restart | 20 stops mid-batch over 100,000 events | No gaps, 2,509 events repeated | No gaps, 2,110 events repeated |
+| Crash | 24 `SIGKILL`s, 3 writer processes at a time on the same streams | All 13,593 acknowledged commands survived, none torn | All 3,745 survived, none torn |
+| Slow consumer | 1 ms per event against a sequential writer | Peak lag 19,057 events, drained in 22 s | Writer slower than the handler, peak lag 2 |
+| Subscribers | 20 subscribers, 20,000 events | All in order, 41,455 deliveries per second | All in order, 10,157 per second |
+| Huge command | One command of up to 1,000,000 events | Memory store 1.2 s, in-memory SQLite 8.0 s | 6.4 s |
 
 "Repeated" means a handler saw an event twice, which at-least-once delivery allows.
-The count stayed within one batch per failure or restart.
+The count stayed within one batch per failure or restart. The flaky scenario repeated
+1,992 events on both. The Postgres lag came from the table being new, as above, and
+went to 0 once autovacuum had analyzed it.
 
 ### A million events
 
 Throughput and memory per 100,000 events, on 10,000 streams. Heap is measured after a
-forced collection.
+forced collection, on the SQLite run.
 
-| Events | Before: events/s | Before: lag | After: events/s | After: lag | After: heap | After: RSS |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 100,000 | 37,823 | 72,680 | 33,111 | 0 | 40 MB | 298 MB |
-| 200,000 | 31,998 | 144,680 | 30,300 | 0 | 36 MB | 298 MB |
-| 300,000 | 27,890 | 217,180 | 29,919 | 0 | 36 MB | 298 MB |
-| 400,000 | 28,986 | 289,180 | 29,804 | 0 | 36 MB | 215 MB |
-| 500,000 | 26,239 | 361,680 | 29,725 | 0 | 36 MB | 215 MB |
-| 600,000 | 23,768 | 433,680 | 29,650 | 0 | 36 MB | 220 MB |
-| 700,000 | 19,920 | 506,180 | 29,535 | 0 | 36 MB | 220 MB |
-| 800,000 | 19,326 | 578,680 | 29,268 | 0 | 36 MB | 212 MB |
-| 900,000 | 18,513 | 650,680 | 29,080 | 0 | 36 MB | 212 MB |
-| 1,000,000 | 18,024 | 723,180 | 28,966 | 0 | 36 MB | 216 MB |
+| Events | Before: events/s | Before: lag | SQLite: events/s | SQLite: lag | SQLite: heap | Postgres: events/s | Postgres: lag |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 100,000 | 37,823 | 72,680 | 31,032 | 0 | 41 MB | 5,153 | 100 |
+| 200,000 | 31,998 | 144,680 | 27,763 | 0 | 36 MB | 8,465 | 100 |
+| 300,000 | 27,890 | 217,180 | 28,223 | 0 | 36 MB | 8,053 | 530 |
+| 400,000 | 28,986 | 289,180 | 29,104 | 0 | 36 MB | 8,823 | 1,420 |
+| 500,000 | 26,239 | 361,680 | 29,305 | 0 | 36 MB | 9,458 | 0 |
+| 600,000 | 23,768 | 433,680 | 28,567 | 0 | 36 MB | 9,705 | 0 |
+| 700,000 | 19,920 | 506,180 | 27,169 | 0 | 36 MB | 9,905 | 0 |
+| 800,000 | 19,326 | 578,680 | 28,274 | 0 | 36 MB | 8,560 | 0 |
+| 900,000 | 18,513 | 650,680 | 28,306 | 0 | 36 MB | 10,078 | 0 |
+| 1,000,000 | 18,024 | 723,180 | 28,197 | 0 | 36 MB | 9,208 | 0 |
 
-Throughput used to halve as streams grew. It now falls by about 12%, and the view model's
-work is included in it. The heap stays flat, so there is no sign of a leak over this
-distance. The short-stream run rose from 38 to 48 MB, which fits its 100,000 streams
-filling the state cache and the view model's own maps.
+Throughput used to halve as streams grew. It now stays flat, with the view model's work
+included in it. The heap stays flat too, on Postgres as well (36-38 MB), so there is no
+sign of a leak over this distance. The short-stream run rose from 40 to 50 MB, which fits
+its 100,000 streams filling the state cache and the view model's own maps.
 
-One window of the burst run dropped to 7,238 events/s. It didn't happen in 3 further
-runs of that scenario, which stayed between 22,731 and 29,533, so it looks like noise
-from the machine.
+A million events take 196 MB on SQLite and 312 MB on Postgres, indexes included, and
+replay in 4.6 s and 12.4 s.
 
 ## Remaining limits
 
@@ -283,14 +340,19 @@ from the machine.
   stream after a restart replays it, at about 2.8 µs per event. Persistent snapshots
   would remove that, and would need a schema for the state.
 - **Rival processes on one stream are slow.** With a rival on every command, conflicts
-  hit one command in three and throughput falls to about 240 per second, because each
-  conflict backs off for at least 8 ms. Nothing gave up in these runs, but 5 retries can
-  still run out.
+  hit one command in three and throughput falls to about 250 per second, or 116 on
+  Postgres, because each conflict backs off for at least 8 ms. Few commands gave up in
+  these runs, but 5 retries can still run out.
+- **A view model only wakes on appends from its own process.** Several processes can
+  write to one database, and the crash scenario shows that is safe, but a view model
+  won't see another process's events until an append of its own wakes it. Postgres could
+  fix this with `LISTEN`/`NOTIFY`, which isn't implemented.
+- **Writes to one Postgres store are serial**, at about 1,100 commits per second here.
 - **The stream lock isn't first come, first served.** A fiber that arrives just as the
   lock is released can take it ahead of those waiting, which `Semaphore` allows. Under
-  a synchronous burst of 128 workers p50 was 0.1 ms and p99 was 142 ms.
+  a synchronous burst of 128 workers p50 was 0.1 ms and p99 was 144 ms.
 - **Slow handlers fall behind without slowing writers.** There is no backpressure: a
-  handler taking 1 ms per event left the view model 19,115 events behind before it
+  handler taking 1 ms per event left the view model 19,057 events behind before it
   drained. Memory stays low, but `caughtUp` waits.
 - **One thread.** Throughput doesn't grow with concurrency, and synchronous SQLite calls
   block the event loop while they run.
@@ -302,8 +364,10 @@ from the machine.
   optimistic, and hardware with a real flush will be slower.
 - **Other machines.** Only this laptop was measured, and only Node 26 although the
   package allows Node 24.
-- **Real separate processes writing to one database.** The rivals in the contention
-  scenario are two services in one process.
+- **Postgres across a network, or tuned.** It ran on the same machine with default
+  settings and 128 MB of `shared_buffers`, in a Linux VM, so a real server differs both ways.
+- **Sustained contention between real processes.** The crash scenario writes from real
+  processes, but the rivals in the contention scenario are two services in one process.
 - **Other work on the event loop**, such as an HTTP server. The time slice yields to
   fibers, and whether that is enough for I/O wasn't measured.
 - **Runs longer than a few minutes.** The flat heap covers a million events, not days.
@@ -320,3 +384,28 @@ These take about 4 and 5 minutes here, and write to `bench/results/`.
 `BENCH_SCALE=0.05 pnpm bench` gives a quick pass that writes nothing, and
 `STRESS_ONLY=crash,burst pnpm stress` runs named scenarios. `pnpm test` runs every
 stress scenario at a small size, so they keep working.
+
+For Postgres, start the database of `docker-compose.yml` and say where it is. With
+`POSTGRES_URL` set, `pnpm test` covers Postgres too.
+
+```bash
+docker compose up -d --wait
+```
+
+```bash
+export POSTGRES_URL=postgres://postgres:postgres@localhost:5432/cqrs
+```
+
+```bash
+pnpm test
+```
+
+```bash
+BENCH_BACKENDS=postgres pnpm bench
+```
+
+```bash
+STRESS_DATABASE=postgres pnpm stress
+```
+
+These take about 8 minutes each.
