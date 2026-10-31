@@ -50,6 +50,10 @@ TodoEvent.cases.TodoCreated.make({ title, createdAt }) // fills in _tag
 - `Effect.fnUntraced(function*(state, payload) { ... })` picks up parameter types
   from context, so a command handler needs no annotations.
 
+- A fluent builder that should run on `yield*` extends `Effectable.Class` and
+  implements `asEffect()`. It is then a real `Effect`, so `.pipe`, `Effect.exit` and
+  returning it from `it.effect` all work, and it stays lazy, as `Fixture` does.
+
 ## Type inference
 
 - A type parameter inferred from a sibling property doesn't give object literals

@@ -130,29 +130,52 @@ past events followed by live ones.
 
 ## Test an aggregate
 
-`Fixture` runs commands through the real service on an in-memory store and returns
-what happened.
+`Fixture` runs commands through the real service on an in-memory store, so payload
+validation and event encoding are tested too. It reads like `CQRSFixture`, and the
+chain runs when you yield it or hand it to `it.effect`:
 
 ```ts
 import { assert, it } from "@effect/vitest"
 import { Fixture } from "effect-cqrs"
 
+it.effect("creates a todo", () =>
+  Fixture.make(Todo)
+    .givenEvents()
+    .when("createTodo", { title: "Buy Milk" })
+    .expectEvent(TodoEvent.cases.TodoCreated.make({ title: "Buy Milk", createdAt: DateTime.makeUnsafe(0) }))
+    .inspectState((state) => assert.strictEqual(state.title, "Buy Milk")))
+
+it.effect("runs commands one after another", () =>
+  Fixture.make(Todo)
+    .givenEvents([created])
+    .when("deleteTodo", {})
+    .expectEvent("TodoDeleted")
+    .when("createTodo", { title: "Buy Eggs" })
+    .expectEvents(["TodoCreated"]))
+
 it.effect("rejects deleting twice", () =>
   Effect.gen(function*() {
     const error = yield* Fixture.make(Todo)
-      .given([created, deleted])
+      .givenEvents([created, deleted])
       .whenFails("deleteTodo", {})
 
     assert.strictEqual(error._tag, "TodoAlreadyDeleted")
   }))
-
-it.effect("creates a todo", () =>
-  Effect.gen(function*() {
-    const { events, state, version } = yield* Fixture.make(Todo).when("createTodo", { title: "Buy Milk" })
-
-    assert.strictEqual(version, 1)
-  }))
 ```
+
+- `when` runs a command by name, typed against the aggregate. Commands that fail
+  stop the chain with their typed error.
+- `expectEvent` expects exactly one event and `expectEvents` an exact, ordered list,
+  so `expectEvents([])` asserts that nothing was recorded. Each entry is a whole
+  event, compared with the aggregate's schema, or only its tag.
+- `inspectState` takes a callback that throws to fail the test, so any assertion
+  library works.
+- Yielding the chain gives `{ events, state, version, fixture }` for the last
+  command, if you prefer plain assertions.
+
+`it.effect` runs on a test clock stopped at zero, so timestamps need no mocking: an
+event created by `DateTime.now` has `DateTime.makeUnsafe(0)` until
+`TestClock.adjust` moves time.
 
 ## Storage
 
@@ -186,7 +209,12 @@ writers has to guarantee that itself.
 | `call todo.history` | `todos.history(id, { payload, startTime, finishTime })` |
 | `call todo.replay` | `viewModels.replay({ viewModels, startTime, finishTime })` |
 | view model service with `events` | `ViewModel.make({ handlers, dispose })` |
-| `CQRSFixture` | `Fixture.make(aggregate)` |
+| `new CQRSFixture(aggregate)` | `Fixture.make(aggregate)` |
+| `.givenEvents([...])` | `.givenEvents([...])` |
+| `.when(createNews, payload)` | `.when("createNews", payload)` |
+| `.expectEvent(event)` | `.expectEvent(event)` or `.expectEvent("Tag")` |
+| `.inspectState(cb)` | `.inspectState(cb)` |
+| `.whenThrow(command).toThrow(...)` | `.whenFails(command, payload)`, which returns the error |
 | `fastest-validator` | `Schema` |
 | `throw` in a command | typed errors |
 | `resolve-storage-*` adapters | `EventStore.Backend` |

@@ -1,11 +1,25 @@
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime, Effect, Exit } from "effect"
-import { Fixture } from "effect-cqrs"
+import { Cause, DateTime, Effect, Exit, Schema } from "effect"
+import { Aggregate, Fixture } from "effect-cqrs"
 import { Todo, TodoEvent } from "../examples/todo/aggregate.ts"
 
 const at = DateTime.makeUnsafe(0)
 const created = TodoEvent.cases.TodoCreated.make({ title: "Buy Milk", createdAt: at })
 const deleted = TodoEvent.cases.TodoDeleted.make({ message: "Done", deletedAt: at })
+
+const defectOf = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.map(Effect.exit(effect), (exit) => Exit.isFailure(exit) ? Cause.squash(exit.cause) : undefined)
+
+const ClockEvent = Schema.TaggedUnion({ Tick: {}, Tock: {} })
+const Clock = Aggregate.make<number>()({
+  name: "clock",
+  events: ClockEvent,
+  initial: 0,
+  projection: { Tick: (n) => n + 1, Tock: (n) => n + 1 }
+}).command("cycle", {
+  payload: Schema.Struct({}),
+  handler: () => Effect.succeed([ClockEvent.cases.Tick.make({}), ClockEvent.cases.Tock.make({})])
+})
 
 describe("Fixture", () => {
   it.effect("reports the events and state a command produces", () =>
@@ -72,4 +86,160 @@ describe("Fixture", () => {
 
       assert.deepStrictEqual(yield* fixture.state, { status: "open", title: "Buy Milk" })
     }))
+
+  describe("chain", () => {
+    it.effect("reads like the moleculer-cqrs fixture", () =>
+      Fixture.make(Todo)
+        .givenEvents()
+        .when("createTodo", { title: "Buy Milk" })
+        .expectEvent(created)
+        .inspectState((state) => assert.deepStrictEqual(state, { status: "open", title: "Buy Milk" })))
+
+    it.effect("still yields the outcome", () =>
+      Effect.gen(function*() {
+        const outcome = yield* Fixture.make(Todo)
+          .givenEvents([created])
+          .when("deleteTodo", { message: "Done" })
+          .expectEvent(deleted)
+
+        assert.strictEqual(outcome.version, 2)
+      }))
+
+    it.effect("runs nothing until it is yielded", () =>
+      Effect.gen(function*() {
+        let inspected = 0
+        const scenario = Fixture.make(Todo)
+          .when("createTodo", { title: "Buy Milk" })
+          .inspectState(() => inspected++)
+
+        assert.strictEqual(inspected, 0)
+        yield* scenario
+        assert.strictEqual(inspected, 1)
+      }))
+
+    it.effect("can run the same scenario twice, each from the given events", () =>
+      Effect.gen(function*() {
+        const scenario = Fixture.make(Todo).givenEvents([created]).when("completeTodo", {})
+
+        assert.strictEqual((yield* scenario).version, 2)
+        assert.strictEqual((yield* scenario).version, 2)
+      }))
+
+    it.effect("checks each command against its own events", () =>
+      Fixture.make(Todo)
+        .when("createTodo", { title: "Buy Milk" })
+        .expectEvent("TodoCreated")
+        .when("deleteTodo", { message: "Done" })
+        .expectEvent(deleted)
+        .inspectState((state) => assert.strictEqual(state.status, "deleted")))
+
+    it.effect("inspects the state of the given events without a command", () =>
+      Fixture.make(Todo)
+        .givenEvents([created])
+        .inspectState((state) => assert.strictEqual(state.status, "open"))
+        .when("completeTodo", {})
+        .expectEvent("TodoCompleted"))
+
+    it.effect("switches aggregate id with givenEvents", () =>
+      Effect.gen(function*() {
+        const error = yield* Fixture.make(Todo).givenEvents([], "custom-id").whenFails("deleteTodo", { message: "x" })
+
+        assert.deepStrictEqual(error._tag === "TodoNotFound" && error.aggregateId, "custom-id")
+      }))
+
+    it.effect("expects a failure at the end of a chain", () =>
+      Effect.gen(function*() {
+        const error = yield* Fixture.make(Todo)
+          .when("createTodo", { title: "Buy Milk" })
+          .when("deleteTodo", { message: "Done" })
+          .whenFails("deleteTodo", { message: "Again" })
+
+        assert.strictEqual(error._tag, "TodoAlreadyDeleted")
+      }))
+
+    it.effect("stops at a failing command, keeping its typed error", () =>
+      Effect.gen(function*() {
+        let inspected = false
+        const error = yield* Fixture.make(Todo)
+          .when("deleteTodo", { message: "Done" })
+          .inspectState(() => {
+            inspected = true
+          })
+          .pipe(Effect.flip)
+
+        assert.strictEqual(error._tag, "TodoNotFound")
+        assert.isFalse(inspected)
+      }))
+
+    it.effect("accepts several events in order", () =>
+      Fixture.make(Clock)
+        .when("cycle", {})
+        .expectEvents([ClockEvent.cases.Tick.make({}), "Tock"]))
+
+    it.effect("accepts no events from a command that records nothing", () =>
+      Fixture.make(Todo)
+        .givenEvents([created])
+        .when("completeTodo", {})
+        .when("completeTodo", {})
+        .expectEvents([]))
+  })
+
+  describe("failed expectations", () => {
+    const createMilk = Fixture.make(Todo).when("createTodo", { title: "Buy Milk" })
+
+    it.effect("reports what was expected and what happened", () =>
+      Effect.gen(function*() {
+        const expected = TodoEvent.cases.TodoCreated.make({ title: "Buy Eggs", createdAt: at })
+
+        const defect = yield* defectOf(createMilk.expectEvent(expected))
+
+        assert.instanceOf(defect, Fixture.ExpectationFailed)
+        assert.deepStrictEqual((defect as Fixture.ExpectationFailed).expected, [expected])
+        assert.deepStrictEqual((defect as Fixture.ExpectationFailed).actual, [created])
+      }))
+
+    it.effect("compares dates by value", () =>
+      Effect.gen(function*() {
+        const later = TodoEvent.cases.TodoCreated.make({ title: "Buy Milk", createdAt: DateTime.makeUnsafe(1000) })
+        const same = TodoEvent.cases.TodoCreated.make({ title: "Buy Milk", createdAt: DateTime.makeUnsafe(0) })
+
+        assert.instanceOf(yield* defectOf(createMilk.expectEvent(later)), Fixture.ExpectationFailed)
+        assert.isUndefined(yield* defectOf(createMilk.expectEvent(same)))
+      }))
+
+    it.effect("rejects another event's tag", () =>
+      Effect.gen(function*() {
+        assert.instanceOf(yield* defectOf(createMilk.expectEvent("TodoDeleted")), Fixture.ExpectationFailed)
+      }))
+
+    it.effect("rejects a command that emitted nothing", () =>
+      Effect.gen(function*() {
+        const noop = Fixture.make(Todo).givenEvents([created]).when("completeTodo", {}).when("completeTodo", {})
+
+        assert.instanceOf(yield* defectOf(noop.expectEvent("TodoCompleted")), Fixture.ExpectationFailed)
+      }))
+
+    it.effect("rejects extra, missing and reordered events", () =>
+      Effect.gen(function*() {
+        const cycle = Fixture.make(Clock).when("cycle", {})
+
+        assert.instanceOf(yield* defectOf(cycle.expectEvent("Tick")), Fixture.ExpectationFailed)
+        assert.instanceOf(yield* defectOf(cycle.expectEvents(["Tick"])), Fixture.ExpectationFailed)
+        assert.instanceOf(yield* defectOf(cycle.expectEvents(["Tick", "Tock", "Tock"])), Fixture.ExpectationFailed)
+        assert.instanceOf(yield* defectOf(cycle.expectEvents(["Tock", "Tick"])), Fixture.ExpectationFailed)
+      }))
+
+    it.effect("surfaces what inspectState throws", () =>
+      Effect.gen(function*() {
+        const failure = new Error("wrong state")
+
+        const defect = yield* defectOf(
+          createMilk.inspectState(() => {
+            throw failure
+          })
+        )
+
+        assert.strictEqual(defect, failure)
+      }))
+  })
 })
