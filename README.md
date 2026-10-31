@@ -1,7 +1,13 @@
 # effect-cqrs
 
-CQRS and event sourcing for [Effect](https://effect.website) v4, modelled on
-[moleculer-cqrs](https://github.com/davidnussio/moleculer-cqrs).
+This is a trial port of an old project,
+[moleculer-cqrs](https://github.com/davidnussio/moleculer-cqrs), to
+[Effect](https://effect.website) v4. The original is a CQRS and event sourcing module
+for [Moleculer](https://moleculer.services), written in 2019. This repository
+rebuilds the same ideas on Effect to find out how well they carry over.
+
+It's an experiment, not a maintained library: it isn't published, the API may change,
+and [Limitations](#limitations) lists what the port leaves out.
 
 Commands decide on events, events are the only source of truth, and read models
 are projections you can throw away and rebuild.
