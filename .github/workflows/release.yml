@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      # npm provenance: the package records which workflow run built it.
+      # Trusted publishing: npm checks through OIDC that this workflow publishes,
+      # so there is no token, and the package gets provenance on the way.
       id-token: write
     steps:
       - uses: actions/checkout@v7
@@ -61,10 +62,15 @@ jobs:
       - name: Check the package as npm would serve it
         run: node scripts/check-package.ts
 
+      # pnpm packs, because only pnpm applies publishConfig's exports. npm publishes,
+      # because trusted publishing needs npm 11.5.1 or later.
+      - name: Pack effect-cqrs
+        run: pnpm pack --pack-destination "$RUNNER_TEMP/package"
+
       - name: Publish effect-cqrs to npm
-        run: pnpm publish --no-git-checks --tag ${{ steps.version.outputs.tag }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          npm install --global npm@11
+          npm publish "$RUNNER_TEMP"/package/effect-cqrs-*.tgz --access public --tag ${{ steps.version.outputs.tag }}
 
       # Back to the branch the release was cut from, so package.json matches npm.
       - name: Commit version bump

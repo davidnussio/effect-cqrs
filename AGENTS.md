@@ -24,7 +24,7 @@ Run `pnpm check` and `pnpm test` before finishing any change, with Postgres runn
 
 In this repository `effect-cqrs` resolves to the TypeScript sources. `publishConfig` points the published package at `dist` instead, so a change to `exports` belongs in both places. `node scripts/check-package.ts` packs the package, installs it in a new project and runs and type checks it there: run it after touching the build or `package.json`.
 
-Releases follow `.changeset/README.md`: changesets for the changelog, then a GitHub release tagged `v<version>`, which `.github/workflows/release.yml` publishes to npm with the `NPM_TOKEN` secret.
+Releases follow `.changeset/README.md`: changesets for the changelog, then a GitHub release tagged `v<version>`, which `.github/workflows/release.yml` publishes to npm. It uses npm trusted publishing, so there is no token: npmjs.com lists this repository and `release.yml` as the package's trusted publisher, and renaming the workflow breaks publishing.
 
 ## Vendored Repositories
 
