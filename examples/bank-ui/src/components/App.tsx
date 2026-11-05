@@ -6,6 +6,9 @@ import { BankApp } from "./BankApp.tsx"
 import { DevTools } from "./DevTools.tsx"
 import { AnimatedNumber, Button } from "./ui.tsx"
 
+// The documentation site serves the demo under its own /demo/.
+const docsUrl = import.meta.env.BASE_URL.endsWith("/demo/") ? `${import.meta.env.BASE_URL}../` : undefined
+
 export const App = () => {
   // A position while time travelling: the app then shows a fold of the events up
   // to there instead of the read model.
@@ -27,6 +30,11 @@ export const App = () => {
           </div>
         </div>
         <div className="ml-auto flex items-center gap-5 font-mono text-[11px] text-white/50">
+          {docsUrl !== undefined && (
+            <a href={docsUrl} className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white">
+              Docs ↗
+            </a>
+          )}
           <Stat label="events" value={head(events)} />
           <Stat label="streams" value={new Set(events.map((e) => e.aggregateId)).size} />
           <Button tone="ghost" onClick={() => {

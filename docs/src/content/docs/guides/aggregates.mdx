@@ -1,0 +1,94 @@
+---
+title: Aggregates
+description: Events, a projection that folds them into state, and commands that decide on new events.
+---
+
+An aggregate is the unit that commands change. It has three parts: a schema of the events
+that can happen to it, a projection that folds those events into its current state, and
+commands that look at the state and decide which events happen next.
+
+```ts
+import { DateTime, Effect, Schema } from "effect"
+import { Aggregate } from "effect-cqrs"
+
+const TodoEvent = Schema.TaggedUnion({
+  TodoCreated: { title: Schema.NonEmptyString, createdAt: Schema.DateTimeUtc },
+  TodoDeleted: { deletedAt: Schema.DateTimeUtc }
+})
+
+class TodoAlreadyDeleted extends Schema.TaggedError<TodoAlreadyDeleted>()("TodoAlreadyDeleted", {}) {}
+
+type TodoState = { readonly title: string; readonly deleted: boolean }
+
+const Todo = Aggregate.make<TodoState>()({
+  name: "todo",
+  events: TodoEvent,
+  initial: { title: "", deleted: false },
+  projection: {
+    TodoCreated: (state, { title }) => ({ ...state, title }),
+    TodoDeleted: (state) => ({ ...state, deleted: true })
+  }
+})
+  .command("createTodo", {
+    payload: Schema.Struct({ title: Schema.NonEmptyString }),
+    handler: Effect.fnUntraced(function*(_, { title }) {
+      return TodoEvent.cases.TodoCreated.make({ title, createdAt: yield* DateTime.now })
+    })
+  })
+  .command("deleteTodo", {
+    payload: Schema.Struct({}),
+    handler: Effect.fnUntraced(function*(state) {
+      if (state.deleted) return yield* new TodoAlreadyDeleted()
+      return TodoEvent.cases.TodoDeleted.make({ deletedAt: yield* DateTime.now })
+    })
+  })
+```
+
+## Events
+
+Events are a `Schema.TaggedUnion`. The store keeps them as JSON through the schema's
+JSON codec, so a field like `Schema.DateTimeUtc` round-trips. `TodoEvent.cases.TodoCreated.make`
+builds an event and fills in its `_tag`.
+
+## The projection
+
+The projection has one function per event tag, and it must cover every tag or the
+aggregate doesn't compile. Each function takes the state, the event and its metadata
+(`aggregateName`, `aggregateId`, `version`, `position` and `timestamp`), and returns the new
+state.
+
+`Aggregate.make<State>()` takes the state type explicitly, in a curried call like
+`Schema.TaggedError<X>()`. Inferred from `initial`, a literal such as `status: "open"` would
+widen to `string`.
+
+## Commands
+
+`.command(name, { payload, handler })` adds a command. The payload is a schema, and the
+service validates every call against it before the handler runs.
+
+The handler receives the current state, the decoded payload, and the aggregate's id and
+version. It returns an `Effect` with one event, an array of events, or `[]` to record
+nothing. It can fail with typed errors, which reach the caller unchanged, and it can use
+services, which the service picks up when it is built.
+
+A handler should only decide, for three reasons:
+
+- **It may run more than once.** A command that loses a race with another process
+  reloads the state and runs again.
+- **The state is shared.** The service keeps recent states between commands, so a handler
+  or projection that mutates one corrupts the next command.
+- **Commands on one aggregate take turns.** A handler that runs a command on its own
+  aggregate waits for itself.
+
+## Types from an aggregate
+
+The `Aggregate` module derives types from the definition, for code around it:
+
+| Type | What it is |
+| --- | --- |
+| `Aggregate.State<typeof Todo>` | The state |
+| `Aggregate.Event<typeof Todo>` | The union of its events |
+| `Aggregate.CommandName<typeof Todo>` | `"createTodo" \| "deleteTodo"` |
+| `Aggregate.Payload<typeof Todo, "createTodo">` | `{ readonly title: string }` |
+| `Aggregate.CommandError<typeof Todo, "deleteTodo">` | `TodoAlreadyDeleted` |
+| `Aggregate.Context<typeof Todo>` | The services its handlers need |

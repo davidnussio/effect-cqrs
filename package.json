@@ -20,6 +20,9 @@
     "test:watch": "vitest",
     "example": "node examples/todo/main.ts",
     "ui": "vite examples/bank-ui",
+    "docs": "astro dev --root docs",
+    "docs:build": "vite build examples/bank-ui --base \"${DOCS_BASE:-/effect-cqrs}/demo/\" --outDir ../../docs/public/demo --emptyOutDir && astro build --root docs",
+    "docs:preview": "astro preview --root docs",
     "bench": "node bench/performance.ts",
     "stress": "node --expose-gc bench/stress.ts"
   },
@@ -27,6 +30,7 @@
     "effect": "^4.0.6"
   },
   "devDependencies": {
+    "@astrojs/starlight": "^0.42.7",
     "@effect/platform-node": "^4.0.6",
     "@effect/sql-pg": "^4.0.6",
     "@effect/sql-sqlite-node": "^4.0.6",
@@ -36,6 +40,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "astro": "^7.4.4",
     "effect": "^4.0.6",
     "motion": "^14.7.1",
     "react": "^19.3.1",

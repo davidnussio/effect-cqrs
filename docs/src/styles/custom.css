@@ -1,0 +1,12 @@
+/* The violet of the bank demo, so the site and the demo look related. */
+:root {
+  --sl-color-accent-low: #241a52;
+  --sl-color-accent: #7c5cff;
+  --sl-color-accent-high: #d6ccff;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #e7e1ff;
+  --sl-color-accent: #6143e6;
+  --sl-color-accent-high: #2a1b6e;
+}

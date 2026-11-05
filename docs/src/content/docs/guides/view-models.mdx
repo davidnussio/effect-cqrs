@@ -1,0 +1,107 @@
+---
+title: View models
+description: Project events into read models that catch up after downtime and can be rebuilt.
+---
+
+import { Aside } from "@astrojs/starlight/components"
+
+A view model folds events into whatever shape a query needs: a list, a total, a table.
+Each one reads the event store from its own checkpoint, so it catches up after downtime
+and can't miss an event.
+
+```ts
+import { Checkpoints, ViewModel } from "effect-cqrs"
+
+const TodoList = ViewModel.make({
+  name: "todo-list",
+  aggregates: [Todo],
+  dispose: clearList, // runs before a replay
+  handlers: {
+    TodoCreated: ({ title }, { aggregateId }) => addToList(aggregateId, title),
+    TodoDeleted: (_, { aggregateId }) => removeFromList(aggregateId)
+  }
+})
+
+const program = Effect.gen(function*() {
+  const todos = yield* AggregateService.make(Todo)
+  const viewModels = yield* ViewModel.ViewModels
+
+  const { position } = yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" })
+  yield* viewModels.caughtUp(position) // read your own write
+
+  yield* viewModels.replay({ viewModels: ["todo-list"] })
+  yield* viewModels.status
+}).pipe(
+  Effect.provide(ViewModel.layer([TodoList]).pipe(
+    Layer.provideMerge(Layer.merge(EventStore.layerMemory, Checkpoints.layerMemory))
+  ))
+)
+```
+
+## Defining one
+
+`handlers` has one function per event tag the view model cares about, and only accepts
+tags of its `aggregates`. Each gets the decoded event and its metadata. `dispose` clears
+everything the view model stored, before a replay rebuilds it.
+
+`ViewModel.layer([...])` starts the view models in the background for as long as the layer
+lives, and provides the `ViewModels` service. It needs an `EventStore`, `Checkpoints` and
+whatever services the handlers use.
+
+## At least once
+
+A view model pulls events from the store, rather than waiting for them to be pushed, so an
+event can't be lost while it is down. It saves its checkpoint every 500 events and when it
+stops, so after a crash it can see up to two batches of events again.
+
+<Aside>
+Handlers must be idempotent. The bank demo's accounts view, for instance, ignores an
+event whose position it has already applied.
+</Aside>
+
+## Reading your own writes
+
+A command returns the position of its last event. `viewModels.caughtUp(position)` waits
+until every view model has processed it, so a client can read what it just wrote.
+Without a position it waits for the latest event in the store.
+
+## Failing handlers
+
+A handler that fails stalls its view model on that event, which then retries: after
+100 ms, then twice as long each time it fails at the same place, up to 30 seconds. Once it
+moves on, the next failure starts again from 100 ms. Events are never skipped or
+reordered.
+
+`viewModels.status` lists each view model's position and the failure it is retrying, if any.
+A stalled view model doesn't catch up, so put a timeout on `caughtUp` where that matters.
+
+## Replay
+
+`viewModels.replay({ viewModels: ["todo-list"] })` clears the checkpoint, runs `dispose`
+and rebuilds the view model from the log. `startTime` and `finishTime` limit which events
+go in: the view model then resumes from the present, and events outside the window stay
+out of it.
+
+Moleculer-cqrs needed replay to recover events lost on the broker. Here view models can't
+lose events, so replay is for rebuilding a view model that changed, or one that got damaged.
+
+## Checkpoints
+
+A checkpoint has to live as long as its view model:
+
+- A view model kept in memory pairs with `Checkpoints.layerMemory`, and rebuilds itself on
+  every start.
+- A view model stored in a database pairs with that database's checkpoints,
+  `SqliteEventStore.layerCheckpoints()` or `PostgresEventStore.layerCheckpoints()`.
+
+## Keeping up
+
+View models within 500 events of the end of the log share one read of it, and decode
+each event once. Commands give other fibers a turn every millisecond, so a burst of
+commands doesn't starve the view models. A slow handler still falls behind without slowing
+the writers down, and catches up when they stop.
+
+## Other subscribers
+
+Anything else that reacts to events, such as a saga, can use `store.subscribe(filter)`: a
+stream of past events, followed by live ones. The bank demo's transfer saga is one.

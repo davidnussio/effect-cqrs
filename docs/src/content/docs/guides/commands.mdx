@@ -1,0 +1,96 @@
+---
+title: Commands
+description: Run commands, read state and history, and know how concurrent writers behave.
+---
+
+`AggregateService.make(aggregate)` runs an aggregate against the event store. It is the
+`command`, `read-model` and `history` actions of moleculer-cqrs, as a typed service.
+
+```ts
+import { AggregateService, EventStore } from "effect-cqrs"
+
+const program = Effect.gen(function*() {
+  const todos = yield* AggregateService.make(Todo)
+
+  // Typed call
+  yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" })
+
+  // Untyped JSON from a transport, validated before running
+  yield* todos.dispatch({ aggregateId: "todo-2", type: "createTodo", payload: { title: "Buy Eggs" } })
+
+  yield* todos.readModel("todo-1")
+  yield* todos.readModel("todo-1", { finishTime }) // state as it was before finishTime
+  yield* todos.history("todo-1", { payload: true })
+}).pipe(Effect.provide(EventStore.layerMemory))
+```
+
+## Running a command
+
+`todos.commands` has one function per command, typed from the aggregate. Each takes the
+aggregate's id and the payload, and returns a `CommandResult`:
+
+| Field | What it is |
+| --- | --- |
+| `aggregateName`, `aggregateId` | The aggregate it ran on |
+| `events` | The events it recorded, possibly none |
+| `version` | The aggregate's version afterwards |
+| `position` | The store position of the last event, for [`caughtUp`](../view-models/#reading-your-own-writes) |
+
+`dispatch` takes the envelope a transport hands over, `{ aggregateId, type, payload }`, as
+`unknown`. It checks the envelope and decodes the payload with the command's JSON codec, so
+an ISO string becomes a `DateTime`. This is the entry point to wire into an HTTP or RPC
+layer.
+
+## Errors
+
+A command fails with the errors its handler declares, plus:
+
+| Error | When |
+| --- | --- |
+| `InvalidCommand` | The payload, or for `dispatch` the envelope, doesn't match its schema |
+| `UnknownCommand` | `dispatch` names a command the aggregate doesn't have |
+| `ConcurrencyConflict` | Another process kept winning the race for this aggregate |
+| `EventStoreError` | The store failed |
+| `EventDecodeError` | A stored event no longer matches the schema |
+
+## Reading
+
+- `readModel(id)` folds the aggregate's events into its state. With `finishTime` it gives
+  the state as it was before that moment.
+- `history(id)` lists the aggregate's events as `{ version, timestamp, type }`, with the
+  decoded event as `payload` when you ask for it. `startTime` and `finishTime` narrow the
+  window.
+
+## Concurrent writers
+
+Inside a service, commands on one aggregate take turns, so they can't race. Commands on
+different aggregates don't wait for each other.
+
+Writers in different processes use optimistic concurrency. A command appends its events
+with the version its decision was based on, and if another process got there first, it
+backs off, reloads the state and decides again. After `maxRetries` attempts, 5 by default,
+it fails with `ConcurrencyConflict`.
+
+## Remembered state
+
+The service keeps the state of the aggregates it used recently, so a command only reads
+the events it hasn't seen yet. Those can come from another process too: a state plus what
+came after it is always the current state. After a restart, the first command on an
+aggregate replays its whole stream.
+
+```ts
+const todos = yield* AggregateService.make(Todo, {
+  maxRetries: 5, // re-decisions after losing to another process
+  stateCacheSize: 10_000 // aggregates kept in memory, 0 to turn it off
+})
+```
+
+## As a service
+
+To use one service from several places, put it in a layer, as the todo example does:
+
+```ts
+class Todos extends Context.Service<Todos, AggregateService.AggregateService<typeof Todo>>()("example/Todos") {
+  static readonly layer = Layer.effect(Todos, AggregateService.make(Todo))
+}
+```

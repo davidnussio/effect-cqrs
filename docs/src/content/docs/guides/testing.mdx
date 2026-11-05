@@ -1,0 +1,71 @@
+---
+title: Testing
+description: Test an aggregate with givenEvents, when and expectEvent, like CQRSFixture.
+---
+
+import { Aside } from "@astrojs/starlight/components"
+
+`Fixture` tests an aggregate in isolation: given these events, when this command runs,
+what happens? It runs commands through the real service on an in-memory store, so payload
+validation and event encoding are tested too.
+
+It reads like the `CQRSFixture` of moleculer-cqrs. The chain is an `Effect`, which runs
+when you yield it or return it from `it.effect`:
+
+```ts
+import { assert, it } from "@effect/vitest"
+import { Fixture } from "effect-cqrs"
+
+it.effect("creates a todo", () =>
+  Fixture.make(Todo)
+    .givenEvents()
+    .when("createTodo", { title: "Buy Milk" })
+    .expectEvent(TodoEvent.cases.TodoCreated.make({ title: "Buy Milk", createdAt: DateTime.makeUnsafe(0) }))
+    .inspectState((state) => assert.strictEqual(state.title, "Buy Milk")))
+
+it.effect("runs commands one after another", () =>
+  Fixture.make(Todo)
+    .givenEvents([created])
+    .when("deleteTodo", {})
+    .expectEvent("TodoDeleted")
+    .when("createTodo", { title: "Buy Eggs" })
+    .expectEvents(["TodoCreated"]))
+
+it.effect("rejects deleting twice", () =>
+  Effect.gen(function*() {
+    const error = yield* Fixture.make(Todo)
+      .givenEvents([created, deleted])
+      .whenFails("deleteTodo", {})
+
+    assert.strictEqual(error._tag, "TodoAlreadyDeleted")
+  }))
+```
+
+## The chain
+
+| Step | What it does |
+| --- | --- |
+| `givenEvents(events?, aggregateId?)` | The history the commands run against, empty by default |
+| `when(command, payload)` | Runs a command, typed against the aggregate. A command that fails stops the chain with its error |
+| `expectEvent(event)` | The last command emitted exactly this event |
+| `expectEvents([...])` | The last command emitted exactly these events, in order. `[]` means it recorded nothing |
+| `inspectState(check)` | Passes the state to a callback that throws to fail the test, so any assertion library works |
+| `whenFails(command, payload)` | Runs a command that should fail, and returns its error. It dies if the command succeeds |
+
+An expected event is either a whole event, compared with the aggregate's schema, or only
+its tag. A mismatch dies with `ExpectationFailed`, which carries what was expected and
+what happened, and Vitest shows the difference.
+
+Yielding the chain gives `{ events, state, version, fixture }` for the last command, if
+you'd rather write plain assertions.
+
+<Aside type="caution">
+The chain is lazy. Built and never yielded or returned, it checks nothing and the test
+passes.
+</Aside>
+
+## Time
+
+`it.effect` runs on a test clock stopped at zero, so timestamps need no mocking: an event
+created with `DateTime.now` has `DateTime.makeUnsafe(0)` until `TestClock.adjust` moves
+time.

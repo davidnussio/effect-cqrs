@@ -8,6 +8,10 @@ CQRS and event sourcing for Effect v4, inspired by `repos/moleculer-cqrs`.
 - `pnpm test`: run the test suite
 - `pnpm example`: run the todo example
 - `pnpm ui`: serve the bank demo in `examples/bank-ui`, which runs the framework in the browser
+- `pnpm docs`: serve the documentation site in `docs`, built with Astro Starlight
+- `pnpm docs:build`: build the documentation into `docs/dist`, with the bank demo under `/demo/`
+
+The example page quotes the demo's code between `// #region name` and `// #endregion` comments, and the docs build fails if one goes missing.
 - `pnpm bench`: measure performance, about 4 minutes
 - `pnpm stress`: run the stress scenarios at full size, about 5 minutes
 

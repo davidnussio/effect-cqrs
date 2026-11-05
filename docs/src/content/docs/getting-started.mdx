@@ -1,0 +1,68 @@
+---
+title: Getting started
+description: Clone the repository, run the tests and the examples.
+---
+
+import { FileTree, LinkCard, Steps } from "@astrojs/starlight/components"
+
+effect-cqrs isn't on npm. To try it, clone the repository: the examples import it as
+`effect-cqrs` through the package's own exports, which point at the TypeScript sources.
+Node runs those directly, with no build step.
+
+<Steps>
+
+1. Clone the repository and install the dependencies. It needs Node 24 or later and
+   pnpm.
+
+   ```bash
+   git clone https://github.com/davidnussio/effect-cqrs.git
+   cd effect-cqrs
+   pnpm install
+   ```
+
+2. Run the tests.
+
+   ```bash
+   pnpm test
+   ```
+
+3. Run the todo example. It is the moleculer-cqrs README walkthrough as a program, on an
+   in-memory SQLite database.
+
+   ```bash
+   pnpm example
+   ```
+
+4. Serve the bank demo at http://localhost:5173.
+
+   ```bash
+   pnpm ui
+   ```
+
+</Steps>
+
+## What's where
+
+<FileTree>
+
+- src/
+  - Aggregate.ts defines aggregates
+  - AggregateService.ts runs commands and reads state and history
+  - ViewModel.ts projects events into read models
+  - Checkpoints.ts remembers how far each view model has read
+  - EventStore.ts the log, and the store in memory
+  - SqliteEventStore.ts
+  - PostgresEventStore.ts
+  - Fixture.ts tests an aggregate in isolation
+- examples/
+  - todo/ the moleculer-cqrs walkthrough
+  - bank-ui/ the bank demo, in the browser
+- bench/ performance and stress tests, and their report
+- test/
+
+</FileTree>
+
+## Next steps
+
+<LinkCard title="Define an aggregate" href="../guides/aggregates/" />
+<LinkCard title="Walk through the bank demo" href="../example/bank/" />

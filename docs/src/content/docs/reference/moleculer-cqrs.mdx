@@ -1,0 +1,38 @@
+---
+title: Coming from moleculer-cqrs
+description: Where each part of moleculer-cqrs went.
+---
+
+effect-cqrs keeps the ideas of [moleculer-cqrs](https://github.com/davidnussio/moleculer-cqrs)
+and changes how they are put together: services and actions become an Effect service,
+validation becomes `Schema`, and thrown errors become typed ones.
+
+| moleculer-cqrs | effect-cqrs |
+| --- | --- |
+| `CQRSEventSourcing({ aggregate })` mixin | `AggregateService.make(aggregate)` |
+| `call todo.command` | `todos.commands.x(id, payload)` or `todos.dispatch(json)` |
+| `call todo.read-model` | `todos.readModel(id, { finishTime })` |
+| `call todo.history` | `todos.history(id, { payload, startTime, finishTime })` |
+| `call todo.replay` | `viewModels.replay({ viewModels, startTime, finishTime })` |
+| view model service with `events` | `ViewModel.make({ handlers, dispose })` |
+| `new CQRSFixture(aggregate)` | `Fixture.make(aggregate)` |
+| `.givenEvents([...])` | `.givenEvents([...])` |
+| `.when(createNews, payload)` | `.when("createNews", payload)` |
+| `.expectEvent(event)` | `.expectEvent(event)` or `.expectEvent("Tag")` |
+| `.inspectState(cb)` | `.inspectState(cb)` |
+| `.whenThrow(command).toThrow(...)` | `.whenFails(command, payload)`, which returns the error |
+| `fastest-validator` | `Schema` |
+| `throw` in a command | typed errors |
+| `resolve-storage-*` adapters | `EventStore.Backend` |
+
+## The read side
+
+The largest change is how view models get events. moleculer-cqrs broadcasts them over the
+broker, so an event sent while a service is down is lost until someone replays. Here view
+models pull from the store from their own checkpoint, so they can't miss one, and `replay`
+is for rebuilding a view model rather than for recovering events.
+
+## What isn't there
+
+There is no transport like the Moleculer broker: `dispatch` is the entry point to wire into
+your own HTTP or RPC layer. There is also no `cqrs generate`.

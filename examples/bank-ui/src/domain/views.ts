@@ -49,6 +49,7 @@ const everyEvent = (
   }
 }
 
+// #region accounts-view
 export const AccountsView = ViewModel.make({
   name: "accounts",
   aggregates: [Account],
@@ -89,6 +90,7 @@ export const AccountsView = ViewModel.make({
       })
     ))
 })
+// #endregion
 
 export const TotalsView = ViewModel.make({
   name: "bank-totals",

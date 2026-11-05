@@ -1,0 +1,127 @@
+---
+title: The bank demo
+description: A bank whose accounts are aggregates, three view models and a transfer saga, running in your browser.
+---
+
+import { Aside, Code, LinkCard } from "@astrojs/starlight/components"
+import account from "../../../../../examples/bank-ui/src/domain/account.ts?raw"
+import engine from "../../../../../examples/bank-ui/src/engine.ts?raw"
+import views from "../../../../../examples/bank-ui/src/domain/views.ts?raw"
+import { demoUrl, region, sourceUrl } from "../../../source.ts"
+
+export const accountFile = "examples/bank-ui/src/domain/account.ts"
+export const viewsFile = "examples/bank-ui/src/domain/views.ts"
+export const engineFile = "examples/bank-ui/src/engine.ts"
+
+<LinkCard
+  title="Open the live demo"
+  description="effect-cqrs in your browser, on the in-memory event store. Nothing leaves the page."
+  href={demoUrl}
+/>
+
+The demo is the classic event sourcing example, a bank, built on the framework as it is:
+the same sources the tests run, bundled for the browser. Bank accounts are aggregates,
+three view models project them, and a saga moves money between accounts.
+
+On the left, a customer app renders only the read models, so their lag behind the event
+store is visible. On the right, devtools slow each stage down, pause the command bus and
+step it, crash a projection, and travel back through the log.
+
+To run it locally:
+
+```bash
+pnpm ui
+```
+
+The code quoted below comes from the demo's sources when this site is built, so it can't
+drift from what runs.
+
+## The account aggregate
+
+An account's balance is never stored. It is folded from the money that went in and out,
+so the events are the whole truth:
+
+<Code code={region(account, "events")} lang="ts" title={accountFile} />
+
+The aggregate folds them into a state with a status, an owner and a balance, and its
+commands check that state before they decide:
+
+<Code code={region(account, "aggregate")} lang="ts" title={accountFile} />
+
+A command that would break a rule, such as withdrawing more than the balance, fails with a
+typed error and stores nothing. The customer app shows those rejections as they happen.
+
+## Transfers, between two aggregates
+
+A command changes one aggregate, and a transfer touches two. So it is split in two:
+`sendTransfer` debits the sender, and `receiveTransfer` credits the receiver once it hears
+about it.
+
+<Code code={region(account, "transfer")} lang="ts" title={accountFile} />
+
+`receiveTransfer` records the transfers it has credited. If it runs twice for the same
+transfer, the second time decides on nothing, so the saga below can safely retry.
+
+The saga follows `TransferSent` events with `store.subscribe`. It sends `receiveTransfer`
+to the other account, and when that is refused, because the account is closed for
+instance, it refunds the sender:
+
+<Code code={region(engine, "saga")} lang="ts" title={engineFile} />
+
+Between the two steps the money is in flight. The bank vault, a view model, shows that
+amount.
+
+## Three view models
+
+Each view model folds the same events into a different shape, keeps its own checkpoint, and
+can be thrown away and rebuilt:
+
+- **accounts**: one row per account, with its balance, for the customer app.
+- **bank-totals**: money in the bank, money in flight, and counts by event type.
+- **activity-feed**: the latest 40 events, as sentences.
+
+Their storage is a plain object outside React and Effect, so the screen shows exactly what
+they hold. Delivery is at least once, so the accounts view ignores an event whose position
+it has already applied:
+
+<Code code={region(views, "accounts-view")} lang="ts" title={viewsFile} />
+
+`bank-totals` has a switch in the devtools that makes its handler fail. Turn it on and the
+view model stalls on that event and retries with backoff, while the other two carry on.
+Turn it off and it catches up, without skipping anything.
+
+## Commands, through `dispatch`
+
+Every command in the demo, from the customer app, the saga, the autopilot or the raw JSON
+console, goes through `dispatch`, the entry point for untyped input:
+
+<Code code={region(engine, "dispatch")} lang="ts" title={engineFile} />
+
+## Wiring it together
+
+The whole engine is a layer: the in-memory store and checkpoints, the service, the view
+models, and the background fibers that mirror events to the devtools, run the saga, poll
+the view models' status and send random traffic.
+
+<Code code={region(engine, "wiring")} lang="ts" title={engineFile} />
+
+A `ManagedRuntime` runs it, and React reaches it through plain functions. **Reset store**
+disposes the runtime and starts a new one.
+
+## The devtools
+
+| Tab | What you can do |
+| --- | --- |
+| Commands | Watch each command through validating, loading, deciding and appending. Slow those stages down, pause the bus and step it, run the autopilot, and send raw JSON to `dispatch` |
+| Event store | Read the log as it grows |
+| Projections | See each view model's checkpoint and lag, crash `bank-totals`, and rebuild one |
+| Time travel | Scrub through the log: the customer app becomes a preview, where each account is its events up to the cursor folded with the aggregate's projection. Replay view models up to a chosen event, or entirely |
+
+<Aside>
+Replaying up to an event uses the `finishTime` of `viewModels.replay`, since the replay
+API takes a time window rather than a position.
+</Aside>
+
+## Source
+
+<LinkCard title="examples/bank-ui on GitHub" href={sourceUrl("examples/bank-ui")} />

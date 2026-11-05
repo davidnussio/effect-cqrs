@@ -9,6 +9,9 @@ rebuilds the same ideas on Effect to find out how well they carry over.
 It's an experiment, not a maintained library: it isn't published, the API may change,
 and [Limitations](#limitations) lists what the port leaves out.
 
+The documentation, with a walkthrough of the bank demo, is at
+https://davidnussio.github.io/effect-cqrs/.
+
 Commands decide on events, events are the only source of truth, and read models
 are projections you can throw away and rebuild.
 
@@ -24,7 +27,7 @@ Requires Node 24 or later. The example needs `node:sqlite` and runs TypeScript
 directly.
 
 `pnpm ui` serves an interactive demo at http://localhost:5173, also published at
-https://davidnussio.github.io/effect-cqrs/. It runs the framework
+https://davidnussio.github.io/effect-cqrs/demo/. It runs the framework
 in the browser on the in-memory store: a bank whose accounts are aggregates, three
 view models, and a saga for transfers. Its devtools slow commands and projections
 down, pause and step the command bus, crash a projection, scrub through the log and

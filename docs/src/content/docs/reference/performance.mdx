@@ -1,0 +1,50 @@
+---
+title: Performance
+description: What a command costs on each store, and what the stress tests checked.
+---
+
+import { LinkCard } from "@astrojs/starlight/components"
+import { sourceUrl } from "../../../source.ts"
+
+These numbers come from one laptop, an Apple M4 Pro on Node 26, with PostgreSQL 18 in
+Docker on the same machine. Treat them as orders of magnitude, not as a promise.
+
+| | SQLite file | PostgreSQL |
+| --- | ---: | ---: |
+| Command on an aggregate, p50 | 0.10 ms | 0.83 ms |
+| Command on an aggregate with 100,000 events, p50 | 0.14 ms | about 1 ms |
+| First load of an aggregate with 100,000 events, after a restart | 284 ms | 552 ms |
+| Append, 1 event per transaction | 13,567 events/s | 803 events/s |
+| Append, 100 events per transaction | 117,367 events/s | 31,423 events/s |
+| Ingest a million events with a view model following | 35 s | 118 s |
+| Replay a million events | 4.6 s | 12.4 s |
+| Space for a million events | 196 MB | 312 MB |
+
+- **A command costs the same whatever the store holds.** The service remembers recent
+  state and reads only new events.
+- **Commits are what cost.** Batching events into fewer commands helps more than anything
+  else. Concurrency doesn't: SQLite has one writer, and PostgreSQL writers queue for the
+  counter that numbers events.
+- **The first use of a long aggregate after a restart replays it**, at about 3 µs per
+  event on SQLite. There are no persistent snapshots.
+
+## Nothing lost
+
+Ten stress scenarios ran on both databases and broke no invariant. They included two runs
+of a million events, writer processes killed with `SIGKILL` while committing, three at a
+time on the same aggregates, view models restarted mid-batch, handlers failing on purpose,
+and 128 writers on one aggregate. Every acknowledged event was stored exactly once,
+positions and versions had no gaps, and no killed command left half its events behind.
+
+## Run them yourself
+
+```bash
+pnpm bench
+pnpm stress
+```
+
+<LinkCard
+  title="The full report"
+  description="Every measurement, what the tests found and fixed, and the limits that remain."
+  href={sourceUrl("bench/REPORT.md")}
+/>

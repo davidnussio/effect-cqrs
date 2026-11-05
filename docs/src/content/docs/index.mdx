@@ -1,0 +1,64 @@
+---
+title: CQRS and event sourcing for Effect v4
+description: CQRS and event sourcing for Effect v4, a trial port of moleculer-cqrs.
+template: splash
+hero:
+  title: effect-cqrs
+  tagline: CQRS and event sourcing for Effect v4. Commands decide on events, events are the only source of truth, and read models are projections you can throw away and rebuild.
+  actions:
+    - text: Get started
+      link: getting-started/
+      icon: right-arrow
+    - text: Try the live demo
+      link: demo/
+      variant: minimal
+      icon: external
+---
+
+import { Aside, Card, CardGrid } from "@astrojs/starlight/components"
+
+<Aside type="caution" title="A trial port">
+This is an experiment that ports [moleculer-cqrs](https://github.com/davidnussio/moleculer-cqrs),
+a CQRS and event sourcing module for Moleculer written in 2019, to
+[Effect](https://effect.website) v4. It isn't published to npm, and the API may change.
+</Aside>
+
+<CardGrid stagger>
+  <Card title="Aggregates" icon="puzzle">
+    A schema of events, a projection folding them into state, and commands that decide on
+    new events with typed errors. [Define one](guides/aggregates/).
+  </Card>
+  <Card title="Commands" icon="rocket">
+    Typed calls or JSON from a transport, validated, with optimistic concurrency between
+    processes. [Run them](guides/commands/).
+  </Card>
+  <Card title="View models" icon="list-format">
+    Projections that pull from the store at their own checkpoint, so they can't miss an
+    event and can be rebuilt any time. [Project events](guides/view-models/).
+  </Card>
+  <Card title="Testing" icon="approve-check">
+    `givenEvents`, `when`, `expectEvent`: the moleculer-cqrs fixture, as an Effect that
+    runs in `it.effect`. [Test an aggregate](guides/testing/).
+  </Card>
+  <Card title="Storage" icon="seti:db">
+    In memory for tests, SQLite or PostgreSQL through `effect/sql`, or your own backend.
+    [Pick a store](guides/storage/).
+  </Card>
+  <Card title="A bank in your browser" icon="laptop">
+    Accounts, three view models and a transfer saga, with devtools to slow, pause, crash
+    and replay them. [Read the walkthrough](example/bank/).
+  </Card>
+</CardGrid>
+
+## How a command flows
+
+1. A command arrives, as a typed call or as JSON, and its payload is validated against
+   its schema.
+2. The service loads the aggregate's state from its events, or from memory when it saw
+   the aggregate recently, and the handler decides which events happened.
+3. The events are appended to the store, but only if nobody else wrote to that
+   aggregate since the state was loaded.
+4. Each view model reads the new events from its own checkpoint and updates its read
+   model. A client that needs its own write waits with `caughtUp`.
+
+The [bank demo](demo/) shows these stages one at a time.

@@ -1,0 +1,85 @@
+---
+title: Modules
+description: What each module of effect-cqrs exports.
+---
+
+import { sourceUrl } from "../../../source.ts"
+
+Everything is exported from `effect-cqrs` as a namespace, as in
+`import { Aggregate, ViewModel } from "effect-cqrs"`, and each module also has its own path,
+such as `effect-cqrs/ViewModel`.
+
+## Aggregate
+
+Defines aggregates. <a href={sourceUrl("src/Aggregate.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `make<State>()({ name, events, initial, projection })` | Starts an aggregate, to which `.command(name, { payload, handler })` adds commands |
+| `evolve(aggregate, state, event, meta)` | Applies one event with the aggregate's projection |
+| `EventMeta`, `CommandContext` | What projections and handlers receive besides the event or payload |
+| `State`, `Event`, `CommandName`, `Payload`, `CommandError`, `Context` | Types derived from an aggregate |
+
+## AggregateService
+
+Runs an aggregate against the event store. <a href={sourceUrl("src/AggregateService.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `make(aggregate, { maxRetries, stateCacheSize })` | The service: `commands`, `dispatch`, `readModel`, `history` |
+| `CommandResult`, `HistoryEntry` | What a command and `history` return |
+| `UnknownCommand`, `InvalidCommand`, `EventDecodeError` | Its errors, besides the store's |
+| `makeEventDecoder`, `makeEventEncoder` | Convert between stored JSON and an aggregate's events |
+
+## ViewModel
+
+Projects events into read models. <a href={sourceUrl("src/ViewModel.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `make({ name, aggregates, handlers, dispose })` | Defines a view model |
+| `layer([...])` | Runs view models in the background and provides `ViewModels` |
+| `ViewModels` | The service: `replay`, `caughtUp`, `status` |
+| `ViewModelError`, `UnknownViewModel` | A handler's failure, and a replay of an unknown name |
+
+## EventStore
+
+The append-only log. <a href={sourceUrl("src/EventStore.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `EventStore` | The service: `append`, `read`, `subscribe`, `head`, `changes` |
+| `layerMemory`, `makeMemory` | The store in memory |
+| `make(backend)`, `Backend` | Builds a store on another database |
+| `StoredEvent`, `EventFilter`, `AppendInput` | What it stores, selects and takes |
+| `ConcurrencyConflict`, `EventStoreError` | Its errors |
+
+## Checkpoints
+
+How far each view model has read. <a href={sourceUrl("src/Checkpoints.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `Checkpoints` | The service: `get` and `set` |
+| `layerMemory` | Checkpoints in memory |
+
+## SqliteEventStore and PostgresEventStore
+
+Durable stores through `effect/sql`. <a href={sourceUrl("src/SqliteEventStore.ts")}>SQLite</a>,
+<a href={sourceUrl("src/PostgresEventStore.ts")}>PostgreSQL</a>
+
+| Export | What it is |
+| --- | --- |
+| `layer(options)` | The event store, given a `SqlClient` |
+| `layerCheckpoints(options)` | Checkpoints in the same database |
+| `Options` | `eventsTable` and `checkpointsTable` |
+
+## Fixture
+
+Tests an aggregate. <a href={sourceUrl("src/Fixture.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `make(aggregate)` | A fixture: `givenEvents`, `when`, `whenFails`, `inspectState` |
+| `Scenario`, `Outcome` | The chain, and what yielding it gives |
+| `ExpectationFailed` | The defect a failed expectation raises |

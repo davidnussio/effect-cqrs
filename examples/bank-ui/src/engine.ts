@@ -69,6 +69,7 @@ const BusLayer = Layer.effect(
           yield* advance("loading")
           yield* advance("deciding")
           yield* advance("appending")
+          // #region dispatch
           // `dispatch` is the real entry point: it validates the JSON envelope and
           // payload, rehydrates the aggregate, runs the handler and appends.
           const outcome = yield* bank.dispatch(input).pipe(
@@ -81,6 +82,7 @@ const BusLayer = Layer.effect(
             Effect.catch((error) => Effect.succeed(describeError(error))),
             Effect.catchDefect((defect) => Effect.succeed(describeError(defect)))
           )
+          // #endregion
           devstore.finish(id, outcome)
           return outcome
         }))
@@ -116,6 +118,7 @@ const Bridge = Layer.effectDiscard(Effect.gen(function*() {
   )
 }))
 
+// #region saga
 /**
  * A transfer touches two aggregates, so no single command can do it. The saga
  * reacts to `TransferSent` by crediting the other account, and refunds the
@@ -147,6 +150,7 @@ const TransferSaga = Layer.effectDiscard(Effect.gen(function*() {
     Effect.forkScoped
   )
 }))
+// #endregion
 
 /** Polls `ViewModels.status` so the devtools show each checkpoint and stall. */
 const StatusPoll = Layer.effectDiscard(Effect.gen(function*() {
@@ -212,6 +216,7 @@ const Autopilot = Layer.effectDiscard(Effect.gen(function*() {
   }).pipe(Effect.forever, Effect.forkScoped)
 }))
 
+// #region wiring
 const Storage = Layer.merge(EventStore.layerMemory, Checkpoints.layerMemory)
 
 const Core = Layer.merge(
@@ -222,6 +227,7 @@ const Core = Layer.merge(
 const WithBus = BusLayer.pipe(Layer.provideMerge(Core))
 
 const Main = Layer.mergeAll(Bridge, TransferSaga, StatusPoll, Autopilot).pipe(Layer.provideMerge(WithBus))
+// #endregion
 
 const seed: ReadonlyArray<CommandInput> = [
   { aggregateId: "alice", type: "openAccount", payload: { owner: "Alice", color: palette[0] } },

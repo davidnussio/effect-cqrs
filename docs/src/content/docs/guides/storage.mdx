@@ -1,0 +1,91 @@
+---
+title: Storage
+description: Keep events in memory, in SQLite or in PostgreSQL, or write your own backend.
+---
+
+The event store is an append-only log. Every event belongs to a stream, one aggregate of
+one type, and has two coordinates: a `version` that orders it in its stream, and a
+`position` that orders it across the whole store. Writers use the version for optimistic
+concurrency, and readers use the position as a cursor.
+
+| Store | For |
+| --- | --- |
+| `EventStore.layerMemory` | Tests, examples, the browser |
+| `SqliteEventStore` | One process, on a local file |
+| `PostgresEventStore` | A server, possibly with several processes writing |
+
+## In memory
+
+`EventStore.layerMemory` keeps events in process memory. They don't survive a restart.
+
+## SQLite
+
+Provide any `effect/sql` SQLite client:
+
+```ts
+import { SqliteClient } from "@effect/sql-sqlite-node"
+import { SqliteEventStore } from "effect-cqrs"
+
+const Storage = Layer.merge(SqliteEventStore.layer(), SqliteEventStore.layerCheckpoints()).pipe(
+  Layer.provide(SqliteClient.layer({ filename: "./data/events.sqlite" }))
+)
+```
+
+The tables are created on startup. Positions rely on SQLite having a single writer, so
+the schema doesn't carry over to other databases.
+
+## PostgreSQL
+
+Provide an `effect/sql` PostgreSQL client:
+
+```ts
+import { PgClient } from "@effect/sql-pg"
+import { PostgresEventStore } from "effect-cqrs"
+
+const Storage = Layer.merge(PostgresEventStore.layer(), PostgresEventStore.layerCheckpoints()).pipe(
+  Layer.provide(PgClient.layer({ url: Redacted.make("postgres://localhost:5432/cqrs") }))
+)
+```
+
+A sequence can't number events: transactions commit in a different order from the one they
+drew their numbers in, so a view model that has read up to 6 would never come back for a 5
+that commits later. Positions come from a counter row instead, which an append holds until
+it commits. Writers wait for each other at that one step, and positions follow commit order
+with no gaps.
+
+- Several processes can write to one database, but a view model only wakes on appends from
+  its own process.
+- After a bulk load, run `ANALYZE`. Until autovacuum gets to a new table, reads for view
+  models are slow.
+
+To run the tests on PostgreSQL, start the database of `docker-compose.yml` and say where it
+is. `pnpm test` then covers it too.
+
+```bash
+docker compose up -d --wait
+POSTGRES_URL=postgres://postgres:postgres@localhost:5432/cqrs pnpm test
+```
+
+## Options
+
+Both databases take table names, so several stores can share one database:
+
+```ts
+SqliteEventStore.layer({ eventsTable: "orders_events" })
+SqliteEventStore.layerCheckpoints({ checkpointsTable: "orders_checkpoints" })
+```
+
+## Your own backend
+
+Another database needs an `EventStore.Backend` with three operations, and
+`EventStore.make(backend)` builds the store on top:
+
+| Operation | What it does |
+| --- | --- |
+| `append(input)` | Appends atomically, failing with `ConcurrencyConflict` if the stream moved past `expectedVersion` |
+| `readBatch(filter, afterPosition, limit)` | Up to `limit` events past `afterPosition` that match the filter, by position |
+| `head` | The position of the latest event, `0` when the store is empty |
+
+Positions must follow commit order, so a backend on a database with concurrent writers has
+to guarantee that itself. The store tests in `test/EventStore.test.ts` run against every
+backend and show what each must do.

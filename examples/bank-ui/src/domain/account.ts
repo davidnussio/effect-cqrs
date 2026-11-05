@@ -7,6 +7,7 @@ import * as Aggregate from "effect-cqrs/Aggregate"
 
 const Amount = Schema.Int.check(Schema.isGreaterThan(0))
 
+// #region events
 export const AccountEvent = Schema.TaggedUnion({
   AccountOpened: { owner: Schema.NonEmptyString, color: Schema.String, openedAt: Schema.DateTimeUtc },
   MoneyDeposited: { amount: Amount },
@@ -16,6 +17,7 @@ export const AccountEvent = Schema.TaggedUnion({
   TransferRefunded: { transferId: Schema.String, to: Schema.String, amount: Amount, reason: Schema.String },
   AccountClosed: { closedAt: Schema.DateTimeUtc }
 })
+// #endregion
 export type AccountEvent = typeof AccountEvent.Type
 export type AccountEventType = AccountEvent["_tag"]
 
@@ -49,6 +51,7 @@ export interface AccountState {
 
 export const initialAccount: AccountState = { status: "none", owner: "", color: "", balance: 0, received: [] }
 
+// #region aggregate
 export const Account = Aggregate.make<AccountState>()({
   name: "account",
   events: AccountEvent,
@@ -81,6 +84,7 @@ export const Account = Aggregate.make<AccountState>()({
       return AccountEvent.cases.MoneyDeposited.make({ amount })
     })
   })
+  // #endregion
   .command("withdraw", {
     payload: Schema.Struct({ amount: Amount }),
     handler: Effect.fnUntraced(function*(state, { amount }, { aggregateId }) {
@@ -89,6 +93,7 @@ export const Account = Aggregate.make<AccountState>()({
       return AccountEvent.cases.MoneyWithdrawn.make({ amount })
     })
   })
+  // #region transfer
   .command("sendTransfer", {
     payload: Schema.Struct({ transferId: Schema.NonEmptyString, to: Schema.NonEmptyString, amount: Amount }),
     handler: Effect.fnUntraced(function*(state, { amount, to, transferId }, { aggregateId }) {
@@ -106,6 +111,7 @@ export const Account = Aggregate.make<AccountState>()({
       return AccountEvent.cases.TransferReceived.make({ transferId, from, amount })
     })
   })
+  // #endregion
   .command("refundTransfer", {
     payload: Schema.Struct({
       transferId: Schema.NonEmptyString,
