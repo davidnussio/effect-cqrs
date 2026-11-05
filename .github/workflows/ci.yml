@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    name: Typecheck & tests, with Postgres
+
+    # The same database as docker-compose.yml, so the Postgres tests run too.
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cqrs
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d cqrs"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    env:
+      POSTGRES_URL: postgres://postgres:postgres@localhost:5432/cqrs
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-and-build
+
+      - name: Typecheck
+        run: pnpm check
+
+      - name: Tests
+        run: pnpm test
+
+  package:
+    runs-on: ubuntu-24.04
+    name: Package (pack, install, run, type check)
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-and-build
+
+      - name: Check the package as npm would serve it
+        run: node scripts/check-package.ts

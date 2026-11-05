@@ -6,3 +6,6 @@ dist/
 # Built by `pnpm docs:build`
 docs/public/demo/
 docs/.astro/
+
+# Built by `pnpm build` and packed by `pnpm pack`
+*.tgz

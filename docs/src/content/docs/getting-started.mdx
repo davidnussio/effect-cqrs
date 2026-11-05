@@ -1,18 +1,34 @@
 ---
 title: Getting started
-description: Clone the repository, run the tests and the examples.
+description: Install effect-cqrs, or clone the repository to run its examples.
 ---
 
 import { FileTree, LinkCard, Steps } from "@astrojs/starlight/components"
 
-effect-cqrs isn't on npm. To try it, clone the repository: the examples import it as
-`effect-cqrs` through the package's own exports, which point at the TypeScript sources.
-Node runs those directly, with no build step.
+## Install
+
+```bash
+pnpm add effect-cqrs effect
+```
+
+It needs Node 24 or later and Effect 4. To store events in SQLite or PostgreSQL, add
+that database's `effect/sql` driver too:
+
+```bash
+pnpm add @effect/sql-sqlite-node
+pnpm add @effect/sql-pg
+```
+
+Everything is exported from `effect-cqrs`, and each module also has its own path, such
+as `effect-cqrs/ViewModel`.
+
+## Try the examples
+
+The examples live in the repository, where they import the TypeScript sources directly.
 
 <Steps>
 
-1. Clone the repository and install the dependencies. It needs Node 24 or later and
-   pnpm.
+1. Clone the repository and install the dependencies. It needs pnpm.
 
    ```bash
    git clone https://github.com/davidnussio/effect-cqrs.git

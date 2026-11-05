@@ -37,9 +37,10 @@ const signed = (delta: number) => (delta === 0 ? "" : delta > 0 ? `+${delta}` : 
         <LinkButton href={link} variant={variant}>{text}</LinkButton>
       ))}
     </div>
+    <code class="cq-install">pnpm add effect-cqrs effect</code>
     <p class="cq-note">
       A trial port of <a href="https://github.com/davidnussio/moleculer-cqrs">moleculer-cqrs</a> to
-      Effect v4. It isn't on npm, and the API may change.
+      Effect v4, so the API may change.
     </p>
   </div>
 
@@ -149,8 +150,21 @@ const signed = (delta: number) => (delta === 0 ? "" : delta > 0 ? `+${delta}` : 
     margin-top: 2rem;
   }
 
+  .cq-install {
+    display: inline-block;
+    margin-top: 1.75rem;
+    padding: 0.55rem 0.9rem;
+    border: 1px solid var(--cq-line-strong);
+    border-radius: 0.6rem;
+    background: rgba(255, 255, 255, 0.04);
+    font-family: var(--__sl-font-mono);
+    font-size: 0.85rem;
+    color: var(--sl-color-gray-1);
+    user-select: all;
+  }
+
   .cq-note {
-    margin: 1.75rem 0 0;
+    margin: 1.25rem 0 0;
     max-width: 32rem;
     font-size: var(--sl-text-sm);
     color: var(--sl-color-gray-3);

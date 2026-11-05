@@ -5,6 +5,7 @@ CQRS and event sourcing for Effect v4, inspired by `repos/moleculer-cqrs`.
 ## Commands
 
 - `pnpm check`: typecheck
+- `pnpm build`: compile `src` into `dist`, which is what npm gets
 - `pnpm test`: run the test suite
 - `pnpm example`: run the todo example
 - `pnpm ui`: serve the bank demo in `examples/bank-ui`, which runs the framework in the browser
@@ -18,6 +19,12 @@ The example page quotes the demo's code between `// #region name` and `// #endre
 `docker compose up -d --wait` starts a Postgres. With `POSTGRES_URL=postgres://postgres:postgres@localhost:5432/cqrs` set, `pnpm test` covers it too. Without it those tests are skipped.
 
 Run `pnpm check` and `pnpm test` before finishing any change, with Postgres running if it touches a store.
+
+## Releasing
+
+In this repository `effect-cqrs` resolves to the TypeScript sources. `publishConfig` points the published package at `dist` instead, so a change to `exports` belongs in both places. `node scripts/check-package.ts` packs the package, installs it in a new project and runs and type checks it there: run it after touching the build or `package.json`.
+
+Releases follow `.changeset/README.md`: changesets for the changelog, then a GitHub release tagged `v<version>`, which `.github/workflows/release.yml` publishes to npm with the `NPM_TOKEN` secret.
 
 ## Vendored Repositories
 

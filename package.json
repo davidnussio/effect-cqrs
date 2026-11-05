@@ -1,8 +1,25 @@
 {
   "name": "effect-cqrs",
   "version": "0.1.0",
-  "private": true,
-  "description": "CQRS and event sourcing for Effect v4",
+  "description": "CQRS and event sourcing for Effect v4, a port of moleculer-cqrs",
+  "keywords": [
+    "effect",
+    "cqrs",
+    "event-sourcing",
+    "event-store",
+    "aggregate",
+    "projection",
+    "sqlite",
+    "postgres"
+  ],
+  "homepage": "https://davidnussio.github.io/effect-cqrs/",
+  "bugs": {
+    "url": "https://github.com/davidnussio/effect-cqrs/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davidnussio/effect-cqrs.git"
+  },
   "type": "module",
   "license": "MIT",
   "author": "David Nussio",
@@ -14,8 +31,31 @@
     ".": "./src/index.ts",
     "./*": "./src/*.ts"
   },
+  "files": [
+    "dist",
+    "src",
+    "!**/*.tsbuildinfo"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./*": {
+        "types": "./dist/*.d.ts",
+        "default": "./dist/*.js"
+      }
+    }
+  },
   "scripts": {
     "check": "tsc --noEmit && tsc --noEmit -p examples/bank-ui",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "example": "node examples/todo/main.ts",
@@ -24,13 +64,16 @@
     "docs:build": "vite build examples/bank-ui --base \"${DOCS_BASE:-/effect-cqrs}/demo/\" --outDir ../../docs/public/demo --emptyOutDir && astro build --root docs",
     "docs:preview": "astro preview --root docs",
     "bench": "node bench/performance.ts",
-    "stress": "node --expose-gc bench/stress.ts"
+    "stress": "node --expose-gc bench/stress.ts",
+    "changeset": "changeset",
+    "version-packages": "changeset version"
   },
   "peerDependencies": {
     "effect": "^4.0.6"
   },
   "devDependencies": {
     "@astrojs/starlight": "^0.42.7",
+    "@changesets/cli": "^2.31.1",
     "@effect/platform-node": "^4.0.6",
     "@effect/sql-pg": "^4.0.6",
     "@effect/sql-sqlite-node": "^4.0.6",

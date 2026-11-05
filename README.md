@@ -6,8 +6,8 @@ This is a trial port of an old project,
 for [Moleculer](https://moleculer.services), written in 2019. This repository
 rebuilds the same ideas on Effect to find out how well they carry over.
 
-It's an experiment, not a maintained library: it isn't published, the API may change,
-and [Limitations](#limitations) lists what the port leaves out.
+It's an experiment, not a maintained library: the API may change, and
+[Limitations](#limitations) lists what the port leaves out.
 
 The documentation, with a walkthrough of the bank demo, is at
 https://davidnussio.github.io/effect-cqrs/.
@@ -15,7 +15,16 @@ https://davidnussio.github.io/effect-cqrs/.
 Commands decide on events, events are the only source of truth, and read models
 are projections you can throw away and rebuild.
 
-## Getting started
+## Install
+
+```bash
+pnpm add effect-cqrs effect
+```
+
+It needs Node 24 or later and Effect 4. To store events in SQLite or PostgreSQL, add
+that database's `effect/sql` driver too, `@effect/sql-sqlite-node` or `@effect/sql-pg`.
+
+## Develop
 
 ```bash
 pnpm install
@@ -23,8 +32,8 @@ pnpm test
 pnpm example
 ```
 
-Requires Node 24 or later. The example needs `node:sqlite` and runs TypeScript
-directly.
+The example needs `node:sqlite` and runs TypeScript directly. `pnpm build` compiles
+`src` into `dist`, which is what npm gets.
 
 `pnpm ui` serves an interactive demo at http://localhost:5173, also published at
 https://davidnussio.github.io/effect-cqrs/demo/. It runs the framework
@@ -288,4 +297,3 @@ store, so `replay` is for rebuilding, not for recovery.
   length.
 - **No schema migration.** A stored event that no longer decodes fails with
   `EventDecodeError`, so evolve event schemas compatibly.
-- **Not published.** Packages expose TypeScript sources and there is no build step.

@@ -6,8 +6,6 @@ description: What the port leaves out.
 effect-cqrs is a trial port, not a maintained library. These are the gaps that matter
 before using it for anything real.
 
-- **Not published.** There is no npm package and no build step: the package exposes its
-  TypeScript sources.
 - **New events stay in their process.** They wake view models and subscribers in the same
   process only. There is no transport like the Moleculer broker, so `dispatch` is the
   entry point to wire into your own HTTP or RPC layer.

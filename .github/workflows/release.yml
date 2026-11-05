@@ -1,0 +1,82 @@
+name: Release & Publish
+
+on:
+  release:
+    # "published" (not "created"): saving a draft release must not publish
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      # npm provenance: the package records which workflow run built it.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Determine npm dist-tag: only stable versions become "latest"
+          if [[ "$VERSION" == *"-alpha"* ]]; then
+            echo "tag=alpha" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" == *"-beta"* ]]; then
+            echo "tag=beta" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" == *"-"* ]]; then
+            echo "tag=next" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Fail before publishing anything. npm's `time` field also lists versions
+      # that were published and later unpublished: npm never allows reusing those
+      # numbers either.
+      - name: Check that the version isn't already taken on npm
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if npm view effect-cqrs time --json 2>/dev/null | node -e '
+            const t = JSON.parse(require("fs").readFileSync(0, "utf8") || "{}");
+            process.exit(Object.hasOwn(t, process.argv[1]) ? 0 : 1);
+          ' "$VERSION"; then
+            echo "::error::effect-cqrs@$VERSION is already taken on npm (published now or in the past)"
+            exit 1
+          fi
+
+      - name: Set the version from the tag
+        run: npm pkg set version="${{ steps.version.outputs.version }}"
+
+      - uses: ./.github/actions/setup-and-build
+        with:
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Typecheck & tests
+        run: |
+          pnpm check
+          pnpm test
+
+      - name: Check the package as npm would serve it
+        run: node scripts/check-package.ts
+
+      - name: Publish effect-cqrs to npm
+        run: pnpm publish --no-git-checks --tag ${{ steps.version.outputs.tag }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Back to the branch the release was cut from, so package.json matches npm.
+      - name: Commit version bump
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          BRANCH="${{ github.event.release.target_commitish }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: bump version to ${VERSION}"
+          fi
+          git push origin "HEAD:${BRANCH:-main}"
