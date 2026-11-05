@@ -218,9 +218,14 @@ describe("EventStore pagination", () => {
     it.effect(`pages through one stream of ${name}, keeping to its events`, () =>
       Effect.gen(function*() {
         const total = 1203
-        for (let version = 0; version < total; version++) {
-          yield* append("a", version, `A${version}`)
-          yield* append("b", version, `B${version}`)
+        // Turns of 50 events interleave the streams across every page, in few enough
+        // transactions for a database with a real round trip.
+        const turn = 50
+        for (let version = 0; version < total; version += turn) {
+          const size = Math.min(turn, total - version)
+          const events = (prefix: string) => Array.from({ length: size }, (_, i) => `${prefix}${version + i}`)
+          yield* append("a", version, ...events("A"))
+          yield* append("b", version, ...events("B"))
         }
 
         const events = yield* read({ aggregateNames: ["test"], aggregateIds: ["a"] })
