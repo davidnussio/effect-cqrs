@@ -15,10 +15,11 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "check": "tsc --noEmit && tsc --noEmit -p examples/bank-ui",
     "test": "vitest run",
     "test:watch": "vitest",
     "example": "node examples/todo/main.ts",
+    "ui": "vite examples/bank-ui",
     "bench": "node bench/performance.ts",
     "stress": "node --expose-gc bench/stress.ts"
   },
@@ -30,9 +31,18 @@
     "@effect/sql-pg": "^4.0.6",
     "@effect/sql-sqlite-node": "^4.0.6",
     "@effect/vitest": "^4.0.6",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
     "effect": "^4.0.6",
+    "motion": "^14.7.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
+    "vite": "^8.3.5",
     "vitest": "^5.0.5"
   }
 }

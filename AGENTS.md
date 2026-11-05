@@ -7,6 +7,7 @@ CQRS and event sourcing for Effect v4, inspired by `repos/moleculer-cqrs`.
 - `pnpm check`: typecheck
 - `pnpm test`: run the test suite
 - `pnpm example`: run the todo example
+- `pnpm ui`: serve the bank demo in `examples/bank-ui`, which runs the framework in the browser
 - `pnpm bench`: measure performance, about 4 minutes
 - `pnpm stress`: run the stress scenarios at full size, about 5 minutes
 

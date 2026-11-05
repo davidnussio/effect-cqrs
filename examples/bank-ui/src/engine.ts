@@ -1,0 +1,287 @@
+/**
+ * Runs effect-cqrs in the browser: the in-memory event store, the account
+ * aggregate, three view models, a saga for transfers and a command bus that can
+ * be slowed down, paused and stepped so every stage is visible.
+ */
+import { Context, DateTime, Duration, Effect, Layer, ManagedRuntime, Schedule, Semaphore, Stream } from "effect"
+import * as AggregateService from "effect-cqrs/AggregateService"
+import * as Checkpoints from "effect-cqrs/Checkpoints"
+import * as EventStore from "effect-cqrs/EventStore"
+import * as ViewModel from "effect-cqrs/ViewModel"
+import { devstore, type Origin, type Outcome, type Stage, viewModelNames, type ViewName } from "./devstore.ts"
+import { Account, type AccountEvent } from "./domain/account.ts"
+import { allViews } from "./domain/views.ts"
+
+class Bank extends Context.Service<Bank, AggregateService.AggregateService<typeof Account>>()("bank-ui/Bank") {}
+
+export interface CommandInput {
+  readonly aggregateId: string
+  readonly type: string
+  readonly payload: unknown
+}
+
+/** Fields of a tagged error, minus the tag, as a short line. */
+const describeError = (error: unknown): Outcome => {
+  if (typeof error !== "object" || error === null) return { ok: false, tag: "Error", message: String(error) }
+  const { _tag, message, ...fields } = error as { _tag?: string; message?: string } & Record<string, unknown>
+  const details = Object.entries(fields)
+    .filter(([key]) => key !== "stack" && key !== "name" && key !== "cause")
+    .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+    .join(", ")
+  return { ok: false, tag: _tag ?? "Error", message: (typeof message === "string" && message !== "" ? message : details) || "" }
+}
+
+class Bus extends Context.Service<Bus, {
+  submit(input: CommandInput, origin: Origin): Effect.Effect<Outcome>
+}>()("bank-ui/Bus") {}
+
+/** Waits while the bus is paused, letting one stage through per press of "step". */
+const gate = Effect.gen(function*() {
+  while (devstore.get().settings.paused && !devstore.consumeStep()) {
+    yield* Effect.sleep("40 millis")
+  }
+})
+
+const pause = (origin: Origin) =>
+  Effect.suspend(() => {
+    const millis = origin === "seed" ? 0 : devstore.get().settings.commandDelay
+    return millis <= 0 ? Effect.yieldNow : Effect.sleep(Duration.millis(millis))
+  })
+
+const BusLayer = Layer.effect(
+  Bus,
+  Effect.gen(function*() {
+    const bank = yield* Bank
+    // One command at a time, so the pipeline reads like a queue.
+    const lane = yield* Semaphore.make(1)
+
+    const submit = (input: CommandInput, origin: Origin) =>
+      Effect.gen(function*() {
+        const id = devstore.addCommand({ origin, ...input })
+        return yield* lane.withPermit(Effect.gen(function*() {
+          const advance = (stage: Stage) =>
+            Effect.gen(function*() {
+              if (origin !== "seed") yield* gate
+              devstore.stage(id, stage)
+              yield* pause(origin)
+            })
+          yield* advance("validating")
+          yield* advance("loading")
+          yield* advance("deciding")
+          yield* advance("appending")
+          // `dispatch` is the real entry point: it validates the JSON envelope and
+          // payload, rehydrates the aggregate, runs the handler and appends.
+          const outcome = yield* bank.dispatch(input).pipe(
+            Effect.map((result): Outcome => ({
+              ok: true,
+              version: result.version,
+              position: result.position,
+              events: result.events.map((event) => event._tag)
+            })),
+            Effect.catch((error) => Effect.succeed(describeError(error))),
+            Effect.catchDefect((defect) => Effect.succeed(describeError(defect)))
+          )
+          devstore.finish(id, outcome)
+          return outcome
+        }))
+      })
+
+    return Bus.of({ submit })
+  })
+)
+
+/** Mirrors every stored event to the devtools, decoded with the aggregate's schema. */
+const Bridge = Layer.effectDiscard(Effect.gen(function*() {
+  const store = yield* EventStore.EventStore
+  const decode = AggregateService.makeEventDecoder(Account)
+  yield* store.subscribe().pipe(
+    Stream.runForEach((stored) =>
+      decode(stored).pipe(
+        Effect.map((event) =>
+          devstore.addEvent({
+            position: stored.position,
+            aggregateId: stored.aggregateId,
+            version: stored.version,
+            type: event._tag,
+            timestamp: DateTime.toEpochMillis(stored.timestamp),
+            payload: stored.payload,
+            event,
+            stored
+          })
+        )
+      )
+    ),
+    Effect.catchCause((cause) => Effect.logError("bridge stopped", cause)),
+    Effect.forkScoped
+  )
+}))
+
+/**
+ * A transfer touches two aggregates, so no single command can do it. The saga
+ * reacts to `TransferSent` by crediting the other account, and refunds the
+ * sender when that is refused, for instance because the account is closed.
+ */
+const TransferSaga = Layer.effectDiscard(Effect.gen(function*() {
+  const store = yield* EventStore.EventStore
+  const bus = yield* Bus
+  const decode = AggregateService.makeEventDecoder(Account)
+  yield* store.subscribe({ aggregateNames: [Account.name], eventTypes: ["TransferSent"] }).pipe(
+    Stream.runForEach((stored) =>
+      Effect.gen(function*() {
+        const event = (yield* decode(stored)) as Extract<AccountEvent, { _tag: "TransferSent" }>
+        const credited = yield* bus.submit({
+          aggregateId: event.to,
+          type: "receiveTransfer",
+          payload: { transferId: event.transferId, from: stored.aggregateId, amount: event.amount }
+        }, "saga")
+        if (!credited.ok) {
+          yield* bus.submit({
+            aggregateId: stored.aggregateId,
+            type: "refundTransfer",
+            payload: { transferId: event.transferId, to: event.to, amount: event.amount, reason: credited.tag }
+          }, "saga")
+        }
+      })
+    ),
+    Effect.catchCause((cause) => Effect.logError("saga stopped", cause)),
+    Effect.forkScoped
+  )
+}))
+
+/** Polls `ViewModels.status` so the devtools show each checkpoint and stall. */
+const StatusPoll = Layer.effectDiscard(Effect.gen(function*() {
+  const viewModels = yield* ViewModel.ViewModels
+  const byName = new Map(Object.entries(viewModelNames).map(([view, name]) => [name, view as ViewName]))
+  yield* viewModels.status.pipe(
+    Effect.map((statuses) => {
+      for (const status of statuses) {
+        const view = byName.get(status.name)
+        if (view === undefined) continue
+        const error = status.lastError._tag === "Some" ? formatViewError(status.lastError.value) : undefined
+        devstore.status(view, status.position, error)
+      }
+    }),
+    Effect.repeat(Schedule.spaced("100 millis")),
+    Effect.forkScoped
+  )
+}))
+
+const formatViewError = (error: ViewModel.ViewModelError): string => {
+  const cause = error.cause as { _tag?: string; reason?: string } | undefined
+  return `${cause?._tag ?? "Error"} at #${error.position}${cause?.reason ? `: ${cause.reason}` : ""}`
+}
+
+const owners = ["Alice", "Bob", "Carol", "Dave", "Erin", "Frank", "Grace", "Heidi", "Ivan", "Judy"]
+export const palette = ["#7c5cff", "#ff5c8a", "#22d3a6", "#ffb020", "#38bdf8", "#f472b6", "#a3e635", "#fb7185"]
+
+const pick = <A>(items: ReadonlyArray<A>): A => items[Math.floor(Math.random() * items.length)]!
+const amount = (max: number) => Math.max(5, Math.round((Math.random() * max) / 5) * 5)
+
+/** Random traffic, a few commands of which the aggregate will refuse. */
+const nextRandomCommand = (): CommandInput | undefined => {
+  const accounts = Object.values(devstore.get().views.accounts.data)
+  const open = accounts.filter((account) => account.status === "open")
+  const roll = Math.random()
+  if (open.length < 2 || (roll < 0.06 && accounts.length < owners.length)) {
+    const owner = owners.find((name) => !accounts.some((account) => account.owner === name))
+    if (owner === undefined) return undefined
+    return { aggregateId: owner.toLowerCase(), type: "openAccount", payload: { owner, color: pick(palette) } }
+  }
+  const account = pick(open)
+  if (roll < 0.4) return { aggregateId: account.id, type: "deposit", payload: { amount: amount(200) } }
+  if (roll < 0.65) return { aggregateId: account.id, type: "withdraw", payload: { amount: amount(account.balance + 60) } }
+  const target = pick(accounts.filter((other) => other.id !== account.id))
+  return {
+    aggregateId: account.id,
+    type: "sendTransfer",
+    payload: { transferId: newTransferId(), to: target.id, amount: amount(account.balance + 40) }
+  }
+}
+
+let transferCounter = 0
+export const newTransferId = () => `tx-${(++transferCounter).toString().padStart(3, "0")}`
+
+const Autopilot = Layer.effectDiscard(Effect.gen(function*() {
+  const bus = yield* Bus
+  yield* Effect.gen(function*() {
+    const { autopilot, autopilotEvery } = devstore.get().settings
+    yield* Effect.sleep(Duration.millis(autopilot ? autopilotEvery : 250))
+    if (!devstore.get().settings.autopilot) return
+    const command = nextRandomCommand()
+    if (command !== undefined) yield* bus.submit(command, "autopilot")
+  }).pipe(Effect.forever, Effect.forkScoped)
+}))
+
+const Storage = Layer.merge(EventStore.layerMemory, Checkpoints.layerMemory)
+
+const Core = Layer.merge(
+  Layer.effect(Bank, AggregateService.make(Account)),
+  ViewModel.layer(allViews)
+).pipe(Layer.provideMerge(Storage))
+
+const WithBus = BusLayer.pipe(Layer.provideMerge(Core))
+
+const Main = Layer.mergeAll(Bridge, TransferSaga, StatusPoll, Autopilot).pipe(Layer.provideMerge(WithBus))
+
+const seed: ReadonlyArray<CommandInput> = [
+  { aggregateId: "alice", type: "openAccount", payload: { owner: "Alice", color: palette[0] } },
+  { aggregateId: "bob", type: "openAccount", payload: { owner: "Bob", color: palette[1] } },
+  { aggregateId: "carol", type: "openAccount", payload: { owner: "Carol", color: palette[2] } },
+  { aggregateId: "alice", type: "deposit", payload: { amount: 250 } },
+  { aggregateId: "bob", type: "deposit", payload: { amount: 120 } },
+  { aggregateId: "carol", type: "deposit", payload: { amount: 80 } },
+  { aggregateId: "alice", type: "withdraw", payload: { amount: 40 } }
+]
+
+let runtime = ManagedRuntime.make(Main)
+
+const start = () => runtime.runPromise(Effect.gen(function*() {
+  const bus = yield* Bus
+  for (const command of seed) yield* bus.submit(command, "seed")
+}))
+
+void start()
+
+export const engine = {
+  send: (input: CommandInput, origin: Origin = "app"): Promise<Outcome> =>
+    runtime.runPromise(Bus.use((bus) => bus.submit(input, origin))),
+
+  /**
+   * Disposes the view models and rebuilds them. With `upTo`, only events up to
+   * that position are replayed: the replay API takes a time window, so the
+   * window ends just after that event's timestamp.
+   */
+  replay: async (views: ReadonlyArray<ViewName>, upTo?: number) => {
+    const { events } = devstore.get()
+    const last = upTo === undefined ? undefined : events.find((event) => event.position === upTo)
+    const finishTime = last === undefined ? undefined : DateTime.makeUnsafe(last.timestamp + 1)
+    for (const view of views) devstore.replaying(view, true)
+    try {
+      const result = await runtime.runPromise(Effect.gen(function*() {
+        const viewModels = yield* ViewModel.ViewModels
+        return yield* Effect.forEach(views, (view) =>
+          viewModels.replay({ viewModels: [viewModelNames[view]], finishTime }).pipe(
+            Effect.map(({ eventCount }) => [view, eventCount] as const)
+          ), { concurrency: "unbounded" })
+      }))
+      // Events in the same millisecond as `upTo` fall inside the window too.
+      const reached = last === undefined
+        ? undefined
+        : Math.max(...events.filter((event) => event.timestamp <= last.timestamp).map((event) => event.position))
+      for (const [view, eventCount] of result) devstore.replayed(view, { upTo: reached, eventCount })
+    } finally {
+      for (const view of views) devstore.replaying(view, false)
+    }
+  },
+
+  /** Throws everything away and starts a fresh store. */
+  reset: async () => {
+    const previous = runtime
+    devstore.settings({ autopilot: false, paused: false })
+    await previous.dispose()
+    devstore.reset()
+    transferCounter = 0
+    runtime = ManagedRuntime.make(Main)
+    await start()
+  }
+}

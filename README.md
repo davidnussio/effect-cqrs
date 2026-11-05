@@ -23,6 +23,13 @@ pnpm example
 Requires Node 24 or later. The example needs `node:sqlite` and runs TypeScript
 directly.
 
+`pnpm ui` serves an interactive demo at http://localhost:5173, also published at
+https://davidnussio.github.io/effect-cqrs/. It runs the framework
+in the browser on the in-memory store: a bank whose accounts are aggregates, three
+view models, and a saga for transfers. Its devtools slow commands and projections
+down, pause and step the command bus, crash a projection, scrub through the log and
+replay view models up to a chosen event.
+
 ## Define an aggregate
 
 An aggregate is a schema of events, a projection folding them into state, and
