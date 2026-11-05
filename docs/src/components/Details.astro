@@ -1,0 +1,149 @@
+---
+/**
+ * Two things people ask next: how to test an aggregate, and where the events live.
+ */
+import { Code } from "@astrojs/starlight/components"
+
+const fixture = `it.effect("deletes a todo", () =>
+  Fixture.make(Todo)
+    .givenEvents([created])
+    .when("deleteTodo", {})
+    .expectEvent("TodoDeleted")
+    .inspectState((state) => assert.isTrue(state.deleted)))`
+
+const stores = [
+  { name: "In memory", text: "For tests, examples and the browser.", figure: "60,000 commands/s" },
+  { name: "SQLite", text: "One process, one file, no server.", figure: "0.1 ms a command" },
+  { name: "PostgreSQL", text: "Several processes writing, positions in commit order.", figure: "1 ms a command" }
+]
+---
+
+<section class="cq-details not-content">
+  <div>
+    <h2>Tests read like moleculer-cqrs</h2>
+    <p>
+      <code>Fixture</code> runs commands through the real service on an in-memory store, so validation and
+      encoding are tested too. The chain is an Effect, which <code>it.effect</code> runs.
+    </p>
+    <Code code={fixture} lang="ts" />
+    <a href="guides/testing/">Testing guide</a>
+  </div>
+  <div>
+    <h2>Keep the log where it fits</h2>
+    <p>Every store passes the same tests. The numbers come from one laptop, so read them as orders of magnitude.</p>
+    <ul>
+      {stores.map((store) => (
+        <li>
+          <span class="cq-store">{store.name}</span>
+          <span class="cq-store-text">{store.text}</span>
+          <span class="cq-figure">{store.figure}</span>
+        </li>
+      ))}
+    </ul>
+    <a href="guides/storage/">Storage guide</a>
+    <span class="cq-sep" aria-hidden="true"></span>
+    <a href="reference/performance/">Performance</a>
+  </div>
+</section>
+
+<style>
+  .cq-details {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    gap: clamp(2rem, 5vw, 4rem);
+    padding: 4.5rem 0 3rem;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: var(--sl-line-height-headings);
+    color: #fff;
+  }
+
+  p {
+    margin: 0.75rem 0 1.25rem;
+    line-height: 1.65;
+    color: var(--sl-color-gray-2);
+  }
+
+  p code {
+    font-family: var(--__sl-font-mono);
+    font-size: 0.88em;
+    color: #ddd2ff;
+  }
+
+  a {
+    display: inline-block;
+    margin-top: 1rem;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-1);
+    text-decoration-color: rgba(167, 139, 250, 0.5);
+    text-underline-offset: 0.25em;
+  }
+
+  .cq-sep {
+    display: inline-block;
+    width: 1.25rem;
+  }
+
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border: 1px solid var(--cq-line);
+    border-radius: 0.9rem;
+    background: var(--cq-glass);
+    overflow: hidden;
+  }
+
+  li {
+    display: grid;
+    grid-template-columns: 7rem minmax(0, 1fr) auto;
+    gap: 1rem;
+    align-items: baseline;
+    margin: 0;
+    padding: 0.9rem 1.1rem;
+    border-bottom: 1px solid var(--cq-line);
+  }
+
+  li:last-child {
+    border-bottom: 0;
+  }
+
+  .cq-store {
+    font-weight: 600;
+    color: #fff;
+  }
+
+  .cq-store-text {
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+  }
+
+  .cq-figure {
+    font-family: var(--__sl-font-mono);
+    font-size: 0.8rem;
+    color: var(--cq-event);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 56rem) {
+    .cq-details {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 30rem) {
+    li {
+      grid-template-columns: minmax(0, 1fr) auto;
+    }
+
+    .cq-store-text {
+      grid-column: 1 / -1;
+      grid-row: 2;
+    }
+  }
+</style>

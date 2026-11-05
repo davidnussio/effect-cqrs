@@ -1,0 +1,175 @@
+---
+/**
+ * The path of a command, in the colors the bank demo's pipeline uses, and the guide
+ * for each stage. Links are relative to the home page.
+ */
+const stages = [
+  {
+    name: "Command",
+    color: "var(--cq-command)",
+    text: "A typed call, or JSON from a transport through <code>dispatch</code>. The payload is checked against its schema first.",
+    link: "guides/commands/",
+    guide: "Commands"
+  },
+  {
+    name: "Aggregate",
+    color: "var(--cq-aggregate)",
+    text: "The service rebuilds the aggregate's state from its events, and the handler decides what happened, or fails with a typed error.",
+    link: "guides/aggregates/",
+    guide: "Aggregates"
+  },
+  {
+    name: "Event store",
+    color: "var(--cq-event)",
+    text: "The events are appended, but only if nobody wrote to that aggregate since its state was loaded.",
+    link: "guides/storage/",
+    guide: "Storage"
+  },
+  {
+    name: "View models",
+    color: "var(--cq-projection)",
+    text: "Each one reads the new events from its own checkpoint. <code>caughtUp</code> waits until your own write is there.",
+    link: "guides/view-models/",
+    guide: "View models"
+  }
+]
+---
+
+<section class="cq-flow not-content" aria-labelledby="flow-title">
+  <h2 id="flow-title">How a command flows</h2>
+  <ol>
+    {stages.map((stage) => (
+      <li style={`--stage: ${stage.color}`}>
+        <span class="cq-node" aria-hidden="true" />
+        <h3>{stage.name}</h3>
+        <p set:html={stage.text} />
+        <a href={stage.link}>{stage.guide} guide</a>
+      </li>
+    ))}
+  </ol>
+</section>
+
+<style>
+  .cq-flow {
+    padding: 2.5rem 0 1rem;
+  }
+
+  h2 {
+    margin: 0 0 2rem;
+    font-size: var(--sl-text-h2);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: var(--sl-line-height-headings);
+    color: #fff;
+  }
+
+  ol {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* The wire the stages hang on, colored from commands to projections. */
+  ol::before {
+    content: "";
+    position: absolute;
+    top: 0.55rem;
+    inset-inline: 0.55rem 0;
+    height: 2px;
+    border-radius: 999px;
+    background: linear-gradient(
+      90deg,
+      var(--cq-command),
+      var(--cq-aggregate) 35%,
+      var(--cq-event) 65%,
+      var(--cq-projection)
+    );
+    opacity: 0.55;
+  }
+
+  li {
+    position: relative;
+    margin: 0;
+    padding-top: 2rem;
+  }
+
+  .cq-node {
+    position: absolute;
+    top: 0;
+    inset-inline-start: 0;
+    width: 1.1rem;
+    height: 1.1rem;
+    border-radius: 999px;
+    background: var(--cq-ink);
+    border: 2px solid var(--stage);
+    box-shadow: 0 0 18px var(--stage);
+  }
+
+  h3 {
+    margin: 0 0 0.5rem;
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--stage);
+  }
+
+  p {
+    margin: 0 0 0.75rem;
+    font-size: var(--sl-text-sm);
+    line-height: 1.6;
+    color: var(--sl-color-gray-2);
+  }
+
+  p :global(code) {
+    font-family: var(--__sl-font-mono);
+    font-size: 0.85em;
+    color: #ddd2ff;
+  }
+
+  a {
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-1);
+    text-decoration-color: color-mix(in srgb, var(--stage) 60%, transparent);
+    text-underline-offset: 0.25em;
+  }
+
+  a:hover {
+    color: #fff;
+    text-decoration-color: var(--stage);
+  }
+
+  @media (max-width: 50rem) {
+    ol {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 2rem;
+      padding-inline-start: 2rem;
+    }
+
+    ol::before {
+      top: 0.55rem;
+      bottom: 0;
+      inset-inline: 0.5rem auto;
+      width: 2px;
+      height: auto;
+      background: linear-gradient(
+        180deg,
+        var(--cq-command),
+        var(--cq-aggregate) 35%,
+        var(--cq-event) 65%,
+        var(--cq-projection)
+      );
+    }
+
+    li {
+      padding-top: 0;
+    }
+
+    .cq-node {
+      inset-inline-start: -2rem;
+    }
+  }
+</style>

@@ -1,12 +1,284 @@
-/* The violet of the bank demo, so the site and the demo look related. */
+/*
+ * The look of the bank demo: near black with a violet cast, aurora glows, a faint
+ * grid, glass panels, Space Grotesk and JetBrains Mono. Colors carry the meaning they
+ * have in the demo's pipeline: violet for commands, green for events, blue for
+ * projections.
+ */
 :root {
-  --sl-color-accent-low: #241a52;
+  color-scheme: dark;
+
+  --cq-ink: #07070d;
+  --cq-panel: #0e0e17;
+  --cq-raised: #141421;
+  --cq-line: rgba(255, 255, 255, 0.07);
+  --cq-line-strong: rgba(255, 255, 255, 0.12);
+  --cq-command: #a78bfa;
+  --cq-aggregate: #f0abfc;
+  --cq-event: #34d399;
+  --cq-projection: #38bdf8;
+  --cq-reject: #fb7185;
+  --cq-glass: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015));
+
+  --sl-font: "Space Grotesk";
+  --sl-font-mono: "JetBrains Mono";
+
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #ececf5;
+  --sl-color-gray-2: #c6c6d8;
+  --sl-color-gray-3: #8e8ea8;
+  --sl-color-gray-4: #55556e;
+  --sl-color-gray-5: #262638;
+  --sl-color-gray-6: #13131f;
+  --sl-color-black: var(--cq-ink);
+
+  --sl-color-accent-low: #221a4d;
   --sl-color-accent: #7c5cff;
-  --sl-color-accent-high: #d6ccff;
+  --sl-color-accent-high: #cbbcff;
+
+  --sl-color-text: #c6c6d8;
+  --sl-color-bg-nav: rgba(7, 7, 13, 0.72);
+  --sl-color-bg-sidebar: rgba(10, 10, 18, 0.55);
+  --sl-color-bg-inline-code: rgba(167, 139, 250, 0.1);
+  --sl-color-hairline: var(--cq-line);
+  --sl-color-hairline-light: var(--cq-line-strong);
+  --sl-color-hairline-shade: rgba(0, 0, 0, 0.6);
+  --sl-color-backdrop-overlay: rgba(7, 7, 13, 0.7);
+
+  --sl-text-h1: 2.75rem;
+  --sl-text-h2: 1.875rem;
+  --sl-text-h3: 1.375rem;
+  --sl-line-height-headings: 1.15;
 }
 
-:root[data-theme="light"] {
-  --sl-color-accent-low: #e7e1ff;
-  --sl-color-accent: #6143e6;
-  --sl-color-accent-high: #2a1b6e;
+/* The aurora and the grid sit behind everything, and stay put while the page scrolls. */
+body {
+  background:
+    radial-gradient(900px 520px at 8% -8%, rgba(124, 92, 255, 0.2), transparent 60%),
+    radial-gradient(760px 520px at 108% 6%, rgba(255, 92, 138, 0.12), transparent 60%),
+    radial-gradient(640px 420px at 45% 115%, rgba(34, 211, 166, 0.08), transparent 60%),
+    var(--cq-ink);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 80%);
+}
+
+/* `=>` stays two characters in code people will copy. */
+code,
+pre,
+kbd {
+  font-variant-ligatures: none;
+}
+
+::selection {
+  background: rgba(124, 92, 255, 0.45);
+  color: #fff;
+}
+
+/* Header and sidebars: glass over the aurora. */
+.header {
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border-bottom-color: var(--cq-line) !important;
+}
+
+.site-title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  gap: 0.6rem;
+}
+
+.site-title img {
+  height: 1.75rem;
+  width: auto;
+  filter: drop-shadow(0 0 14px rgba(167, 139, 250, 0.55));
+}
+
+.sidebar-pane {
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-inline-end: 1px solid var(--cq-line);
+}
+
+.sidebar-content .large {
+  font-size: var(--sl-text-sm);
+  font-weight: 600;
+  color: var(--sl-color-gray-1);
+}
+
+.sidebar-content a {
+  border-radius: 0.5rem;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.sidebar-content a:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sidebar-content [aria-current="page"],
+.sidebar-content [aria-current="page"]:hover,
+.sidebar-content [aria-current="page"]:focus {
+  color: #fff;
+  background: linear-gradient(90deg, rgba(124, 92, 255, 0.32), rgba(124, 92, 255, 0.08));
+  box-shadow: inset 2px 0 0 #a78bfa;
+}
+
+starlight-toc a[aria-current="true"] {
+  color: var(--cq-command);
+}
+
+/* Page titles and headings. */
+.content-panel h1,
+.sl-markdown-content :is(h1, h2, h3, h4) {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  color: #fff;
+}
+
+.content-panel h1 {
+  letter-spacing: -0.035em;
+}
+
+.content-panel + .content-panel {
+  border-top-color: var(--cq-line);
+}
+
+.sl-markdown-content h2 {
+  padding-top: 0.5rem;
+}
+
+.sl-markdown-content a:not(:where(.not-content *)) {
+  color: var(--sl-color-accent-high);
+  text-decoration-color: rgba(167, 139, 250, 0.45);
+  text-underline-offset: 0.2em;
+}
+
+.sl-markdown-content a:not(:where(.not-content *)):hover {
+  text-decoration-color: currentColor;
+}
+
+.sl-markdown-content :not(pre) > code {
+  border-radius: 0.35rem;
+  padding: 0.1em 0.35em;
+  color: #ddd2ff;
+  border: 1px solid rgba(167, 139, 250, 0.14);
+}
+
+/* Tables: a glass panel with a quiet header. */
+.sl-markdown-content table {
+  display: table;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--cq-line);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: var(--cq-glass);
+  font-size: var(--sl-text-sm);
+}
+
+.sl-markdown-content :is(th, td) {
+  border: 0;
+  border-bottom: 1px solid var(--cq-line);
+  padding: 0.6rem 0.9rem;
+}
+
+.sl-markdown-content tr:last-child td {
+  border-bottom: 0;
+}
+
+.sl-markdown-content th {
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--sl-color-gray-1);
+  font-weight: 600;
+}
+
+/* Wide tables scroll inside their panel instead of the page. */
+@media (max-width: 50rem) {
+  .sl-markdown-content table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+/* Cards, link cards and asides share the demo's glass. */
+.card,
+.sl-link-card,
+.starlight-aside {
+  background: var(--cq-glass) !important;
+  border: 1px solid var(--cq-line) !important;
+  border-radius: 0.9rem !important;
+  backdrop-filter: blur(14px);
+}
+
+.sl-link-card {
+  transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.sl-link-card:hover {
+  border-color: rgba(167, 139, 250, 0.45) !important;
+  transform: translateY(-1px);
+}
+
+.starlight-aside {
+  border-inline-start: 3px solid var(--sl-color-asides-border) !important;
+}
+
+/* Buttons, as in the demo: violet with a glow, or quiet. */
+.sl-link-button.primary {
+  background: #7c5cff;
+  border-color: #7c5cff;
+  color: #fff;
+  box-shadow: 0 0 28px -6px rgba(139, 92, 246, 0.85);
+}
+
+.sl-link-button.primary:hover {
+  background: #8f74ff;
+  border-color: #8f74ff;
+  color: #fff;
+}
+
+.sl-link-button.secondary {
+  border-color: var(--cq-line-strong);
+  color: var(--sl-color-gray-1);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pagination-links a {
+  background: var(--cq-glass);
+  border-color: var(--cq-line);
+  border-radius: 0.9rem;
+}
+
+.pagination-links a:hover {
+  border-color: rgba(167, 139, 250, 0.45);
+}
+
+.pagination-links .link-title {
+  color: #fff;
+}
+
+/* Search, opened over the page. */
+site-search dialog {
+  background: rgba(14, 14, 23, 0.92);
+  border: 1px solid var(--cq-line-strong);
+  border-radius: 1rem;
+  backdrop-filter: blur(18px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sl-link-card {
+    transition: none;
+  }
 }

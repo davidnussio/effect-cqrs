@@ -1,0 +1,141 @@
+---
+/**
+ * The bank demo itself, running in a window on the home page. It is drawn at the
+ * size it was designed for and scaled to fit, so it looks as it does full screen.
+ * Narrow screens get the link only: the demo needs room.
+ */
+import { LinkButton } from "@astrojs/starlight/components"
+import { demoUrl } from "../source.ts"
+---
+
+<section class="cq-demo not-content" aria-labelledby="demo-title">
+  <div class="cq-demo-copy">
+    <h2 id="demo-title">A bank, running in your browser</h2>
+    <p>
+      Accounts are aggregates, three view models project them, and a saga moves money between them. The
+      customer app on the left only shows read models, so you can watch them trail the store. The devtools
+      on the right slow every stage down, pause and step commands, crash a projection, and replay the log.
+    </p>
+    <div class="cq-demo-actions">
+      <LinkButton href={demoUrl}>Open the demo</LinkButton>
+      <LinkButton href="example/bank/" variant="secondary">Read how it's built</LinkButton>
+    </div>
+  </div>
+  <div class="cq-window">
+    <div class="cq-window-bar" aria-hidden="true">
+      <span class="cq-dots"><i></i><i></i><i></i></span>
+      <span class="cq-url">davidnussio.github.io/effect-cqrs/demo/</span>
+    </div>
+    <div class="cq-viewport" data-demo-viewport>
+      <iframe src={demoUrl} title="The bank demo" loading="lazy"></iframe>
+    </div>
+  </div>
+</section>
+
+<script>
+  // Scales the demo, drawn at 1440 × 900, to the width of its window.
+  const viewport = document.querySelector<HTMLElement>("[data-demo-viewport]")
+  if (viewport) {
+    new ResizeObserver(([entry]) => {
+      if (entry) viewport.style.setProperty("--scale", String(entry.contentRect.width / 1440))
+    }).observe(viewport)
+  }
+</script>
+
+<style>
+  .cq-demo {
+    padding: 4rem 0 1rem;
+  }
+
+  .cq-demo-copy {
+    max-width: 44rem;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: var(--sl-text-h2);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: var(--sl-line-height-headings);
+    color: #fff;
+  }
+
+  p {
+    margin: 1rem 0 0;
+    line-height: 1.65;
+    color: var(--sl-color-gray-2);
+  }
+
+  .cq-demo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .cq-window {
+    margin-top: 2.25rem;
+    border: 1px solid var(--cq-line-strong);
+    border-radius: 1.1rem;
+    overflow: hidden;
+    background: var(--cq-ink);
+    box-shadow: 0 50px 120px -50px rgba(124, 92, 255, 0.65);
+  }
+
+  .cq-window-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--cq-line);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .cq-dots {
+    display: inline-flex;
+    gap: 0.35rem;
+  }
+
+  .cq-dots i {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .cq-url {
+    flex: 1;
+    max-width: 26rem;
+    margin-inline: auto;
+    padding: 0.2rem 0.75rem;
+    border-radius: 0.45rem;
+    background: rgba(255, 255, 255, 0.04);
+    font-family: var(--__sl-font-mono);
+    font-size: 0.72rem;
+    text-align: center;
+    color: var(--sl-color-gray-3);
+  }
+
+  .cq-viewport {
+    --scale: 0.75;
+    position: relative;
+    aspect-ratio: 1440 / 900;
+    overflow: hidden;
+  }
+
+  iframe {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 1440px;
+    height: 900px;
+    border: 0;
+    transform: scale(var(--scale));
+    transform-origin: 0 0;
+  }
+
+  @media (max-width: 56rem) {
+    .cq-window {
+      display: none;
+    }
+  }
+</style>

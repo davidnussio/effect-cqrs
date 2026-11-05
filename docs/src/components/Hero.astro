@@ -1,0 +1,345 @@
+---
+/**
+ * The home page's opening: the idea itself. An account's events are appended one
+ * by one, and its state is folded from them as they arrive, as the projection of
+ * the bank demo's aggregate does.
+ */
+import { LinkButton } from "@astrojs/starlight/components"
+
+const { data } = Astro.locals.starlightRoute.entry
+const { actions = [], tagline, title = data.title } = data.hero ?? {}
+
+interface LogEntry {
+  readonly type: string
+  readonly fields: string
+  readonly delta: number
+}
+
+const log: ReadonlyArray<LogEntry> = [
+  { type: "AccountOpened", fields: `owner: "Alice"`, delta: 0 },
+  { type: "MoneyDeposited", fields: "amount: 250", delta: 250 },
+  { type: "MoneyWithdrawn", fields: "amount: 40", delta: -40 },
+  { type: "TransferSent", fields: `to: "bob", amount: 60`, delta: -60 },
+  { type: "MoneyDeposited", fields: "amount: 120", delta: 120 },
+  { type: "TransferRefunded", fields: `amount: 60, reason: "AccountNotOpen"`, delta: 60 }
+]
+
+const balance = log.reduce((sum, entry) => sum + entry.delta, 0)
+const signed = (delta: number) => (delta === 0 ? "" : delta > 0 ? `+${delta}` : `−${-delta}`)
+---
+
+<section class="cq-hero not-content">
+  <div class="cq-copy">
+    <h1 id="_top" data-page-title>{title}</h1>
+    {tagline && <p class="cq-lede" set:html={tagline} />}
+    <div class="cq-actions">
+      {actions.map(({ link, text, variant }) => (
+        <LinkButton href={link} variant={variant}>{text}</LinkButton>
+      ))}
+    </div>
+    <p class="cq-note">
+      A trial port of <a href="https://github.com/davidnussio/moleculer-cqrs">moleculer-cqrs</a> to
+      Effect v4. It isn't on npm, and the API may change.
+    </p>
+  </div>
+
+  <figure class="cq-log" aria-label="The events of one bank account, and the state folded from them">
+    <div class="cq-log-head">
+      <span class="cq-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="cq-stream">account/alice</span>
+      <span class="cq-append">append only</span>
+    </div>
+    <ol class="cq-events" data-log>
+      {log.map((entry, index) => (
+        <li data-delta={entry.delta}>
+          <span class="cq-pos">#{index + 1}</span>
+          <span class="cq-type">{entry.type}</span>
+          <span class="cq-fields">{`{ ${entry.fields} }`}</span>
+          <span class:list={["cq-delta", entry.delta < 0 && "cq-out"]}>{signed(entry.delta)}</span>
+        </li>
+      ))}
+    </ol>
+    <div class="cq-fold">
+      <span class="cq-fold-label">state = events.reduce(projection, initial)</span>
+      <code class="cq-state">
+        {"{ status: "}<b>"open"</b>{", owner: "}<b>"Alice"</b>{", balance: "}<b data-balance>{balance}</b>{", version: "}<b
+          data-version
+        >{log.length}</b>{" }"}
+      </code>
+    </div>
+  </figure>
+</section>
+
+<script>
+  // Plays the log as if it were being written: one event at a time, with the state
+  // following. Without motion, the finished log stays as rendered.
+  const list = document.querySelector<HTMLOListElement>("[data-log]")
+  const balance = document.querySelector<HTMLElement>("[data-balance]")
+  const version = document.querySelector<HTMLElement>("[data-version]")
+  const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+
+  if (list && balance && version && !still) {
+    const rows = Array.from(list.children) as Array<HTMLLIElement>
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+    const flash = (element: HTMLElement) => {
+      element.classList.remove("cq-changed")
+      void element.offsetWidth
+      element.classList.add("cq-changed")
+    }
+
+    const play = async () => {
+      for (;;) {
+        rows.forEach((row) => row.classList.remove("cq-in"))
+        list.classList.remove("cq-done")
+        let total = 0
+        balance.textContent = "0"
+        version.textContent = "0"
+        await pause(700)
+        for (const [index, row] of rows.entries()) {
+          row.classList.add("cq-in")
+          total += Number(row.dataset.delta)
+          await pause(260)
+          balance.textContent = String(total)
+          version.textContent = String(index + 1)
+          flash(balance)
+          flash(version)
+          await pause(1100)
+        }
+        list.classList.add("cq-done")
+        await pause(4200)
+      }
+    }
+
+    list.classList.add("cq-playing")
+    void play()
+  }
+</script>
+
+<style>
+  .cq-hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: clamp(2rem, 5vw, 4.5rem);
+    align-items: center;
+    padding: clamp(2.5rem, 7vw, 5.5rem) 0 clamp(2rem, 5vw, 3.5rem);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: clamp(3.2rem, 8vw, 5.6rem);
+    line-height: 0.95;
+    font-weight: 700;
+    letter-spacing: -0.055em;
+    color: #fff;
+    text-shadow: 0 0 60px rgba(124, 92, 255, 0.45);
+  }
+
+  .cq-lede {
+    margin: 1.5rem 0 0;
+    max-width: 34rem;
+    font-size: clamp(1.05rem, 1.6vw, 1.25rem);
+    line-height: 1.55;
+    color: var(--sl-color-gray-2);
+  }
+
+  .cq-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 2rem;
+  }
+
+  .cq-note {
+    margin: 1.75rem 0 0;
+    max-width: 32rem;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+  }
+
+  .cq-note a {
+    color: var(--sl-color-gray-1);
+    text-decoration-color: rgba(255, 255, 255, 0.3);
+    text-underline-offset: 0.2em;
+  }
+
+  /* The log: a window onto one stream. */
+  .cq-log {
+    margin: 0;
+    border: 1px solid var(--cq-line-strong);
+    border-radius: 1.1rem;
+    background: linear-gradient(180deg, rgba(20, 20, 33, 0.9), rgba(10, 10, 18, 0.92));
+    box-shadow:
+      0 40px 90px -40px rgba(124, 92, 255, 0.6),
+      0 0 0 1px rgba(167, 139, 250, 0.06) inset;
+    overflow: hidden;
+    font-family: var(--__sl-font-mono);
+  }
+
+  .cq-log-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 1rem;
+    border-bottom: 1px solid var(--cq-line);
+    background: rgba(255, 255, 255, 0.025);
+    font-size: 0.75rem;
+  }
+
+  .cq-dots {
+    display: inline-flex;
+    gap: 0.35rem;
+  }
+
+  .cq-dots i {
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .cq-stream {
+    color: var(--sl-color-gray-1);
+  }
+
+  .cq-append {
+    margin-inline-start: auto;
+    color: var(--sl-color-gray-3);
+  }
+
+  .cq-events {
+    margin: 0;
+    padding: 0.6rem 0.5rem;
+    list-style: none;
+    min-height: calc(6 * 2.35rem + 1.2rem);
+  }
+
+  .cq-events li {
+    display: grid;
+    grid-template-columns: 2.2rem auto minmax(0, 1fr) 3.4rem;
+    align-items: baseline;
+    gap: 0.7rem;
+    margin: 0;
+    padding: 0.5rem 0.6rem;
+    border-radius: 0.55rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
+  }
+
+  .cq-playing li {
+    opacity: 0;
+    transform: translateY(-0.4rem);
+    transition:
+      opacity 420ms ease,
+      transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      background-color 900ms ease;
+  }
+
+  .cq-playing li.cq-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* The newest event glows for a moment, then settles into the log. */
+  .cq-playing:not(.cq-done) li.cq-in:not(:has(~ li.cq-in)) {
+    background: rgba(52, 211, 153, 0.08);
+    box-shadow: inset 2px 0 0 var(--cq-event);
+  }
+
+  .cq-pos {
+    color: var(--sl-color-gray-4);
+  }
+
+  .cq-type {
+    color: var(--cq-event);
+    font-weight: 500;
+  }
+
+  .cq-fields {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--sl-color-gray-3);
+  }
+
+  .cq-delta {
+    text-align: end;
+    color: var(--cq-event);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .cq-delta.cq-out {
+    color: var(--cq-reject);
+  }
+
+  .cq-fold {
+    padding: 0.9rem 1.1rem 1.1rem;
+    border-top: 1px solid var(--cq-line);
+    background: rgba(56, 189, 248, 0.04);
+  }
+
+  .cq-fold-label {
+    display: block;
+    margin-bottom: 0.45rem;
+    font-size: 0.72rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .cq-state {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 0.8rem;
+    color: var(--sl-color-gray-2);
+    white-space: nowrap;
+  }
+
+  .cq-state b {
+    font-weight: 500;
+    color: var(--cq-projection);
+  }
+
+  .cq-state b:global(.cq-changed) {
+    animation: cq-changed 900ms ease;
+  }
+
+  @keyframes cq-changed {
+    from {
+      color: #fff;
+      text-shadow: 0 0 14px rgba(56, 189, 248, 0.9);
+    }
+  }
+
+  @media (max-width: 56rem) {
+    .cq-hero {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 36rem) {
+    .cq-state {
+      white-space: normal;
+    }
+  }
+
+  @media (max-width: 30rem) {
+    .cq-events li {
+      grid-template-columns: 1.8rem auto 1fr;
+      gap: 0.5rem;
+    }
+
+    .cq-fields {
+      display: none;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .cq-playing li {
+      transition: none;
+    }
+
+    .cq-state b:global(.cq-changed) {
+      animation: none;
+    }
+  }
+</style>
