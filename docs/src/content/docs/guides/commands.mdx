@@ -135,7 +135,9 @@ They travel in the fiber's context, not in payloads, and nothing has to pass the
   of its events.
 - A view model handler runs with the event it handles as the cause. A command it runs
   records that event's id, like `account/alice@4`, and keeps its correlation.
-- `Causation.causedBy(stored)` does the same for other subscribers, such as a saga.
+- A [saga](../sagas/) carries the event that started it in its workflow's payload, so the
+  commands it runs record that event as their cause, even after a restart.
+- `Causation.causedBy(stored)` does the same for other subscribers.
 - `Causation.withCausation({ correlationId, causationId })` sets them by hand, for
   instance from an incoming request's id.
 

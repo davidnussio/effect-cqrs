@@ -1,0 +1,120 @@
+---
+title: Sagas
+description: Run processes that span several aggregates as durable workflows, started by events.
+---
+
+import { Aside } from "@astrojs/starlight/components"
+
+A command changes one aggregate. A process that touches several, like a transfer between
+two accounts, is a saga: it reacts to an event and runs more commands, possibly over a
+long time, and undoes what it did when a later step is refused.
+
+`Saga` runs each saga as a workflow from `effect/workflow`. The workflow engine keeps the
+outcome of every step, so a workflow that is replayed after a restart skips the commands
+it already ran, and starting the same saga twice joins the first run.
+
+```ts
+import { Effect, Layer, Schema } from "effect"
+import { WorkflowEngine } from "effect/workflow"
+import { Saga } from "effect-cqrs"
+
+// What one run of the saga is about, and what identifies it.
+const Transfer = Saga.workflow("Transfer", {
+  payload: { transferId: Schema.String, from: Schema.String, to: Schema.String, amount: Schema.Int },
+  idempotencyKey: ({ transferId }) => transferId
+})
+
+// The process: each command is an activity whose outcome the engine keeps.
+const TransferWorkflow = Saga.toLayer(Transfer, ({ amount, from, to, transferId }) =>
+  Effect.gen(function*() {
+    const bank = yield* Bank
+    yield* Saga.command("credit", {
+      error: AccountNotOpen,
+      execute: bank.commands.receiveTransfer(to, { transferId, from, amount })
+    }).pipe(
+      Effect.catchTag("AccountNotOpen", () =>
+        Saga.command("refund", {
+          execute: bank.commands.refundTransfer(from, { transferId, to, amount, reason: "AccountNotOpen" })
+        }))
+    )
+  }))
+
+// The trigger: starts a run for each event.
+const Transfers = Saga.make({
+  name: "transfers",
+  aggregates: [Account],
+  handlers: {
+    TransferSent: ({ amount, to, transferId }, { aggregateId }) =>
+      Saga.start(Transfer, { transferId, from: aggregateId, to, amount })
+  }
+})
+
+const TransferSaga = Saga.layer([Transfers]).pipe(
+  Layer.provideMerge(TransferWorkflow),
+  Layer.provide(WorkflowEngine.layerMemory)
+)
+```
+
+## The trigger
+
+`Saga.make` takes the same handlers as a view model, and is one: it reads the event store
+from its own checkpoint, retries a failing handler with backoff, and sees every event at
+least once. Its handlers only start workflows with `Saga.start`, which returns as soon as
+the engine has the run, so the trigger never waits for a saga to finish.
+
+`Saga.layer` runs triggers in the background. Workflows run commands, so they sit on top of
+the command side; keeping triggers out of `ViewModel.layer` avoids providing the view
+models to the commands they depend on. A trigger can still go in `ViewModel.layer`, where
+`replay` starts every saga again and `caughtUp` waits until the sagas have started.
+
+## The workflow
+
+`Saga.workflow` is `Workflow.make` with a `causation` field added to the payload. A
+workflow runs in the engine's fibers, not in the trigger's, so that field is how its
+commands learn their [cause](../commands/#causation): `Saga.start` fills it with the event
+being handled, and `Saga.toLayer` applies it to the body. Every command the saga runs then
+records the trigger event as its cause, in the correlation it started.
+
+`Saga.command` wraps a command in an `Activity`:
+
+- On success it saves the command's aggregate, version and store position.
+- A failure that matches `error`, such as a domain error the saga reacts to, is saved too,
+  so a replay takes the same branch.
+- A lost race or a store error is retried a few times.
+- Any other failure ends the workflow as a defect.
+
+When the workflow fails, `withCompensation` runs the compensations of the steps that had
+succeeded, last first:
+
+```ts
+yield* Saga.command("reserve", { execute: stock.commands.reserve(sku, { orderId, quantity }) }).pipe(
+  Order.withCompensation(() =>
+    Saga.command("release", { execute: stock.commands.release(sku, { orderId }) }).pipe(Effect.asVoid)
+  )
+)
+yield* Saga.command("charge", { error: CardDeclined, execute: payments.commands.charge(orderId, { amount }) })
+```
+
+Compensations are only registered on steps at the top of the workflow body. A refusal that
+is part of the normal flow, like the refund above, reads more plainly as a `catchTag`.
+
+## Delivery and durability
+
+<Aside type="caution">
+  An activity that is cut off before its outcome is saved runs again, and a trigger can
+  start a saga again after a crash. Make the commands a saga runs idempotent, for instance
+  by recording the transfer ids an account has already credited.
+</Aside>
+
+A second start joins the first run only while the engine remembers it. Pair the engine with
+checkpoints that live as long:
+
+- `WorkflowEngine.layerMemory` with `Checkpoints.layerMemory`, for tests and the browser.
+  After a restart the trigger reads the log from the start and runs every saga again.
+- `ClusterWorkflowEngine.layer` from `effect/cluster`, which keeps workflows in SQL through
+  the cluster's message storage, with durable checkpoints such as
+  `SqliteEventStore.layerCheckpoints` or `PostgresEventStore.layerCheckpoints`.
+
+Inside a workflow, `effect/workflow` also offers `DurableClock.sleep` for timeouts that
+survive restarts, and `DurableDeferred` for waiting on a signal, such as a later event that
+another trigger turns into `DurableDeferred.done`.

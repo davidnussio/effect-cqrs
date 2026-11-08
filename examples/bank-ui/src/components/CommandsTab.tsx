@@ -30,11 +30,11 @@ export const CommandsTab = () => {
             <div className="flex gap-1.5">
               <Button
                 tone={settings.paused ? "primary" : "default"}
-                onClick={() => devstore.settings({ paused: !settings.paused })}
+                onClick={() => engine.setPaused(!settings.paused)}
               >
                 {settings.paused ? "▶ Resume" : "❚❚ Pause"}
               </Button>
-              <Button onClick={devstore.step} disabled={!settings.paused} title="Advance one stage">
+              <Button onClick={engine.step} disabled={!settings.paused} title="Advance one stage">
                 Step ▸
               </Button>
             </div>
