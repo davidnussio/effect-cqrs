@@ -25,14 +25,22 @@ export const StoredEvent = Schema.Struct({
   aggregateId: Schema.String,
   version: Schema.Int,
   type: Schema.String,
+  /** The version of the event's schema the payload was written with. Events from before versions existed are `1`. */
+  schemaVersion: Schema.Int,
   payload: Schema.Json,
-  timestamp: Schema.DateTimeUtcFromMillis
+  timestamp: Schema.DateTimeUtcFromMillis,
+  /** Shared by everything that follows from one original request. */
+  correlationId: Schema.NullOr(Schema.String),
+  /** What directly caused the command that recorded the event: a request, a command or another event. */
+  causationId: Schema.NullOr(Schema.String)
 })
 export type StoredEvent = typeof StoredEvent.Type
 
 export interface NewEvent {
   readonly type: string
   readonly payload: Schema.Json
+  /** Defaults to `1`. */
+  readonly schemaVersion?: number | undefined
 }
 
 export interface AppendInput {
@@ -41,7 +49,37 @@ export interface AppendInput {
   /** The stream version the writer based its decision on, `0` for a new stream. */
   readonly expectedVersion: number
   readonly events: ReadonlyArray<NewEvent>
+  readonly correlationId?: string | undefined
+  readonly causationId?: string | undefined
 }
+
+/**
+ * Identifies an event wherever it is stored, as the `causationId` of what it causes:
+ * `account/alice@4`. Name and id are URI-encoded, so a `/` or `@` inside one can't
+ * make two events look alike.
+ */
+export const eventId = (event: Pick<StoredEvent, "aggregateName" | "aggregateId" | "version">): string =>
+  `${encodeURIComponent(event.aggregateName)}/${encodeURIComponent(event.aggregateId)}@${event.version}`
+
+/** The columns every adapter stores for a new event, with the defaults filled in. */
+export const toStored = (
+  input: AppendInput,
+  event: NewEvent,
+  index: number,
+  position: number,
+  timestamp: DateTime.Utc
+): StoredEvent => ({
+  position,
+  aggregateName: input.aggregateName,
+  aggregateId: input.aggregateId,
+  version: input.expectedVersion + index + 1,
+  type: event.type,
+  schemaVersion: event.schemaVersion ?? 1,
+  payload: event.payload,
+  timestamp,
+  correlationId: input.correlationId ?? null,
+  causationId: input.causationId ?? null
+})
 
 /**
  * Selects events by stream, type and time. Omitted fields match everything.
@@ -199,15 +237,9 @@ export const makeMemory: Effect.Effect<EventStore["Service"], EventStoreError> =
           expectedVersion: input.expectedVersion
         })
       }
-      const stored = input.events.map((event, index): StoredEvent => ({
-        position: events.length + index + 1,
-        aggregateName: input.aggregateName,
-        aggregateId: input.aggregateId,
-        version: version + index + 1,
-        type: event.type,
-        payload: event.payload,
-        timestamp
-      }))
+      const stored = input.events.map((event, index) =>
+        toStored(input, event, index, events.length + index + 1, timestamp)
+      )
       for (const event of stored) {
         events.push(event)
         stream.push(event)

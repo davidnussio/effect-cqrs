@@ -35,11 +35,13 @@ aggregate's id and the payload, and returns a `CommandResult`:
 | `events` | The events it recorded, possibly none |
 | `version` | The aggregate's version afterwards |
 | `position` | The store position of the last event, for [`caughtUp`](../view-models/#reading-your-own-writes) |
+| `correlationId` | The correlation its events joined, see [causation](#causation) |
 
 `dispatch` takes the envelope a transport hands over, `{ aggregateId, type, payload }`, as
 `unknown`. It checks the envelope and decodes the payload with the command's JSON codec, so
 an ISO string becomes a `DateTime`. This is the entry point to wire into an HTTP or RPC
-layer.
+layer. The envelope can also carry a `correlationId` and a `causationId`, to continue a
+correlation the caller started.
 
 ## Errors
 
@@ -51,14 +53,15 @@ A command fails with the errors its handler declares, plus:
 | `UnknownCommand` | `dispatch` names a command the aggregate doesn't have |
 | `ConcurrencyConflict` | Another process kept winning the race for this aggregate |
 | `EventStoreError` | The store failed |
-| `EventDecodeError` | A stored event no longer matches the schema |
+| `EventDecodeError` | A stored event doesn't match the schema of its [version](../aggregates/#evolving-events) |
 
 ## Reading
 
 - `readModel(id)` folds the aggregate's events into its state. With `finishTime` it gives
   the state as it was before that moment.
-- `history(id)` lists the aggregate's events as `{ version, timestamp, type }`, with the
-  decoded event as `payload` when you ask for it. `startTime` and `finishTime` narrow the
+- `history(id)` lists the aggregate's events as
+  `{ version, timestamp, type, correlationId, causationId }`, with the decoded event as
+  `payload` when you ask for it. `startTime` and `finishTime` narrow the
   window.
 
 ## Concurrent writers
@@ -76,7 +79,7 @@ it fails with `ConcurrencyConflict`.
 The service keeps the state of the aggregates it used recently, so a command only reads
 the events it hasn't seen yet. Those can come from another process too: a state plus what
 came after it is always the current state. After a restart, the first command on an
-aggregate replays its whole stream.
+aggregate replays its whole stream, unless [snapshots](#snapshots) are on.
 
 ```ts
 const todos = yield* AggregateService.make(Todo, {
@@ -84,6 +87,67 @@ const todos = yield* AggregateService.make(Todo, {
   stateCacheSize: 10_000 // aggregates kept in memory, 0 to turn it off
 })
 ```
+
+## Snapshots
+
+A long aggregate takes a while to replay after a restart. With `snapshots` the service
+saves the state every so many events, and a cold start replays only what came after the
+last one:
+
+```ts
+import { KeyValueStore } from "effect/persistence"
+
+const todos = yield* AggregateService.make(Todo, {
+  snapshots: {
+    every: 100, // events folded between two snapshots
+    schema: Schema.Struct({ title: Schema.String, deleted: Schema.Boolean }), // the state, as JSON
+    version: 1 // change it when the state or the projection changes
+  }
+}).pipe(Effect.provide(KeyValueStore.layerSql({ table: "todo_snapshots" })))
+```
+
+Snapshots go to a `KeyValueStore` from `effect/persistence`, which has layers for memory,
+files, any `effect/sql` database and the browser's `localStorage`.
+
+- **A snapshot is only a shortcut.** One that can't be read or saved is logged and
+  skipped, and the state comes from the log as before. A command never fails because of
+  one.
+- **The version is part of every key.** Snapshots of a state the code no longer produces
+  would be wrong rather than unreadable, so change `version` whenever the state or the
+  projection changes. The old ones are then ignored and rebuilt from the log.
+- **They are taken when state is loaded.** A command that finds `every` new events since
+  the last snapshot saves one before deciding, in the same fiber.
+- `readModel` with a `finishTime` always replays from the start.
+
+## Causation
+
+Every stored event records why it happened, so a chain of reactions can be traced back to
+the request that started it:
+
+| Field | What it is |
+| --- | --- |
+| `correlationId` | Shared by everything that follows from one original request |
+| `causationId` | What directly caused the command that recorded the event |
+
+They travel in the fiber's context, not in payloads, and nothing has to pass them along:
+
+- A command outside any causation starts a correlation with a fresh id, which is both ids
+  of its events.
+- A view model handler runs with the event it handles as the cause. A command it runs
+  records that event's id, like `account/alice@4`, and keeps its correlation.
+- `Causation.causedBy(stored)` does the same for other subscribers, such as a saga.
+- `Causation.withCausation({ correlationId, causationId })` sets them by hand, for
+  instance from an incoming request's id.
+
+```ts
+import { Causation } from "effect-cqrs"
+
+yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" }).pipe(
+  Causation.withCausation({ correlationId: requestId, causationId: requestId })
+)
+```
+
+The command's span carries the correlation as `cqrs.correlation_id`.
 
 ## As a service
 

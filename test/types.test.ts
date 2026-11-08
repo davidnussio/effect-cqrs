@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
-import { Aggregate, type AggregateService, Fixture, ViewModel } from "effect-cqrs"
+import { Aggregate, type AggregateService, EventVersions, Fixture, ViewModel } from "effect-cqrs"
 import { Todo, type TodoAlreadyCreated } from "../examples/todo/aggregate.ts"
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
@@ -82,5 +82,39 @@ describe("types", () => {
     const error: Equals<Effect.Error<typeof scenario>, TodoAlreadyCreated | AggregateService.CommandFailure> = true
 
     assert.isTrue(error)
+  })
+  it("requires a history to end in the event's current shape", () => {
+    const Named = Schema.TaggedUnion({ Named: { first: Schema.String, last: Schema.String } })
+    const V1 = Schema.Struct({ name: Schema.String })
+    const make = <V extends Aggregate.Versions<typeof Named.Type>>(versions: V) =>
+      Aggregate.make<string>()({
+        name: "named",
+        events: Named,
+        initial: "",
+        projection: { Named: (_, { first }) => first },
+        versions
+      })
+
+    const named = make({
+      Named: EventVersions.from(V1).next(Named.cases.Named, ({ name }) => ({ first: name, last: "" }))
+    })
+    make({
+      // @ts-expect-error the history stops before the current shape
+      Named: EventVersions.from(V1)
+    })
+    EventVersions.from(V1).next(
+      Named.cases.Named,
+      // @ts-expect-error the upcast has to produce the next version
+      ({ name }) => ({ first: name })
+    )
+
+    Aggregate.historical(named, "Named", 1, { name: "Ada" })
+    // Only type checked: these would throw when they run.
+    void (() => {
+      // @ts-expect-error version 1 had a name, not a first name
+      Aggregate.historical(named, "Named", 1, { first: "Ada" })
+      // @ts-expect-error there is no version 3
+      Aggregate.historical(named, "Named", 3, { first: "Ada", last: "Lovelace" })
+    })
   })
 })

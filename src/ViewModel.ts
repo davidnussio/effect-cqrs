@@ -23,6 +23,7 @@ import {
 import type { DateTime } from "effect"
 import type * as Aggregate from "./Aggregate.ts"
 import { makeEventDecoder } from "./AggregateService.ts"
+import * as Causation from "./Causation.ts"
 import { Checkpoints } from "./Checkpoints.ts"
 import { type EventFilter, EventStore, type EventStoreError, type StoredEvent } from "./EventStore.ts"
 
@@ -188,7 +189,8 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
   const handle = (decodeEvent: (stored: StoredEvent) => Effect.Effect<unknown, unknown>) => (stored: StoredEvent) =>
     Effect.gen(function*() {
       const event = yield* decodeEvent(stored)
-      yield* viewModel.handlers[stored.type]!(event as never, stored)
+      // Commands the handler runs record this event as their cause.
+      yield* viewModel.handlers[stored.type]!(event as never, stored).pipe(Causation.causedBy(stored))
     }).pipe(
       Effect.mapError(fail(stored.position)),
       Effect.catchDefect((defect) => Effect.fail(fail(stored.position)(defect)))

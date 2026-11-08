@@ -54,8 +54,8 @@ builds an event and fills in its `_tag`.
 
 The projection has one function per event tag, and it must cover every tag or the
 aggregate doesn't compile. Each function takes the state, the event and its metadata
-(`aggregateName`, `aggregateId`, `version`, `position` and `timestamp`), and returns the new
-state.
+(`aggregateName`, `aggregateId`, `version`, `position`, `timestamp`, and the
+[`correlationId` and `causationId`](../commands/#causation)), and returns the new state.
 
 `Aggregate.make<State>()` takes the state type explicitly, in a curried call like
 `Schema.TaggedError<X>()`. Inferred from `initial`, a literal such as `status: "open"` would
@@ -79,6 +79,46 @@ A handler should only decide, for three reasons:
   or projection that mutates one corrupts the next command.
 - **Commands on one aggregate take turns.** A handler that runs a command on its own
   aggregate waits for itself.
+
+## Evolving events
+
+The log is never rewritten, so events stored months ago keep the shape they had then. To
+change an event's schema, declare its older shapes with `EventVersions` and say how each one
+becomes the next. Projections, view models and handlers only ever see the current shape.
+
+```ts
+import { EventVersions } from "effect-cqrs"
+
+// What TodoCreated looked like before it had a due date
+const TodoCreatedV1 = Schema.Struct({ title: Schema.String, createdAt: Schema.DateTimeUtc })
+
+const Todo = Aggregate.make<TodoState>()({
+  name: "todo",
+  events: TodoEvent,
+  initial,
+  projection,
+  versions: {
+    TodoCreated: EventVersions.from(TodoCreatedV1).next(
+      TodoEvent.cases.TodoCreated,
+      (v1) => ({ ...v1, dueDate: null })
+    )
+  }
+})
+```
+
+- **Versions count from 1.** The first schema is the shape events had before the history
+  was declared, which is what every event already stored was written with. Each `next` adds
+  a version, and new events are written in the last one.
+- **The last version is the current schema.** A history that stops short of it doesn't
+  compile, and neither does an upcast that returns the wrong shape.
+- **Each upcast returns the next version without its `_tag`.** It is a plain function, and
+  its result is checked against that version's schema.
+- **Old events are upcast as they are read.** The steps are composed into one decoder per
+  old version with `Schema.decodeTo` when the service starts, so an event five versions
+  behind costs one decode.
+
+The store records each event's `schemaVersion`. An event in a version the aggregate doesn't
+declare, for instance one written by newer code, fails with `EventDecodeError`.
 
 ## Types from an aggregate
 

@@ -13,9 +13,13 @@
  *
  * Commands run through the real {@link AggregateService} on an in-memory store,
  * so payload validation and event encoding are exercised too.
+ *
+ * The history can include events stored in older versions of their schema, made
+ * with `Aggregate.historical`, which then go through the same upcasting as events
+ * read from a real store.
  */
-import { Effect, Effectable, Schema } from "effect"
-import type * as Aggregate from "./Aggregate.ts"
+import { Arbitrary, Effect, Effectable, Schema } from "effect"
+import * as Aggregate from "./Aggregate.ts"
 import * as AggregateService from "./AggregateService.ts"
 import { EventStore, makeMemory } from "./EventStore.ts"
 
@@ -36,6 +40,30 @@ export interface Outcome<A extends Aggregate.Any> {
 
 /** An event to compare with, or only its tag when the rest doesn't matter. */
 export type ExpectedEvent<A extends Aggregate.Any> = Aggregate.Event<A> | Aggregate.Event<A>["_tag"]
+
+/** An event in today's shape, or one stored in an older version of its schema. */
+export type GivenEvent<A extends Aggregate.Any> = Aggregate.Event<A> | Aggregate.Historical
+
+/** One generated step of {@link Fixture.checkInvariants}. */
+export type Step<A extends Aggregate.Any> = {
+  readonly [K in Aggregate.CommandName<A>]: { readonly command: K; readonly payload: Aggregate.Payload<A, K> }
+}[Aggregate.CommandName<A>]
+
+export interface InvariantOptions<A extends Aggregate.Any> {
+  /** Must hold for the given state and after every command that succeeds. */
+  readonly invariant: (state: Aggregate.State<A>) => boolean
+  /**
+   * How to generate each command's payload. By default it comes from the payload
+   * schema. `false` leaves a command out.
+   */
+  readonly commands?: {
+    readonly [K in Aggregate.CommandName<A>]?: Arbitrary.Arbitrary<Aggregate.Payload<A, K>> | false
+  } | undefined
+  /** The longest sequence of commands to try. Defaults to 20. */
+  readonly maxCommands?: number | undefined
+  /** Passed on to `Arbitrary.checkEffect`, for the number of runs or a seed. */
+  readonly check?: Arbitrary.CheckOptions | undefined
+}
 
 /**
  * The steps so far. Nothing runs until it is yielded or run as an Effect, which
@@ -62,9 +90,9 @@ export interface Scenario<A extends Aggregate.Any, E, R> extends Effect.Effect<O
 
 export interface Fixture<A extends Aggregate.Any> {
   /** Replaces the history the next command runs against. */
-  given(events: ReadonlyArray<Aggregate.Event<A>>): Fixture<A>
+  given(events: ReadonlyArray<GivenEvent<A>>): Fixture<A>
   /** Like `given`, starting from an empty history by default and optionally switching aggregate id. */
-  givenEvents(events?: ReadonlyArray<Aggregate.Event<A>>, aggregateId?: string): Fixture<A>
+  givenEvents(events?: ReadonlyArray<GivenEvent<A>>, aggregateId?: string): Fixture<A>
   /** The state after the given events, without running a command. */
   readonly state: Effect.Effect<Aggregate.State<A>, AggregateService.ReadError, Aggregate.Context<A>>
   /** Passes the state after the given events to a callback, which throws to fail the test. */
@@ -80,6 +108,13 @@ export interface Fixture<A extends Aggregate.Any> {
     command: K,
     payload: Aggregate.Payload<A, K>
   ): Effect.Effect<Aggregate.CommandError<A, K> | AggregateService.CommandFailure, never, Aggregate.Context<A>>
+  /**
+   * Runs random sequences of commands from the given history and checks that the
+   * invariant holds after each one that succeeds. Commands that fail are part of
+   * the game and are skipped. A violation dies with {@link ExpectationFailed},
+   * holding the shortest sequence found that breaks it.
+   */
+  checkInvariants(options: InvariantOptions<A>): Effect.Effect<void, never, Aggregate.Context<A>>
 }
 
 class ScenarioImpl<A extends Aggregate.Any, E, R> extends Effectable.Class<Outcome<A>, E, R>
@@ -145,12 +180,14 @@ export const make = <A extends Aggregate.Any>(
   aggregate: A,
   options?: {
     readonly aggregateId?: string
-    readonly events?: ReadonlyArray<Aggregate.Event<A>>
+    readonly events?: ReadonlyArray<GivenEvent<A>>
   }
 ): Fixture<A> => {
   const aggregateId = options?.aggregateId ?? "fixture-id"
   const history = options?.events ?? []
   const encodeEvent = AggregateService.makeEventEncoder(aggregate)
+  const encodeGiven = (event: GivenEvent<A>) =>
+    event instanceof Aggregate.Historical ? Effect.succeed(event) : encodeEvent(event)
 
   const seeded = Effect.gen(function*() {
     const store = yield* makeMemory
@@ -159,7 +196,7 @@ export const make = <A extends Aggregate.Any>(
         aggregateName: aggregate.name,
         aggregateId,
         expectedVersion: 0,
-        events: yield* Effect.forEach(history, encodeEvent)
+        events: yield* Effect.forEach(history, encodeGiven)
       })
     }
     const service = yield* AggregateService.make(aggregate).pipe(Effect.provideService(EventStore, store))
@@ -187,6 +224,53 @@ export const make = <A extends Aggregate.Any>(
       })
     )
 
+  const checkInvariants = (options: InvariantOptions<A>) =>
+    Effect.gen(function*() {
+      const commands = Object.entries(aggregate.commands).flatMap(([name, command]) => {
+        const given = options.commands?.[name as Aggregate.CommandName<A>] as
+          | Arbitrary.Arbitrary<unknown>
+          | false
+          | undefined
+        if (given === false) return []
+        const payload = given ?? Arbitrary.schema(Schema.toType(command.payload))
+        return [[name, Arbitrary.map(payload, (payload: unknown) => ({ command: name, payload }))] as const]
+      })
+      if (commands.length === 0) {
+        return yield* Effect.die(new Error("checkInvariants needs at least one command to run"))
+      }
+      const byName = new Map(commands)
+      const steps = Arbitrary.array(
+        Arbitrary.flatMap(Arbitrary.schema(Schema.Literals(commands.map(([name]) => name))), (name) => byName.get(name)!),
+        { maxLength: options.maxCommands ?? 20 }
+      ) as Arbitrary.Arbitrary<ReadonlyArray<Step<A>>>
+
+      // Each run starts from a fresh store with the given history.
+      const holds = (sequence: ReadonlyArray<Step<A>>) =>
+        Effect.gen(function*() {
+          const service = yield* seeded
+          if (!options.invariant(yield* service.readModel(aggregateId))) return false
+          for (const step of sequence) {
+            const succeeded = yield* service.commands[step.command](aggregateId, step.payload).pipe(
+              Effect.as(true),
+              Effect.catch(() => Effect.succeed(false))
+            )
+            if (succeeded && !options.invariant(yield* service.readModel(aggregateId))) return false
+          }
+          return true
+        }).pipe(Effect.orDie)
+
+      const result = yield* Arbitrary.checkEffect(steps, holds, options.check)
+      if (result._tag !== "Passed") {
+        return yield* Effect.die(
+          new ExpectationFailed({
+            message: Arbitrary.formatCheckFailure(result) ?? "The invariant does not hold",
+            expected: "the invariant to hold after every command",
+            actual: result._tag === "Falsified" ? result.shrunkInput : result
+          })
+        )
+      }
+    })
+
   const fixture: Fixture<A> = {
     given: (events) => make(aggregate, { aggregateId, events }),
     givenEvents: (events = [], id = aggregateId) => make(aggregate, { aggregateId: id, events }),
@@ -206,7 +290,8 @@ export const make = <A extends Aggregate.Any>(
       when(command, payload).pipe(
         Effect.flip,
         Effect.catch(() => Effect.die(new Error(`Expected command "${command}" to fail, but it succeeded`)))
-      )
+      ),
+    checkInvariants
   }
 
   return fixture

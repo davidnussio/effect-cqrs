@@ -92,6 +92,41 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
       assert.deepStrictEqual(yield* positions, [1, 2])
     }).pipe(Effect.provide(Layer.suspend(temporaryPostgres))))
 
+  it.live("adds the new columns to a table from before they existed", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      const table = `old_${crypto.randomUUID().replaceAll("-", "")}`
+      yield* Effect.addFinalizer(() =>
+        sql.unsafe(`DROP TABLE IF EXISTS ${table}_events, ${table}_events_head, ${table}_checkpoints`).pipe(Effect.ignore)
+      )
+      yield* sql.unsafe(`
+        CREATE TABLE ${table}_events (
+          position BIGINT PRIMARY KEY,
+          aggregate_name TEXT NOT NULL,
+          aggregate_id TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          payload JSONB NOT NULL,
+          "timestamp" BIGINT NOT NULL,
+          UNIQUE (aggregate_name, aggregate_id, version)
+        )
+      `)
+      yield* sql.unsafe(`INSERT INTO ${table}_events VALUES (1, 'test', 'a', 1, 'A1', '{}', 0)`)
+      yield* sql.unsafe(`CREATE TABLE ${table}_events_head (only_row BOOLEAN PRIMARY KEY DEFAULT TRUE, position BIGINT NOT NULL)`)
+      yield* sql.unsafe(`INSERT INTO ${table}_events_head (position) VALUES (1)`)
+
+      yield* Effect.gen(function*() {
+        yield* append("a", 1, "A2")
+        const events = yield* EventStore.EventStore.use((store) => Stream.runCollect(store.read()))
+
+        assert.deepStrictEqual(events.map((event) => [event.type, event.schemaVersion, event.correlationId]), [
+          ["A1", 1, null],
+          ["A2", 1, null]
+        ])
+      }).pipe(Effect.provide(postgresStorage(table)))
+      // The tables are dropped before the client closes.
+    }).pipe(Effect.scoped, Effect.provide(Layer.fresh(postgresClient()))))
+
   it.live("keeps events and checkpoints across restarts, and numbers on from them", () =>
     Effect.gen(function*() {
       const reopened = Layer.fresh(postgresStorage(table).pipe(Layer.provide(Layer.fresh(postgresClient()))))

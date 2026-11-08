@@ -122,7 +122,10 @@ export const EventsTab = ({ travel }: { travel: number | undefined }) => {
                           aggregateId: event.aggregateId,
                           version: event.version,
                           type: event.type,
+                          schemaVersion: event.stored.schemaVersion,
                           timestamp: new Date(event.timestamp).toISOString(),
+                          correlationId: event.stored.correlationId,
+                          causationId: event.stored.causationId,
                           payload: event.payload
                         },
                         null,

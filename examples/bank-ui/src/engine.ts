@@ -5,6 +5,7 @@
  */
 import { Context, DateTime, Duration, Effect, Layer, ManagedRuntime, Schedule, Semaphore, Stream } from "effect"
 import * as AggregateService from "effect-cqrs/AggregateService"
+import * as Causation from "effect-cqrs/Causation"
 import * as Checkpoints from "effect-cqrs/Checkpoints"
 import * as EventStore from "effect-cqrs/EventStore"
 import * as ViewModel from "effect-cqrs/ViewModel"
@@ -144,7 +145,8 @@ const TransferSaga = Layer.effectDiscard(Effect.gen(function*() {
             payload: { transferId: event.transferId, to: event.to, amount: event.amount, reason: credited.tag }
           }, "saga")
         }
-      })
+        // Both commands record `TransferSent` as their cause, in the correlation it started.
+      }).pipe(Causation.causedBy(stored))
     ),
     Effect.catchCause((cause) => Effect.logError("saga stopped", cause)),
     Effect.forkScoped

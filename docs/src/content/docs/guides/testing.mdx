@@ -45,7 +45,7 @@ it.effect("rejects deleting twice", () =>
 
 | Step | What it does |
 | --- | --- |
-| `givenEvents(events?, aggregateId?)` | The history the commands run against, empty by default |
+| `givenEvents(events?, aggregateId?)` | The history the commands run against, empty by default. It can include [old events](#old-events) |
 | `when(command, payload)` | Runs a command, typed against the aggregate. A command that fails stops the chain with its error |
 | `expectEvent(event)` | The last command emitted exactly this event |
 | `expectEvents([...])` | The last command emitted exactly these events, in order. `[]` means it recorded nothing |
@@ -63,6 +63,48 @@ you'd rather write plain assertions.
 The chain is lazy. Built and never yielded or returned, it checks nothing and the test
 passes.
 </Aside>
+
+## Old events
+
+`givenEvents` also takes events in an older version of their schema, built with
+`Aggregate.historical`. They are stored as code from that time would have stored them,
+so the history goes through the [upcasting](../aggregates/#evolving-events) a real store
+does:
+
+```ts
+it.effect("upcasts todos created before due dates", () =>
+  Fixture.make(Todo)
+    .givenEvents([Aggregate.historical(Todo, "TodoCreated", 1, { title: "Buy Milk", createdAt })])
+    .inspectState((state) => assert.strictEqual(state.dueDate, null)))
+```
+
+The value is checked against that version's schema, at compile time and when it runs, so a
+test can't seed a shape that never existed. For JSON taken from a database,
+`new Aggregate.Historical({ type, schemaVersion, payload })` skips the check.
+
+## Invariants
+
+`checkInvariants` runs random sequences of commands, with payloads generated from their
+schemas by Effect's `Arbitrary`, and checks a predicate on the state after every command
+that succeeds. Commands that fail are part of the game. A violation dies with
+`ExpectationFailed`, holding the shortest sequence it found that breaks the predicate.
+
+```ts
+it.effect("never overdraws", () =>
+  Fixture.make(Account)
+    .givenEvents([opened])
+    .checkInvariants({
+      invariant: (state) => state.balance >= 0,
+      commands: {
+        closeAccount: false, // left out
+        deposit: Arbitrary.schema(SmallAmount).pipe(Arbitrary.map((amount) => ({ amount })))
+      },
+      maxCommands: 20, // the longest sequence, 20 by default
+      check: { runs: 200, seed: 1 } // passed to Arbitrary.checkEffect
+    }))
+```
+
+Each run starts from the given events on a fresh store.
 
 ## Time
 

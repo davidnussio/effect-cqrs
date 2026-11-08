@@ -25,6 +25,12 @@ const storeError = (operation: string) => (cause: unknown) => new EventStore.Eve
 
 const isUniqueViolation = (error: SqlError.SqlError) => error.reason._tag === "UniqueViolation"
 
+const addedColumns: ReadonlyArray<readonly [string, string]> = [
+  ["schema_version", "INTEGER NOT NULL DEFAULT 1"],
+  ["correlation_id", "TEXT"],
+  ["causation_id", "TEXT"]
+]
+
 export const make = Effect.fnUntraced(function*(options?: Options) {
   const sql = yield* SqlClient.SqlClient
   const events = sql(options?.eventsTable ?? "cqrs_events")
@@ -37,11 +43,28 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
       aggregate_id TEXT NOT NULL,
       version INTEGER NOT NULL,
       type TEXT NOT NULL,
+      schema_version INTEGER NOT NULL DEFAULT 1,
       payload TEXT NOT NULL,
       timestamp INTEGER NOT NULL,
+      correlation_id TEXT,
+      causation_id TEXT,
       UNIQUE (aggregate_name, aggregate_id, version)
     )
   `.pipe(Effect.mapError(storeError("initialize")))
+  // Tables created before these columns existed get them here. SQLite has no
+  // `ADD COLUMN IF NOT EXISTS`, so the existing columns are listed first.
+  const existing = yield* sql<{ readonly name: string }>`PRAGMA table_info(${events})`.pipe(
+    Effect.map((rows) => new Set(rows.map(({ name }) => name))),
+    Effect.mapError(storeError("initialize"))
+  )
+  yield* Effect.forEach(
+    addedColumns.filter(([name]) => !existing.has(name)),
+    ([name, definition]) =>
+      sql`ALTER TABLE ${events} ADD COLUMN ${sql(name)} ${sql.literal(definition)}`.pipe(
+        Effect.mapError(storeError("initialize"))
+      ),
+    { discard: true }
+  )
   yield* sql`
     CREATE INDEX IF NOT EXISTS ${sql(`${indexPrefix}_type_idx`)} ON ${events} (type, position)
   `.pipe(Effect.mapError(storeError("initialize")))
@@ -52,8 +75,11 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
     aggregate_id AS "aggregateId",
     version,
     type,
+    schema_version AS "schemaVersion",
     payload,
-    timestamp
+    timestamp,
+    correlation_id AS "correlationId",
+    causation_id AS "causationId"
   `)
 
   const append = (input: EventStore.AppendInput) => {
@@ -73,26 +99,23 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
       const timestamp = yield* Clock.currentTimeMillis
       return yield* Effect.forEach(input.events, (event, index) =>
         sql<{ readonly position: number }>`
-          INSERT INTO ${events} (aggregate_name, aggregate_id, version, type, payload, timestamp)
+          INSERT INTO ${events} (
+            aggregate_name, aggregate_id, version, type, schema_version, payload, timestamp, correlation_id, causation_id
+          )
           VALUES (
             ${input.aggregateName},
             ${input.aggregateId},
             ${input.expectedVersion + index + 1},
             ${event.type},
+            ${event.schemaVersion ?? 1},
             ${JSON.stringify(event.payload)},
-            ${timestamp}
+            ${timestamp},
+            ${input.correlationId ?? null},
+            ${input.causationId ?? null}
           )
           RETURNING position
         `.pipe(
-          Effect.map(([row]): EventStore.StoredEvent => ({
-            position: row!.position,
-            aggregateName: input.aggregateName,
-            aggregateId: input.aggregateId,
-            version: input.expectedVersion + index + 1,
-            type: event.type,
-            payload: event.payload,
-            timestamp: DateTime.makeUnsafe(timestamp)
-          }))
+          Effect.map(([row]) => EventStore.toStored(input, event, index, row!.position, DateTime.makeUnsafe(timestamp)))
         ))
     }).pipe(
       sql.withTransaction,

@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Cause, DateTime, Effect, Exit, Schema } from "effect"
+import { Arbitrary, Cause, DateTime, Effect, Exit, Schema } from "effect"
 import { Aggregate, Fixture } from "effect-cqrs"
 import { Todo, TodoEvent } from "../examples/todo/aggregate.ts"
 
@@ -240,6 +240,68 @@ describe("Fixture", () => {
         )
 
         assert.strictEqual(defect, failure)
+      }))
+  })
+
+  describe("checkInvariants", () => {
+    const Amount = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 100 }))
+    const WalletEvent = Schema.TaggedUnion({ Deposited: { amount: Amount }, Withdrawn: { amount: Amount } })
+    const wallet = (canWithdraw: (balance: number, amount: number) => boolean) =>
+      Aggregate.make<number>()({
+        name: "wallet",
+        events: WalletEvent,
+        initial: 0,
+        projection: { Deposited: (balance, { amount }) => balance + amount, Withdrawn: (balance, { amount }) => balance - amount }
+      })
+        .command("deposit", {
+          payload: Schema.Struct({ amount: Amount }),
+          handler: (_, { amount }) => Effect.succeed(WalletEvent.cases.Deposited.make({ amount }))
+        })
+        .command("withdraw", {
+          payload: Schema.Struct({ amount: Amount }),
+          handler: (balance, { amount }) =>
+            canWithdraw(balance, amount)
+              ? Effect.succeed(WalletEvent.cases.Withdrawn.make({ amount }))
+              : Effect.fail("Insufficient funds" as const)
+        })
+
+    const neverNegative = (balance: number) => balance >= 0
+
+    it.effect("passes when no sequence of commands breaks the invariant", () =>
+      Fixture.make(wallet((balance, amount) => balance >= amount)).checkInvariants({ invariant: neverNegative }))
+
+    it.effect("dies with the shortest sequence it found that breaks the invariant", () =>
+      Effect.gen(function*() {
+        const defect = yield* defectOf(
+          Fixture.make(wallet((balance) => balance > 0)).checkInvariants({
+            invariant: neverNegative,
+            check: { seed: 1 }
+          })
+        )
+
+        assert.instanceOf(defect, Fixture.ExpectationFailed)
+        const steps = (defect as Fixture.ExpectationFailed).actual as ReadonlyArray<{ readonly command: string }>
+        // A deposit and a larger withdrawal are as short as it gets.
+        assert.deepStrictEqual(steps.map((step) => step.command), ["deposit", "withdraw"])
+      }))
+
+    it.effect("starts from the given history", () =>
+      Effect.gen(function*() {
+        const defect = yield* defectOf(
+          Fixture.make(wallet((balance) => balance > 0))
+            .given([WalletEvent.cases.Deposited.make({ amount: 1 })])
+            .checkInvariants({ invariant: neverNegative, commands: { deposit: false }, check: { seed: 1 } })
+        )
+
+        const steps = (defect as Fixture.ExpectationFailed).actual as ReadonlyArray<{ readonly command: string }>
+        assert.deepStrictEqual(steps.map((step) => step.command), ["withdraw"])
+      }))
+
+    it.effect("takes payloads from the arbitraries it is given", () =>
+      Fixture.make(wallet((balance) => balance > 0)).checkInvariants({
+        invariant: neverNegative,
+        // Withdrawing nothing but single units, a positive balance can't go below zero.
+        commands: { withdraw: Arbitrary.Constant({ amount: 1 }) }
       }))
   })
 })

@@ -105,3 +105,6 @@ the writers down, and catches up when they stop.
 
 Anything else that reacts to events, such as a saga, can use `store.subscribe(filter)`: a
 stream of past events, followed by live ones. The bank demo's transfer saga is one.
+
+A handler runs with the event it handles as the [cause](../commands/#causation) of the
+commands it runs. A subscriber gets the same with `Causation.causedBy(stored)`.

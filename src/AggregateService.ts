@@ -2,8 +2,10 @@
  * Runs an aggregate against the {@link EventStore}: the `command`, `read-model`
  * and `history` actions of moleculer-cqrs, as a typed service.
  */
-import { Array as Arr, type DateTime, Effect, Schedule, Schema, Semaphore, Stream } from "effect"
+import { Array as Arr, type DateTime, Effect, Option, Schedule, Schema, Semaphore, Stream } from "effect"
+import { KeyValueStore } from "effect/persistence"
 import * as Aggregate from "./Aggregate.ts"
+import { CurrentCausation } from "./Causation.ts"
 import {
   ConcurrencyConflict,
   type EventFilter,
@@ -11,6 +13,7 @@ import {
   type EventStoreError,
   type StoredEvent
 } from "./EventStore.ts"
+import * as EventVersions from "./EventVersions.ts"
 
 export class UnknownCommand extends Schema.TaggedError<UnknownCommand>()("UnknownCommand", {
   aggregateName: Schema.String,
@@ -23,12 +26,16 @@ export class InvalidCommand extends Schema.TaggedError<InvalidCommand>()("Invali
   message: Schema.String
 }) {}
 
-/** A stored event no longer matches the schema, which means the data needs a migration. */
+/**
+ * A stored event doesn't match the schema of its version, or was written in a
+ * version the aggregate doesn't declare. Old shapes are declared with `EventVersions`.
+ */
 export class EventDecodeError extends Schema.TaggedError<EventDecodeError>()("EventDecodeError", {
   aggregateName: Schema.String,
   aggregateId: Schema.String,
   version: Schema.Int,
   type: Schema.String,
+  schemaVersion: Schema.Int,
   message: Schema.String
 }) {}
 
@@ -45,12 +52,16 @@ export interface CommandResult<Event> {
   /** The store position of the last event, to pass to `ViewModels.caughtUp`. */
   readonly position: number
   readonly events: ReadonlyArray<Event>
+  /** Recorded on the events, see `Causation`. */
+  readonly correlationId: string
 }
 
 export interface HistoryEntry<Event> {
   readonly version: number
   readonly timestamp: DateTime.Utc
   readonly type: string
+  readonly correlationId: string | null
+  readonly causationId: string | null
   readonly payload?: Event
 }
 
@@ -86,41 +97,92 @@ export interface AggregateService<A extends Aggregate.Any> {
 const CommandEnvelope = Schema.Struct({
   aggregateId: Schema.NonEmptyString,
   type: Schema.String,
-  payload: Schema.Unknown
+  payload: Schema.Unknown,
+  /** Continues a correlation started elsewhere, see `Causation`. */
+  correlationId: Schema.optional(Schema.String),
+  causationId: Schema.optional(Schema.String)
 })
 
-/** Decodes a stored event with the schema of the aggregate it belongs to. */
+const versionsOf = (aggregate: Aggregate.Any) =>
+  Object.entries(aggregate.versions as Record<string, EventVersions.Any | undefined>).flatMap(([tag, versions]) =>
+    versions === undefined ? [] : [[tag, versions] as const]
+  )
+
+/**
+ * Decodes a stored event with the schema of the aggregate it belongs to. An
+ * event stored in an older version is upcast to the current one on the way.
+ */
 export const makeEventDecoder = <A extends Aggregate.Any>(aggregate: A) => {
-  const decode = Schema.decodeUnknownEffect(Schema.toCodecJson(aggregate.events))
-  return (stored: StoredEvent): Effect.Effect<Aggregate.Event<A>, EventDecodeError> =>
-    decode(stored.payload).pipe(
-      Effect.mapError((error) =>
-        new EventDecodeError({
-          aggregateName: stored.aggregateName,
-          aggregateId: stored.aggregateId,
-          version: stored.version,
-          type: stored.type,
-          message: error.message
-        })
-      )
+  const decodeCurrent = Schema.decodeUnknownEffect(Schema.toCodecJson(aggregate.events))
+  const upcasters = new Map(versionsOf(aggregate).map(([tag, versions]) => [tag, {
+    current: EventVersions.current(versions),
+    decoders: EventVersions.decoders(tag, versions).map((decoder) => Schema.decodeUnknownEffect(decoder))
+  }]))
+  return (stored: StoredEvent): Effect.Effect<Aggregate.Event<A>, EventDecodeError> => {
+    const fail = (message: string) =>
+      new EventDecodeError({
+        aggregateName: stored.aggregateName,
+        aggregateId: stored.aggregateId,
+        version: stored.version,
+        type: stored.type,
+        schemaVersion: stored.schemaVersion,
+        message
+      })
+    const upcaster = upcasters.get(stored.type)
+    const current = upcaster?.current ?? 1
+    const decode = stored.schemaVersion === current ? decodeCurrent : upcaster?.decoders[stored.schemaVersion - 1]
+    if (decode === undefined) {
+      return Effect.fail(fail(`${aggregate.name} knows ${stored.type} up to schema version ${current}`))
+    }
+    return decode(stored.payload).pipe(
+      Effect.mapError((error) => fail(error.message))
     ) as Effect.Effect<Aggregate.Event<A>, EventDecodeError>
+  }
 }
 
-/** Encodes events into the JSON form the store keeps. */
+/** Encodes events into the JSON form the store keeps, in the current version of their schema. */
 export const makeEventEncoder = <A extends Aggregate.Any>(aggregate: A) => {
   const encode = Schema.encodeUnknownEffect(Schema.toCodecJson(aggregate.events))
+  const versions = new Map(versionsOf(aggregate).map(([tag, versions]) => [tag, EventVersions.current(versions)]))
   return (event: Aggregate.Event<A>) =>
     encode(event).pipe(
       // Events come from the aggregate's own handlers, so this is a programming error.
       Effect.orDie,
-      Effect.map((payload) => ({ type: event._tag, payload: payload as Schema.Json }))
+      Effect.map((payload) => ({
+        type: event._tag,
+        payload: payload as Schema.Json,
+        schemaVersion: versions.get(event._tag) ?? 1
+      }))
     )
+}
+
+/** Saves the state of each aggregate every so often, so a cold start replays only what came after. */
+export interface SnapshotOptions<State> {
+  /** How many events to fold after a snapshot before saving the next one. */
+  readonly every: number
+  /** How the state is stored. It is encoded as JSON. */
+  readonly schema: Schema.Codec<State, any, never, never>
+  /**
+   * Part of every key. Change it whenever the state or the projection changes,
+   * so that snapshots of the old state are ignored and rebuilt from the log.
+   * Defaults to `1`.
+   */
+  readonly version?: string | number | undefined
+}
+
+export interface Options {
+  /** How many times a command is re-decided after losing a race. Defaults to 5. */
+  readonly maxRetries?: number | undefined
+  /** How many aggregates keep their state in memory between commands. Defaults to 10,000. */
+  readonly stateCacheSize?: number | undefined
 }
 
 interface Loaded<State> {
   readonly state: State
   readonly version: number
   readonly position: number
+  /** The version of the last snapshot saved or loaded, `0` when there is none. */
+  readonly snapshotVersion: number
 }
 
 /** Remembers recent states, dropping the least recently used. A `Map` iterates in insertion order. */
@@ -183,14 +245,40 @@ const makeTimeSlice = () => {
 // Only a rival outside this service can cause a conflict, so give it room to finish.
 const conflictBackoff = Schedule.exponential("10 millis").pipe(Schedule.jittered)
 
-export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
+const makeSnapshots = <State>(aggregateName: string, options: SnapshotOptions<State>) =>
+  Effect.gen(function*() {
+    const store = KeyValueStore.toSchemaStore(
+      yield* KeyValueStore.KeyValueStore,
+      Schema.Struct({ version: Schema.Int, position: Schema.Int, state: options.schema })
+    )
+    const key = (aggregateId: string) =>
+      `effect-cqrs/snapshot/${JSON.stringify([aggregateName, String(options.version ?? 1), aggregateId])}`
+
+    // A snapshot is only a shortcut, so a failure to read or save one falls back to the log.
+    const get = (aggregateId: string) =>
+      store.get(key(aggregateId)).pipe(
+        Effect.map(Option.map((snapshot): Loaded<State> => ({ ...snapshot, snapshotVersion: snapshot.version }))),
+        Effect.catch((error) =>
+          Effect.as(Effect.logWarning(`Ignoring the ${aggregateName} snapshot of ${aggregateId}`, error), Option.none())
+        )
+      )
+
+    const save = (aggregateId: string, loaded: Loaded<State>) =>
+      loaded.version - loaded.snapshotVersion < options.every
+        ? Effect.succeed(loaded)
+        : store.set(key(aggregateId), { version: loaded.version, position: loaded.position, state: loaded.state }).pipe(
+          Effect.as({ ...loaded, snapshotVersion: loaded.version }),
+          Effect.catch((error) =>
+            Effect.as(Effect.logWarning(`Could not save the ${aggregateName} snapshot of ${aggregateId}`, error), loaded)
+          )
+        )
+
+    return { get, save }
+  })
+
+const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   aggregate: A,
-  options?: {
-    /** How many times a command is re-decided after losing a race. Defaults to 5. */
-    readonly maxRetries?: number
-    /** How many aggregates keep their state in memory between commands. Defaults to 10,000. */
-    readonly stateCacheSize?: number
-  }
+  options?: Options & { readonly snapshots?: SnapshotOptions<Aggregate.State<A>> | undefined }
 ) {
   const store = yield* EventStore
   const context = yield* Effect.context<Aggregate.Context<A>>()
@@ -201,6 +289,9 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   const states = makeStateCache<Aggregate.State<A>>(options?.stateCacheSize ?? 10_000)
   const lockStream = makeKeyedLock()
   const timeSlice = makeTimeSlice()
+  const snapshots = options?.snapshots === undefined
+    ? undefined
+    : yield* makeSnapshots<Aggregate.State<A>>(aggregateName, options.snapshots)
 
   const replay = <Acc>(
     stream: Stream.Stream<StoredEvent, EventStoreError>,
@@ -230,53 +321,92 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       (acc, event, stored) => ({
         state: Aggregate.evolve(aggregate, acc.state, event, stored),
         version: stored.version,
-        position: stored.position
+        position: stored.position,
+        snapshotVersion: acc.snapshotVersion
       })
     )
 
-  const initial: Loaded<Aggregate.State<A>> = { state: aggregate.initial as Aggregate.State<A>, version: 0, position: 0 }
+  const initial: Loaded<Aggregate.State<A>> = {
+    state: aggregate.initial as Aggregate.State<A>,
+    version: 0,
+    position: 0,
+    snapshotVersion: 0
+  }
+
+  // Remembered states come first, as they are the most recent. Without one the
+  // last snapshot saves replaying the start of the stream.
+  const start = (aggregateId: string) => {
+    const remembered = states.get(aggregateId)
+    return remembered !== undefined || snapshots === undefined
+      ? Effect.succeed(remembered ?? initial)
+      : Effect.map(snapshots.get(aggregateId), Option.getOrElse(() => initial))
+  }
 
   // Streams only grow, so a remembered state plus what came after it is the current
   // state, even if another process wrote those events.
   const load = (aggregateId: string, finishTime?: DateTime.Utc) =>
     finishTime === undefined
-      ? replayFrom(states.get(aggregateId) ?? initial, aggregateId).pipe(
+      ? start(aggregateId).pipe(
+        Effect.flatMap((from) => replayFrom(from, aggregateId)),
+        Effect.flatMap((loaded) => snapshots === undefined ? Effect.succeed(loaded) : snapshots.save(aggregateId, loaded)),
         Effect.tap((loaded) => Effect.sync(() => states.set(aggregateId, loaded)))
       )
       : replayFrom(initial, aggregateId, finishTime)
 
-  const decide = Effect.fnUntraced(function*(type: string, aggregateId: string, payload: unknown) {
+  const decide = Effect.fnUntraced(function*(
+    type: string,
+    aggregateId: string,
+    payload: unknown,
+    causation: { readonly correlationId: string; readonly causationId: string }
+  ) {
     const { position, state, version } = yield* load(aggregateId)
     const { handler } = aggregate.commands[type]!
     const events: ReadonlyArray<Aggregate.Event<A>> = Arr.ensure(yield* handler(state, payload, { aggregateId, version }))
+    const { correlationId } = causation
     if (events.length === 0) {
-      return { aggregateName, aggregateId, version, position, events }
+      return { aggregateName, aggregateId, version, position, events, correlationId }
     }
     const stored = yield* store.append({
       aggregateName,
       aggregateId,
       expectedVersion: version,
-      events: yield* Effect.forEach(events, encodeEvent)
+      events: yield* Effect.forEach(events, encodeEvent),
+      ...causation
     })
     const last = stored[stored.length - 1]!
-    return { aggregateName, aggregateId, version: last.version, position: last.position, events }
+    return { aggregateName, aggregateId, version: last.version, position: last.position, events, correlationId }
   })
 
   // Commands on one stream take turns, so they can't race each other and only a
   // rival in another process causes a conflict. A handler must not run a command on
   // its own stream, which would wait for itself.
-  const execute = (type: string, aggregateId: string, payload: unknown) =>
-    decide(type, aggregateId, payload).pipe(
-      Effect.retry({
-        times: maxRetries,
-        while: (error) => error instanceof ConcurrencyConflict,
-        schedule: conflictBackoff
-      }),
-      Effect.provideContext(context),
-      lockStream(aggregateId),
-      (decided) => Effect.andThen(timeSlice, decided),
-      Effect.withSpan(`${aggregateName}.${type}`, { attributes: { "aggregate.id": aggregateId } })
-    )
+  const execute = (
+    type: string,
+    aggregateId: string,
+    payload: unknown,
+    given?: { readonly correlationId?: string | undefined; readonly causationId?: string | undefined }
+  ) =>
+    // Read outside the service's own context, which would hide the caller's.
+    CurrentCausation.use((current) => {
+      const correlationId = given?.correlationId ?? current?.correlationId
+      const causationId = given?.causationId ?? current?.causationId
+      // Without a cause the command starts its own correlation.
+      const id = correlationId ?? causationId ?? crypto.randomUUID()
+      const causation = { correlationId: correlationId ?? id, causationId: causationId ?? id }
+      return decide(type, aggregateId, payload, causation).pipe(
+        Effect.retry({
+          times: maxRetries,
+          while: (error) => error instanceof ConcurrencyConflict,
+          schedule: conflictBackoff
+        }),
+        Effect.provideContext(context),
+        lockStream(aggregateId),
+        (decided) => Effect.andThen(timeSlice, decided),
+        Effect.withSpan(`${aggregateName}.${type}`, {
+          attributes: { "aggregate.id": aggregateId, "cqrs.correlation_id": causation.correlationId }
+        })
+      )
+    })
 
   const decodePayload = (type: string, schema: Aggregate.PayloadSchema, input: unknown) =>
     Schema.decodeUnknownEffect(schema)(input).pipe(
@@ -308,7 +438,7 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
         Schema.toCodecJson(aggregate.commands[envelope.type]!.payload),
         envelope.payload
       )
-      return yield* execute(envelope.type, envelope.aggregateId, payload)
+      return yield* execute(envelope.type, envelope.aggregateId, payload, envelope)
     })
 
   const readModel: AggregateService<A>["readModel"] = (aggregateId, options) =>
@@ -326,6 +456,8 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
           version: stored.version,
           timestamp: stored.timestamp,
           type: stored.type,
+          correlationId: stored.correlationId,
+          causationId: stored.causationId,
           ...(options?.payload === true ? { payload: event } : {})
         })
         return entries
@@ -340,3 +472,19 @@ export const make = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     history
   } as unknown as AggregateService<A>
 })
+
+/**
+ * Builds the service for one aggregate. With `snapshots` it saves states through
+ * a `KeyValueStore` from `effect/persistence`, which has layers for memory, files,
+ * SQL and the browser's `localStorage`.
+ */
+export const make: {
+  <A extends Aggregate.Any>(
+    aggregate: A,
+    options: Options & { readonly snapshots: SnapshotOptions<Aggregate.State<A>> }
+  ): Effect.Effect<AggregateService<A>, never, EventStore | KeyValueStore.KeyValueStore | Aggregate.Context<A>>
+  <A extends Aggregate.Any>(
+    aggregate: A,
+    options?: Options
+  ): Effect.Effect<AggregateService<A>, never, EventStore | Aggregate.Context<A>>
+} = makeService as any
