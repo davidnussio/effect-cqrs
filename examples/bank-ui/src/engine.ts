@@ -3,14 +3,15 @@
  * aggregate, three view models, a saga for transfers and a command bus that can
  * be slowed down, paused and stepped so every stage is visible.
  */
-import { Context, DateTime, Duration, Effect, Layer, ManagedRuntime, Schedule, Semaphore, Stream } from "effect"
+import { Context, DateTime, Duration, Effect, Latch, Layer, ManagedRuntime, Schedule, Schema, Semaphore, Stream } from "effect"
+import { WorkflowEngine } from "effect/workflow"
 import * as AggregateService from "effect-cqrs/AggregateService"
-import * as Causation from "effect-cqrs/Causation"
 import * as Checkpoints from "effect-cqrs/Checkpoints"
 import * as EventStore from "effect-cqrs/EventStore"
+import * as Saga from "effect-cqrs/Saga"
 import * as ViewModel from "effect-cqrs/ViewModel"
 import { devstore, type Origin, type Outcome, type Stage, viewModelNames, type ViewName } from "./devstore.ts"
-import { Account, type AccountEvent } from "./domain/account.ts"
+import { Account, type AccountEvent, AccountNotOpen } from "./domain/account.ts"
 import { allViews } from "./domain/views.ts"
 
 class Bank extends Context.Service<Bank, AggregateService.AggregateService<typeof Account>>()("bank-ui/Bank") {}
@@ -20,6 +21,13 @@ export interface CommandInput {
   readonly type: string
   readonly payload: unknown
 }
+
+const toOutcome = (result: AggregateService.CommandResult<AccountEvent>): Outcome => ({
+  ok: true,
+  version: result.version,
+  position: result.position,
+  events: result.events.map((event) => event._tag)
+})
 
 /** Fields of a tagged error, minus the tag, as a short line. */
 const describeError = (error: unknown): Outcome => {
@@ -32,16 +40,25 @@ const describeError = (error: unknown): Outcome => {
   return { ok: false, tag: _tag ?? "Error", message: (typeof message === "string" && message !== "" ? message : details) || "" }
 }
 
+type Dispatched = ReturnType<Bank["Service"]["dispatch"]>
+
 class Bus extends Context.Service<Bus, {
+  /** Runs a command through the bus, failing as `dispatch` does. */
+  run(input: CommandInput, origin: Origin): Effect.Effect<Effect.Success<Dispatched>, Effect.Error<Dispatched>>
+  /** Runs a command through the bus and reports how it went. */
   submit(input: CommandInput, origin: Origin): Effect.Effect<Outcome>
 }>()("bank-ui/Bus") {}
 
-/** Waits while the bus is paused, letting one stage through per press of "step". */
-const gate = Effect.gen(function*() {
-  while (devstore.get().settings.paused && !devstore.consumeStep()) {
-    yield* Effect.sleep("40 millis")
-  }
-})
+// Open while the bus runs. Pausing closes it, and "step" releases whoever waits at
+// it without opening it: one command at a time goes through the bus, so that is
+// one stage.
+const gate = Latch.makeUnsafe(!devstore.get().settings.paused)
+
+const setPaused = (paused: boolean) => {
+  if (paused) gate.closeUnsafe()
+  else gate.openUnsafe()
+  devstore.settings({ paused })
+}
 
 const pause = (origin: Origin) =>
   Effect.suspend(() => {
@@ -56,13 +73,13 @@ const BusLayer = Layer.effect(
     // One command at a time, so the pipeline reads like a queue.
     const lane = yield* Semaphore.make(1)
 
-    const submit = (input: CommandInput, origin: Origin) =>
+    const run = (input: CommandInput, origin: Origin) =>
       Effect.gen(function*() {
         const id = devstore.addCommand({ origin, ...input })
         return yield* lane.withPermit(Effect.gen(function*() {
           const advance = (stage: Stage) =>
             Effect.gen(function*() {
-              if (origin !== "seed") yield* gate
+              if (origin !== "seed") yield* gate.await
               devstore.stage(id, stage)
               yield* pause(origin)
             })
@@ -73,23 +90,23 @@ const BusLayer = Layer.effect(
           // #region dispatch
           // `dispatch` is the real entry point: it validates the JSON envelope and
           // payload, rehydrates the aggregate, runs the handler and appends.
-          const outcome = yield* bank.dispatch(input).pipe(
-            Effect.map((result): Outcome => ({
-              ok: true,
-              version: result.version,
-              position: result.position,
-              events: result.events.map((event) => event._tag)
-            })),
-            Effect.catch((error) => Effect.succeed(describeError(error))),
-            Effect.catchDefect((defect) => Effect.succeed(describeError(defect)))
+          return yield* bank.dispatch(input).pipe(
+            Effect.tap((result) => Effect.sync(() => devstore.finish(id, toOutcome(result)))),
+            Effect.tapError((error) => Effect.sync(() => devstore.finish(id, describeError(error)))),
+            Effect.tapDefect((defect) => Effect.sync(() => devstore.finish(id, describeError(defect))))
           )
           // #endregion
-          devstore.finish(id, outcome)
-          return outcome
         }))
       })
 
-    return Bus.of({ submit })
+    const submit = (input: CommandInput, origin: Origin) =>
+      run(input, origin).pipe(
+        Effect.map(toOutcome),
+        Effect.catch((error) => Effect.succeed(describeError(error))),
+        Effect.catchDefect((defect) => Effect.succeed(describeError(defect)))
+      )
+
+    return Bus.of({ run, submit })
   })
 )
 
@@ -121,37 +138,49 @@ const Bridge = Layer.effectDiscard(Effect.gen(function*() {
 
 // #region saga
 /**
- * A transfer touches two aggregates, so no single command can do it. The saga
- * reacts to `TransferSent` by crediting the other account, and refunds the
- * sender when that is refused, for instance because the account is closed.
+ * A transfer touches two aggregates, so no single command can do it. For each
+ * `TransferSent` the trigger starts a workflow that credits the other account,
+ * and refunds the sender when that is refused because the account isn't open.
+ * Each command is an activity whose outcome the engine keeps, and starting the
+ * same transfer again joins the run already under way.
  */
-const TransferSaga = Layer.effectDiscard(Effect.gen(function*() {
-  const store = yield* EventStore.EventStore
-  const bus = yield* Bus
-  const decode = AggregateService.makeEventDecoder(Account)
-  yield* store.subscribe({ aggregateNames: [Account.name], eventTypes: ["TransferSent"] }).pipe(
-    Stream.runForEach((stored) =>
-      Effect.gen(function*() {
-        const event = (yield* decode(stored)) as Extract<AccountEvent, { _tag: "TransferSent" }>
-        const credited = yield* bus.submit({
-          aggregateId: event.to,
-          type: "receiveTransfer",
-          payload: { transferId: event.transferId, from: stored.aggregateId, amount: event.amount }
-        }, "saga")
-        if (!credited.ok) {
-          yield* bus.submit({
-            aggregateId: stored.aggregateId,
+const Transfer = Saga.workflow("Transfer", {
+  payload: { transferId: Schema.String, from: Schema.String, to: Schema.String, amount: Schema.Int },
+  idempotencyKey: ({ transferId }) => transferId
+})
+
+const TransferWorkflow = Saga.toLayer(Transfer, ({ amount, from, to, transferId }) =>
+  Effect.gen(function*() {
+    const bus = yield* Bus
+    yield* Saga.command("credit", {
+      error: AccountNotOpen,
+      execute: bus.run({ aggregateId: to, type: "receiveTransfer", payload: { transferId, from, amount } }, "saga")
+    }).pipe(
+      Effect.catchTag("AccountNotOpen", ({ _tag }) =>
+        Saga.command("refund", {
+          execute: bus.run({
+            aggregateId: from,
             type: "refundTransfer",
-            payload: { transferId: event.transferId, to: event.to, amount: event.amount, reason: credited.tag }
+            payload: { transferId, to, amount, reason: _tag }
           }, "saga")
-        }
-        // Both commands record `TransferSent` as their cause, in the correlation it started.
-      }).pipe(Causation.causedBy(stored))
-    ),
-    Effect.catchCause((cause) => Effect.logError("saga stopped", cause)),
-    Effect.forkScoped
-  )
-}))
+        }))
+    )
+    // Both commands record `TransferSent` as their cause, in the correlation it started.
+  }))
+
+const Transfers = Saga.make({
+  name: "transfers",
+  aggregates: [Account],
+  handlers: {
+    TransferSent: ({ amount, to, transferId }, stored) =>
+      Saga.start(Transfer, { transferId, from: stored.aggregateId, to, amount })
+  }
+})
+
+const TransferSaga = Saga.layer([Transfers]).pipe(
+  Layer.provideMerge(TransferWorkflow),
+  Layer.provide(WorkflowEngine.layerMemory)
+)
 // #endregion
 
 /** Polls `ViewModels.status` so the devtools show each checkpoint and stall. */
@@ -282,10 +311,16 @@ export const engine = {
     }
   },
 
+  setPaused,
+
+  /** Lets the command waiting at the gate through one stage. */
+  step: () => void Effect.runSync(gate.release),
+
   /** Throws everything away and starts a fresh store. */
   reset: async () => {
     const previous = runtime
-    devstore.settings({ autopilot: false, paused: false })
+    devstore.settings({ autopilot: false })
+    setPaused(false)
     await previous.dispose()
     devstore.reset()
     transferCounter = 0

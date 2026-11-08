@@ -62,9 +62,10 @@ about it.
 `receiveTransfer` records the transfers it has credited. If it runs twice for the same
 transfer, the second time decides on nothing, so the saga below can safely retry.
 
-The saga follows `TransferSent` events with `store.subscribe`. It sends `receiveTransfer`
-to the other account, and when that is refused, because the account is closed for
-instance, it refunds the sender:
+The [saga](../../guides/sagas/) starts a workflow for each `TransferSent` event. The
+workflow sends `receiveTransfer` to the other account, and when that is refused, because
+the account is closed for instance, it refunds the sender. Each command is an activity, so
+the engine keeps its outcome:
 
 <Code code={region(engine, "saga")} lang="ts" title={engineFile} />
 

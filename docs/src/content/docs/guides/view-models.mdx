@@ -103,8 +103,9 @@ the writers down, and catches up when they stop.
 
 ## Other subscribers
 
-Anything else that reacts to events, such as a saga, can use `store.subscribe(filter)`: a
-stream of past events, followed by live ones. The bank demo's transfer saga is one.
+Anything else that reacts to events can use `store.subscribe(filter)`: a stream of past
+events, followed by live ones. A process that runs commands in reaction to events is better
+written as a [saga](../sagas/), whose trigger is a view model.
 
 A handler runs with the event it handles as the [cause](../commands/#causation) of the
 commands it runs. A subscriber gets the same with `Causation.causedBy(stored)`.

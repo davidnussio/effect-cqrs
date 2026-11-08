@@ -112,6 +112,18 @@ TodoEvent.cases.TodoCreated.make({ title, createdAt }) // fills in _tag
   to a statement. Convert `BIGINT` with `::float8` to get a number, and qualify the
   column in `ORDER BY` so it doesn't mean the converted alias, which has no index.
 
+## Workflows
+
+- The module is `effect/workflow`, not `effect/unstable/workflow`. `Workflow.make(tag, {
+  payload, idempotencyKey, success, error })` takes the tag first.
+- A workflow body runs in the engine's fibers with the context captured by `toLayer`, so
+  references such as `CurrentCausation` don't reach it from the caller. Carry them in the
+  payload, as `Saga.workflow` does. Activities run in the body's fiber and see its context.
+- `withCompensation` only registers on top-level steps of the body, and a compensation can
+  itself be an activity.
+- `Layer.provide(Layer.empty, layer)` runs a layer for its effects and hides what it
+  provides, as `Saga.layer` does with `ViewModel.layer`.
+
 ## Persistence
 
 - `KeyValueStore.toSchemaStore(store, schema)` from `effect/persistence` stores typed

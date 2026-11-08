@@ -116,7 +116,6 @@ export interface Snapshot {
   readonly views: { readonly [K in ViewName]: ViewState<ViewData[K]> }
   readonly settings: Settings
   readonly pulses: ReadonlyArray<Pulse>
-  readonly steps: number
   readonly epoch: number
 }
 
@@ -156,7 +155,6 @@ const initial = (settings: Settings, epoch: number): Snapshot => ({
   views: { accounts: emptyView("accounts"), totals: emptyView("totals"), feed: emptyView("feed") },
   settings,
   pulses: [],
-  steps: 0,
   epoch
 })
 
@@ -206,13 +204,6 @@ export const devstore = {
   },
 
   settings: (patch: Partial<Settings>) => set((s) => ({ ...s, settings: { ...s.settings, ...patch } })),
-  step: () => set((s) => ({ ...s, steps: s.steps + 1 })),
-  /** Takes one step token if the user pressed "step" while paused. */
-  consumeStep: () => {
-    if (state.steps === 0) return false
-    set((s) => ({ ...s, steps: s.steps - 1 }))
-    return true
-  },
 
   addEvent: (entry: EventEntry) => {
     set((s) => ({ ...s, events: [...s.events, entry] }))
