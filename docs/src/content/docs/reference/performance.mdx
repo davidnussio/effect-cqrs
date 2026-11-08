@@ -26,7 +26,7 @@ Docker on the same machine. Treat them as orders of magnitude, not as a promise.
   else. Concurrency doesn't: SQLite has one writer, and PostgreSQL writers queue for the
   counter that numbers events.
 - **The first use of a long aggregate after a restart replays it**, at about 3 µs per
-  event on SQLite. There are no persistent snapshots.
+  event on SQLite, unless [snapshots](../../guides/commands/#snapshots) are on.
 
 ## Nothing lost
 

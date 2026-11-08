@@ -25,8 +25,8 @@ const storeError = (operation: string) => (cause: unknown) => new EventStore.Eve
 
 const isUniqueViolation = (error: SqlError.SqlError) => error.reason._tag === "UniqueViolation"
 
-// The client binds at most 32,767 parameters to a statement, and each row uses 7.
-const rowsPerInsert = 4_000
+// The client binds at most 32,767 parameters to a statement, and each row uses 10.
+const rowsPerInsert = 3_000
 
 export const make = Effect.fnUntraced(function*(options?: Options) {
   const sql = yield* SqlClient.SqlClient
@@ -42,11 +42,18 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
         aggregate_id TEXT NOT NULL,
         version INTEGER NOT NULL,
         type TEXT NOT NULL,
+        schema_version INTEGER NOT NULL DEFAULT 1,
         payload JSONB NOT NULL,
         "timestamp" BIGINT NOT NULL,
+        correlation_id TEXT,
+        causation_id TEXT,
         UNIQUE (aggregate_name, aggregate_id, version)
       )
     `
+    // Tables created before these columns existed get them here.
+    yield* sql`ALTER TABLE ${events} ADD COLUMN IF NOT EXISTS schema_version INTEGER NOT NULL DEFAULT 1`
+    yield* sql`ALTER TABLE ${events} ADD COLUMN IF NOT EXISTS correlation_id TEXT`
+    yield* sql`ALTER TABLE ${events} ADD COLUMN IF NOT EXISTS causation_id TEXT`
     yield* sql`CREATE INDEX IF NOT EXISTS ${sql(`${prefix}_type_idx`)} ON ${events} (type, position)`
     yield* sql`
       CREATE TABLE IF NOT EXISTS ${counter} (
@@ -64,8 +71,11 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
     aggregate_id AS "aggregateId",
     version,
     type,
+    schema_version AS "schemaVersion",
     payload,
-    "timestamp"::float8 AS "timestamp"
+    "timestamp"::float8 AS "timestamp",
+    correlation_id AS "correlationId",
+    causation_id AS "causationId"
   `)
 
   const append = (input: EventStore.AppendInput) => {
@@ -87,23 +97,20 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
         UPDATE ${counter} SET position = position + ${input.events.length} RETURNING position::float8 AS position
       `
       const first = head!.position - input.events.length + 1
-      const stored = input.events.map((event, index): EventStore.StoredEvent => ({
-        position: first + index,
-        aggregateName: input.aggregateName,
-        aggregateId: input.aggregateId,
-        version: input.expectedVersion + index + 1,
-        type: event.type,
-        payload: event.payload,
-        timestamp: DateTime.makeUnsafe(timestamp)
-      }))
+      const stored = input.events.map((event, index) =>
+        EventStore.toStored(input, event, index, first + index, DateTime.makeUnsafe(timestamp))
+      )
       const rows = stored.map((event) => ({
         position: event.position,
         aggregate_name: event.aggregateName,
         aggregate_id: event.aggregateId,
         version: event.version,
         type: event.type,
+        schema_version: event.schemaVersion,
         payload: JSON.stringify(event.payload),
-        timestamp
+        timestamp,
+        correlation_id: event.correlationId,
+        causation_id: event.causationId
       }))
       yield* Effect.forEach(
         Arr.chunksOf(rows, rowsPerInsert),

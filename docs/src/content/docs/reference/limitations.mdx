@@ -10,10 +10,11 @@ before using it for anything real.
   process only. There is no transport like the Moleculer broker, so `dispatch` is the
   entry point to wire into your own HTTP or RPC layer.
 - **SQLite, PostgreSQL and memory only.** There are no adapters for MongoDB or MySQL.
-- **No persistent snapshots.** Recent state is only kept in memory, so after a restart each
-  aggregate is replayed the first time it is used, at a cost that grows with its length.
-- **No schema migration.** A stored event that no longer decodes fails with
-  `EventDecodeError`, so evolve event schemas compatibly.
+- **Snapshots are opt-in.** Without them, recent state is only kept in memory, so after a
+  restart each aggregate is replayed the first time it is used. A changed state needs a new
+  snapshot `version` by hand.
+- **Event upcasts are pure.** An upcast can't read a service or fail with its own error,
+  and an event can only be read in a version its aggregate declares.
 - **No code generator.** There is no equivalent of `cqrs generate`.
 - **Slow handlers don't slow writers.** There is no backpressure, so a view model with a
   slow handler falls behind and catches up when writes stop.

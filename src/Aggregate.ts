@@ -5,7 +5,8 @@
  * An aggregate is plain data. {@link AggregateService} gives it a store to run
  * against, and `Fixture` runs it in tests.
  */
-import type { DateTime, Effect, Schema } from "effect"
+import { type DateTime, type Effect, Predicate, Schema } from "effect"
+import * as EventVersions from "./EventVersions.ts"
 
 export interface Tagged {
   readonly _tag: string
@@ -29,6 +30,10 @@ export interface EventMeta {
   readonly version: number
   readonly position: number
   readonly timestamp: DateTime.Utc
+  /** Shared by everything that follows from one original request, see `Causation`. */
+  readonly correlationId: string | null
+  /** What directly caused the command that recorded the event. */
+  readonly causationId: string | null
 }
 
 export interface CommandContext {
@@ -62,17 +67,27 @@ export interface AnyCommand {
   readonly handler: CommandHandler<any, any, any, any, any>
 }
 
+/**
+ * The older shapes of some events, keyed by tag. Each history has to end in the
+ * event's current shape.
+ */
+export type Versions<Event extends Tagged> = {
+  readonly [Tag in Event["_tag"]]?: EventVersions.Any<Extract<Event, { readonly _tag: Tag }>>
+}
+
 export interface Aggregate<
   Name extends string,
   State,
   Events extends EventSchema<any>,
-  Commands extends Record<string, AnyCommand>
+  Commands extends Record<string, AnyCommand>,
+  V extends Versions<Events["Type"]> = {}
 > {
   readonly name: Name
   readonly events: Events
   readonly initial: State
   readonly projection: Projection<State, Events["Type"]>
   readonly commands: Commands
+  readonly versions: V
   /** Returns a new aggregate that also accepts this command. */
   command<const CommandName extends string, Payload extends PayloadSchema, E = never, R = never>(
     name: CommandName,
@@ -80,10 +95,10 @@ export interface Aggregate<
       readonly payload: Payload
       readonly handler: CommandHandler<State, Payload["Type"], Events["Type"], E, R>
     }
-  ): Aggregate<Name, State, Events, Commands & Record<CommandName, Command<Payload, State, Events["Type"], E, R>>>
+  ): Aggregate<Name, State, Events, Commands & Record<CommandName, Command<Payload, State, Events["Type"], E, R>>, V>
 }
 
-export type Any = Aggregate<string, any, EventSchema<any>, Record<string, AnyCommand>>
+export type Any = Aggregate<string, any, EventSchema<any>, Record<string, AnyCommand>, any>
 
 export type Name<A extends Any> = A["name"]
 export type State<A extends Any> = A["initial"]
@@ -100,10 +115,14 @@ const build = <
   Name extends string,
   State,
   Events extends EventSchema<any>,
-  Commands extends Record<string, AnyCommand>
+  Commands extends Record<string, AnyCommand>,
+  V extends Versions<Events["Type"]>
 >(
-  definition: Pick<Aggregate<Name, State, Events, Commands>, "name" | "events" | "initial" | "projection" | "commands">
-): Aggregate<Name, State, Events, Commands> => ({
+  definition: Pick<
+    Aggregate<Name, State, Events, Commands, V>,
+    "name" | "events" | "initial" | "projection" | "commands" | "versions"
+  >
+): Aggregate<Name, State, Events, Commands, V> => ({
   ...definition,
   command: (name, options) =>
     build({
@@ -117,12 +136,15 @@ const build = <
  * projection's return values are checked against it rather than widened.
  */
 export const make = <State>() =>
-<const Name extends string, Events extends EventSchema<any>>(options: {
+<const Name extends string, Events extends EventSchema<any>, const V extends Versions<Events["Type"]> = {}>(options: {
   readonly name: Name
   readonly events: Events
   readonly initial: State
   readonly projection: Projection<State, Events["Type"]>
-}): Aggregate<Name, State, Events, {}> => build({ ...options, commands: {} })
+  /** Older shapes of events already in the store, see `EventVersions`. */
+  readonly versions?: V | undefined
+}): Aggregate<Name, State, Events, {}, V> =>
+  build({ ...options, versions: options.versions ?? ({} as V), commands: {} })
 
 /** Folds one event into the state. */
 export const evolve = <A extends Any>(aggregate: A, state: State<A>, event: Event<A>, meta: EventMeta): State<A> =>
@@ -131,3 +153,51 @@ export const evolve = <A extends Any>(aggregate: A, state: State<A>, event: Even
     event,
     meta
   )
+
+/** The schema version new events with this tag are written with. */
+export const schemaVersion = (aggregate: Any, tag: string): number =>
+  EventVersions.current((aggregate.versions as Record<string, EventVersions.Any | undefined>)[tag])
+
+/**
+ * An event as it was stored in the past, in an older version of its schema.
+ * Construct one directly to replay JSON taken from a database.
+ */
+export class Historical {
+  readonly type: string
+  readonly schemaVersion: number
+  readonly payload: Schema.Json
+  constructor(options: { readonly type: string; readonly schemaVersion: number; readonly payload: Schema.Json }) {
+    this.type = options.type
+    this.schemaVersion = options.schemaVersion
+    this.payload = options.payload
+  }
+}
+
+/**
+ * Encodes an event in an older version of its schema, as code from that time
+ * would have stored it. The value is checked against that version, so a test
+ * can't seed a shape that never existed.
+ */
+export const historical = <
+  A extends Any,
+  const Tag extends keyof A["versions"] & string,
+  const Version extends number
+>(
+  aggregate: A,
+  tag: Tag,
+  version: Version,
+  value: EventVersions.SchemaAt<NonNullable<A["versions"][Tag]>, Version>["Type"]
+): Historical => {
+  const versions = (aggregate.versions as Record<string, EventVersions.Any | undefined>)[tag]
+  const schema = versions?.schemas[version - 1]
+  if (schema === undefined) {
+    throw new Error(`${aggregate.name} has no version ${version} of ${tag}`)
+  }
+  const payload = Schema.encodeSync(Schema.toCodecJson(schema))(value) as Schema.Json
+  return new Historical({
+    type: tag,
+    schemaVersion: version,
+    // Events were always stored with their tag, whatever the schema of the time said.
+    payload: Predicate.isObject(payload) ? { ...(payload as object), _tag: tag } as Schema.Json : payload
+  })
+}

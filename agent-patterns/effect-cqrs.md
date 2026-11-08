@@ -21,6 +21,11 @@ export class EventStore extends Context.Service<EventStore, {
 - A library module exports its service plus `make`/`layer` at module level, like
   `EventJournal.ts`. A `static` member can't reference a const declared after the
   class.
+- `Context.Reference<T>(key, { defaultValue })` is a service with a default, for
+  ambient values such as `Causation.CurrentCausation`. Read it with `Ref.use(f)`.
+- `Effect.provideContext(context)` merges, and `context` wins over what the caller
+  provided. A service that captured its context at construction hides the caller's
+  references, so read those outside the `provideContext`.
 
 ## Schema
 
@@ -39,6 +44,10 @@ TodoEvent.cases.TodoCreated.make({ title, createdAt }) // fills in _tag
   type level, so an unvalidated `""` compiles.
 - `Schema.Json` is the type of a JSON value, and `Schema.fromJsonString(Schema.Json)`
   decodes a JSON text column.
+- One-way migrations: `from.pipe(Schema.decodeTo(Schema.toType(next), { decode:
+  SchemaGetter.transform(f), encode: SchemaGetter.forbidden(() => "...") }))`. Chains
+  composed this way decode an old value in one pass, as `EventVersions.decoders` does.
+- A `Schema.Struct` ignores keys it doesn't declare and leaves them out of its output.
 - Errors are `Schema.TaggedError<X>()("X", { ... })`. Yield them directly:
   `return yield* new X({ ... })`. Inside `Effect.catchTag` wrap them with
   `Effect.fail`, because a union of two error classes is not an `Effect`.
@@ -103,6 +112,12 @@ TodoEvent.cases.TodoCreated.make({ title, createdAt }) // fills in _tag
   to a statement. Convert `BIGINT` with `::float8` to get a number, and qualify the
   column in `ORDER BY` so it doesn't mean the converted alias, which has no index.
 
+## Persistence
+
+- `KeyValueStore.toSchemaStore(store, schema)` from `effect/persistence` stores typed
+  values as JSON. `KeyValueStore` has `layerMemory`, `layerFileSystem`, `layerSql` and
+  `layerStorage` for `localStorage`.
+
 ## Testing
 
 - `it.effect` runs on `TestClock`: time stands still until `TestClock.adjust`, so
@@ -115,6 +130,14 @@ TodoEvent.cases.TodoCreated.make({ title, createdAt }) // fills in _tag
 - `Effect.provide(layer)` builds a fresh layer per call. `Layer.fresh` forces a new
   instance when the same layer value is reused, as the restart tests do.
 - Don't assert which of two concurrent effects wins. Assert the invariant.
+- `Effect.addFinalizer` in a test body registers on the test's scope, which closes after
+  any layer the body gets through `Effect.provide`. A finalizer that needs that layer,
+  like dropping a table through its client, goes inside `Effect.scoped` before the
+  `provide`.
+- `Arbitrary` (from `effect`) does property tests without fast-check. It has no `oneOf`:
+  pick a case with `Arbitrary.flatMap(Arbitrary.schema(Schema.Literals(names)), ...)`.
+  `Arbitrary.checkEffect` returns a `CheckResult` with the shrunk input, and
+  `formatCheckFailure` describes it.
 
 ## v3 habits that no longer compile
 

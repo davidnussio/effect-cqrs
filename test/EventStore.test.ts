@@ -51,6 +51,35 @@ for (const [name, adapter] of Object.entries(adapters)) {
         assert.deepStrictEqual(stored?.payload, { type: "A1" })
       }).pipe(Effect.provide(adapter)))
 
+    it.effect("round-trips schema versions and causation", () =>
+      Effect.gen(function*() {
+        const store = yield* EventStore.EventStore
+        const appended = yield* store.append({
+          aggregateName: "test",
+          aggregateId: "a",
+          expectedVersion: 0,
+          events: [{ type: "A1", payload: {}, schemaVersion: 3 }, { type: "A2", payload: {} }],
+          correlationId: "correlation",
+          causationId: "cause"
+        })
+        const stored = yield* read()
+
+        assert.deepStrictEqual(stored, appended)
+        assert.deepStrictEqual(stored.map((event) => event.schemaVersion), [3, 1])
+        assert.deepStrictEqual(stored.map((event) => [event.correlationId, event.causationId]), [
+          ["correlation", "cause"],
+          ["correlation", "cause"]
+        ])
+      }).pipe(Effect.provide(adapter)))
+
+    it.effect("stores no causation when none is given", () =>
+      Effect.gen(function*() {
+        yield* append("a", 0, "A1")
+        const [stored] = yield* read()
+
+        assert.deepStrictEqual([stored?.correlationId, stored?.causationId], [null, null])
+      }).pipe(Effect.provide(adapter)))
+
     it.effect("rejects a stale or ahead expected version without writing", () =>
       Effect.gen(function*() {
         yield* append("a", 0, "A1", "A2")
@@ -312,6 +341,35 @@ describe("SqliteEventStore", () => {
     }).pipe(
       Effect.provide(SqliteEventStore.layer().pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))))
     ))
+
+  it.effect("adds the new columns to a table from before they existed", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      yield* sql.unsafe(`
+        CREATE TABLE cqrs_events (
+          position INTEGER PRIMARY KEY AUTOINCREMENT,
+          aggregate_name TEXT NOT NULL,
+          aggregate_id TEXT NOT NULL,
+          version INTEGER NOT NULL,
+          type TEXT NOT NULL,
+          payload TEXT NOT NULL,
+          timestamp INTEGER NOT NULL,
+          UNIQUE (aggregate_name, aggregate_id, version)
+        )
+      `)
+      yield* sql.unsafe(`INSERT INTO cqrs_events (aggregate_name, aggregate_id, version, type, payload, timestamp)
+        VALUES ('test', 'a', 1, 'A1', '{}', 0)`)
+
+      yield* Effect.gen(function*() {
+        yield* append("a", 1, "A2")
+        const events = yield* read()
+
+        assert.deepStrictEqual(events.map((event) => [event.type, event.schemaVersion, event.correlationId]), [
+          ["A1", 1, null],
+          ["A2", 1, null]
+        ])
+      }).pipe(Effect.provide(SqliteEventStore.layer()))
+    }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))))
 
   layer(
     SqliteEventStore.layer({ eventsTable: "custom_events" }).pipe(

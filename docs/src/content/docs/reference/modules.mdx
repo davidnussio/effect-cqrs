@@ -15,8 +15,10 @@ Defines aggregates. <a href={sourceUrl("src/Aggregate.ts")}>Source</a>
 
 | Export | What it is |
 | --- | --- |
-| `make<State>()({ name, events, initial, projection })` | Starts an aggregate, to which `.command(name, { payload, handler })` adds commands |
+| `make<State>()({ name, events, initial, projection, versions })` | Starts an aggregate, to which `.command(name, { payload, handler })` adds commands |
 | `evolve(aggregate, state, event, meta)` | Applies one event with the aggregate's projection |
+| `historical(aggregate, tag, version, value)`, `Historical` | An event as an older version of its schema stored it |
+| `schemaVersion(aggregate, tag)`, `Versions` | The version new events are written in, and the type of `versions` |
 | `EventMeta`, `CommandContext` | What projections and handlers receive besides the event or payload |
 | `State`, `Event`, `CommandName`, `Payload`, `CommandError`, `Context` | Types derived from an aggregate |
 
@@ -26,10 +28,31 @@ Runs an aggregate against the event store. <a href={sourceUrl("src/AggregateServ
 
 | Export | What it is |
 | --- | --- |
-| `make(aggregate, { maxRetries, stateCacheSize })` | The service: `commands`, `dispatch`, `readModel`, `history` |
+| `make(aggregate, { maxRetries, stateCacheSize, snapshots })` | The service: `commands`, `dispatch`, `readModel`, `history` |
+| `SnapshotOptions` | `every`, `schema` and `version` of the snapshots |
 | `CommandResult`, `HistoryEntry` | What a command and `history` return |
 | `UnknownCommand`, `InvalidCommand`, `EventDecodeError` | Its errors, besides the store's |
 | `makeEventDecoder`, `makeEventEncoder` | Convert between stored JSON and an aggregate's events |
+
+## EventVersions
+
+Older shapes of an event. <a href={sourceUrl("src/EventVersions.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `from(schema)` | Starts a history at version 1, to which `.next(schema, upcast)` adds versions |
+| `decoders(tag, versions)` | One decoder per old version, all the way to the current one |
+| `current(versions)` | The version new events are written in |
+
+## Causation
+
+Why events were recorded. <a href={sourceUrl("src/Causation.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `withCausation(causation)` | Runs an effect whose commands record these ids |
+| `causedBy(stored)`, `fromEvent(stored)` | Makes a stored event the cause of the commands an effect runs |
+| `CurrentCausation` | The reference that holds them, `undefined` outside any |
 
 ## ViewModel
 
@@ -52,6 +75,8 @@ The append-only log. <a href={sourceUrl("src/EventStore.ts")}>Source</a>
 | `layerMemory`, `makeMemory` | The store in memory |
 | `make(backend)`, `Backend` | Builds a store on another database |
 | `StoredEvent`, `EventFilter`, `AppendInput` | What it stores, selects and takes |
+| `eventId(event)` | An event's id as a cause, like `account/alice@4` |
+| `toStored(input, event, index, position, timestamp)` | A new event's stored form, for a backend |
 | `ConcurrencyConflict`, `EventStoreError` | Its errors |
 
 ## Checkpoints
@@ -80,6 +105,7 @@ Tests an aggregate. <a href={sourceUrl("src/Fixture.ts")}>Source</a>
 
 | Export | What it is |
 | --- | --- |
-| `make(aggregate)` | A fixture: `givenEvents`, `when`, `whenFails`, `inspectState` |
+| `make(aggregate)` | A fixture: `givenEvents`, `when`, `whenFails`, `inspectState`, `checkInvariants` |
+| `InvariantOptions`, `Step` | What `checkInvariants` takes, and one command it generates |
 | `Scenario`, `Outcome` | The chain, and what yielding it gives |
 | `ExpectationFailed` | The defect a failed expectation raises |

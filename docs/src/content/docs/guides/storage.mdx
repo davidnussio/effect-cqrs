@@ -34,6 +34,10 @@ const Storage = Layer.merge(SqliteEventStore.layer(), SqliteEventStore.layerChec
 The tables are created on startup. Positions rely on SQLite having a single writer, so
 the schema doesn't carry over to other databases.
 
+Each event row also holds its `schema_version`, `correlation_id` and `causation_id`. A table
+created by an older version of effect-cqrs gets these columns on startup, with existing
+events at schema version 1 and no causation. The same goes for PostgreSQL.
+
 ## PostgreSQL
 
 Provide an `effect/sql` PostgreSQL client:
@@ -85,6 +89,9 @@ Another database needs an `EventStore.Backend` with three operations, and
 | `append(input)` | Appends atomically, failing with `ConcurrencyConflict` if the stream moved past `expectedVersion` |
 | `readBatch(filter, afterPosition, limit)` | Up to `limit` events past `afterPosition` that match the filter, by position |
 | `head` | The position of the latest event, `0` when the store is empty |
+
+A backend stores each event's `schemaVersion`, `correlationId` and `causationId` along with
+it. `EventStore.toStored` fills in the defaults: version 1 and no causation.
 
 Positions must follow commit order, so a backend on a database with concurrent writers has
 to guarantee that itself. The store tests in `test/EventStore.test.ts` run against every

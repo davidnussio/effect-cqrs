@@ -89,6 +89,19 @@ event, several, or `[]` to record nothing. It can use services, fail with typed
 errors, and may run more than once, so it should only decide. Projections and
 handlers must not mutate the state, which is kept between commands.
 
+When an event's schema changes, the stored events keep their old shape. The aggregate
+declares the older shapes and how each becomes the next, and they are upcast as they
+are read:
+
+```ts
+const Todo = Aggregate.make<TodoState>()({
+  // ...
+  versions: {
+    TodoCreated: EventVersions.from(TodoCreatedV1).next(TodoEvent.cases.TodoCreated, (v1) => ({ ...v1, dueDate: null }))
+  }
+})
+```
+
 ## Run commands
 
 ```ts
@@ -116,7 +129,13 @@ state and decides again, up to `maxRetries` times (5 by default), then fails wit
 `ConcurrencyConflict`.
 
 The service remembers the state of recent aggregates (`stateCacheSize`, 10,000 by
-default), so a command only reads the events it hasn't seen.
+default), so a command only reads the events it hasn't seen. With
+`snapshots: { every, schema, version }` it also saves states through a `KeyValueStore`
+from `effect/persistence`, so a restart replays only what came after the last one.
+
+Every event records a `correlationId` and a `causationId`. A command a view model runs
+gets the handled event as its cause, so a chain of reactions can be traced back to the
+request that started it. `Causation.withCausation` sets the ids from outside.
 
 ## Project into view models
 
@@ -203,6 +222,10 @@ it.effect("rejects deleting twice", () =>
   library works.
 - Yielding the chain gives `{ events, state, version, fixture }` for the last
   command, if you prefer plain assertions.
+- `givenEvents` also takes events in an older schema version, built with
+  `Aggregate.historical(Todo, "TodoCreated", 1, { ... })`, to test upcasting.
+- `checkInvariants({ invariant })` runs random command sequences generated from the
+  payload schemas and reports the shortest one that breaks the predicate.
 
 `it.effect` runs on a test clock stopped at zero, so timestamps need no mocking: an
 event created by `DateTime.now` has `DateTime.makeUnsafe(0)` until
@@ -292,8 +315,8 @@ store, so `replay` is for rebuilding, not for recovery.
   point to wire into your own HTTP or RPC layer.
 - **SQLite, PostgreSQL and memory only.** There are no adapters for MongoDB or MySQL.
 - **No code generator.** There is no equivalent of `cqrs generate`.
-- **No persistent snapshots.** Recent state is only kept in memory, so after a restart
-  each stream is replayed the first time it is used, at a cost that grows with its
-  length.
-- **No schema migration.** A stored event that no longer decodes fails with
-  `EventDecodeError`, so evolve event schemas compatibly.
+- **Snapshots are opt-in.** Without `snapshots`, recent state is only kept in memory, so
+  after a restart each stream is replayed the first time it is used. A changed state
+  needs a new snapshot `version` by hand.
+- **Event upcasts are pure.** Older event shapes declared with `EventVersions` are
+  upcast on read, but an upcast can't read a service or fail with its own error.
