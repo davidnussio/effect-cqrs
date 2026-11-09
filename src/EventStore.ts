@@ -32,7 +32,9 @@ export const StoredEvent = Schema.Struct({
   /** Shared by everything that follows from one original request. */
   correlationId: Schema.NullOr(Schema.String),
   /** What directly caused the command that recorded the event: a request, a command or another event. */
-  causationId: Schema.NullOr(Schema.String)
+  causationId: Schema.NullOr(Schema.String),
+  /** What the command carried beside its payload, see `Metadata`. Events from before metadata existed have `{}`. */
+  metadata: Schema.JsonObject
 })
 export type StoredEvent = typeof StoredEvent.Type
 
@@ -51,6 +53,8 @@ export interface AppendInput {
   readonly events: ReadonlyArray<NewEvent>
   readonly correlationId?: string | undefined
   readonly causationId?: string | undefined
+  /** Recorded on every event of the append. Defaults to `{}`. */
+  readonly metadata?: Schema.JsonObject | undefined
 }
 
 /**
@@ -78,7 +82,8 @@ export const toStored = (
   payload: event.payload,
   timestamp,
   correlationId: input.correlationId ?? null,
-  causationId: input.causationId ?? null
+  causationId: input.causationId ?? null,
+  metadata: input.metadata ?? {}
 })
 
 /**

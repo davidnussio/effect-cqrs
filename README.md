@@ -137,6 +137,11 @@ Every event records a `correlationId` and a `causationId`. A command a view mode
 gets the handled event as its cause, so a chain of reactions can be traced back to the
 request that started it. `Causation.withCausation` sets the ids from outside.
 
+Commands can also carry metadata, a JSON object for what the domain doesn't decide on,
+such as the software version or the user who sent them. It is recorded on every event they
+write. `Metadata.layer({ appVersion })` sets it for the whole application and
+`Metadata.withMetadata` adds to it per request.
+
 ## Project into view models
 
 A view model reads the event store from its own checkpoint, so it catches up after

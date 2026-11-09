@@ -16,7 +16,8 @@ export interface Options {
 
 const EventRow = Schema.Struct({
   ...EventStore.StoredEvent.fields,
-  payload: Schema.fromJsonString(Schema.Json)
+  payload: Schema.fromJsonString(Schema.Json),
+  metadata: Schema.fromJsonString(Schema.JsonObject)
 })
 
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(EventRow))
@@ -28,7 +29,8 @@ const isUniqueViolation = (error: SqlError.SqlError) => error.reason._tag === "U
 const addedColumns: ReadonlyArray<readonly [string, string]> = [
   ["schema_version", "INTEGER NOT NULL DEFAULT 1"],
   ["correlation_id", "TEXT"],
-  ["causation_id", "TEXT"]
+  ["causation_id", "TEXT"],
+  ["metadata", "TEXT NOT NULL DEFAULT '{}'"]
 ]
 
 export const make = Effect.fnUntraced(function*(options?: Options) {
@@ -48,6 +50,7 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
       timestamp INTEGER NOT NULL,
       correlation_id TEXT,
       causation_id TEXT,
+      metadata TEXT NOT NULL DEFAULT '{}',
       UNIQUE (aggregate_name, aggregate_id, version)
     )
   `.pipe(Effect.mapError(storeError("initialize")))
@@ -79,7 +82,8 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
     payload,
     timestamp,
     correlation_id AS "correlationId",
-    causation_id AS "causationId"
+    causation_id AS "causationId",
+    metadata
   `)
 
   const append = (input: EventStore.AppendInput) => {
@@ -97,10 +101,12 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
         return yield* conflict
       }
       const timestamp = yield* Clock.currentTimeMillis
+      const metadata = JSON.stringify(input.metadata ?? {})
       return yield* Effect.forEach(input.events, (event, index) =>
         sql<{ readonly position: number }>`
           INSERT INTO ${events} (
-            aggregate_name, aggregate_id, version, type, schema_version, payload, timestamp, correlation_id, causation_id
+            aggregate_name, aggregate_id, version, type, schema_version, payload, timestamp, correlation_id, causation_id,
+            metadata
           )
           VALUES (
             ${input.aggregateName},
@@ -111,7 +117,8 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
             ${JSON.stringify(event.payload)},
             ${timestamp},
             ${input.correlationId ?? null},
-            ${input.causationId ?? null}
+            ${input.causationId ?? null},
+            ${metadata}
           )
           RETURNING position
         `.pipe(

@@ -119,10 +119,13 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
         yield* append("a", 1, "A2")
         const events = yield* EventStore.EventStore.use((store) => Stream.runCollect(store.read()))
 
-        assert.deepStrictEqual(events.map((event) => [event.type, event.schemaVersion, event.correlationId]), [
-          ["A1", 1, null],
-          ["A2", 1, null]
-        ])
+        assert.deepStrictEqual(
+          events.map((event) => [event.type, event.schemaVersion, event.correlationId, event.metadata]),
+          [
+            ["A1", 1, null, {}],
+            ["A2", 1, null, {}]
+          ]
+        )
       }).pipe(Effect.provide(postgresStorage(table)))
       // The tables are dropped before the client closes.
     }).pipe(Effect.scoped, Effect.provide(Layer.fresh(postgresClient()))))

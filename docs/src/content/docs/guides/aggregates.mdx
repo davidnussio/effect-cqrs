@@ -53,9 +53,10 @@ builds an event and fills in its `_tag`.
 ## The projection
 
 The projection has one function per event tag, and it must cover every tag or the
-aggregate doesn't compile. Each function takes the state, the event and its metadata
-(`aggregateName`, `aggregateId`, `version`, `position`, `timestamp`, and the
-[`correlationId` and `causationId`](../commands/#causation)), and returns the new state.
+aggregate doesn't compile. Each function takes the state, the event and an `EventMeta`
+(`aggregateName`, `aggregateId`, `version`, `position`, `timestamp`, the
+[`correlationId` and `causationId`](../commands/#causation) and the command's
+[`metadata`](../commands/#metadata)), and returns the new state.
 
 `Aggregate.make<State>()` takes the state type explicitly, in a curried call like
 `Schema.TaggedError<X>()`. Inferred from `initial`, a literal such as `status: "open"` would

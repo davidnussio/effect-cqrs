@@ -5,7 +5,7 @@
 import {
   Array as Arr,
   Cause,
-  type Context,
+  Context,
   type DateTime,
   Duration,
   Effect,
@@ -31,6 +31,7 @@ import {
   type StoredEvent
 } from "./EventStore.ts"
 import * as EventVersions from "./EventVersions.ts"
+import { CurrentMetadata, Metadata } from "./Metadata.ts"
 
 export class UnknownCommand extends Schema.TaggedError<UnknownCommand>()("UnknownCommand", {
   aggregateName: Schema.String,
@@ -79,6 +80,7 @@ export interface HistoryEntry<Event> {
   readonly type: string
   readonly correlationId: string | null
   readonly causationId: string | null
+  readonly metadata: Metadata
   readonly payload?: Event
 }
 
@@ -117,7 +119,9 @@ const CommandEnvelope = Schema.Struct({
   payload: Schema.Unknown,
   /** Continues a correlation started elsewhere, see `Causation`. */
   correlationId: Schema.optional(Schema.String),
-  causationId: Schema.optional(Schema.String)
+  causationId: Schema.optional(Schema.String),
+  /** Recorded on top of the current metadata, see `Metadata`. */
+  metadata: Schema.optional(Metadata)
 })
 
 const versionsOf = (aggregate: Aggregate.Any) =>
@@ -415,6 +419,11 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
 ) {
   const store = yield* EventStore
   const context = yield* Effect.context<Aggregate.Context<A>>()
+  // Metadata provided where the service was built, such as the software version,
+  // reaches commands run where that layer isn't visible.
+  const builtWith = Context.get(context as Context.Context<never>, CurrentMetadata)
+  const mergeMetadata = (current: Metadata, given: Metadata | undefined): Metadata =>
+    current === builtWith && given === undefined ? builtWith : { ...builtWith, ...current, ...given }
   const maxRetries = options?.maxRetries ?? 5
   const aggregateName = aggregate.name
   const decodeEvent = makeEventDecoder(aggregate)
@@ -543,7 +552,8 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     type: string,
     aggregateId: string,
     payload: unknown,
-    causation: { readonly correlationId: string; readonly causationId: string }
+    causation: { readonly correlationId: string; readonly causationId: string },
+    metadata: Metadata
   ) {
     const loaded = yield* load(aggregateId)
     const { position, state, version } = loaded
@@ -558,7 +568,8 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       aggregateId,
       expectedVersion: version,
       events: yield* Effect.forEach(events, encodeEvent),
-      ...causation
+      ...causation,
+      metadata
     })
     yield* rememberWritten(aggregateId, loaded, stored)
     const last = stored[stored.length - 1]!
@@ -572,16 +583,22 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     type: string,
     aggregateId: string,
     payload: unknown,
-    given?: { readonly correlationId?: string | undefined; readonly causationId?: string | undefined }
+    given?: {
+      readonly correlationId?: string | undefined
+      readonly causationId?: string | undefined
+      readonly metadata?: Metadata | undefined
+    }
   ) =>
     // Read outside the service's own context, which would hide the caller's.
-    CurrentCausation.use((current) => {
+    Effect.contextWith((callerContext: Context.Context<never>) => {
+      const current = Context.get(callerContext, CurrentCausation)
       const correlationId = given?.correlationId ?? current?.correlationId
       const causationId = given?.causationId ?? current?.causationId
       // Without a cause the command starts its own correlation.
       const id = correlationId ?? causationId ?? crypto.randomUUID()
       const causation = { correlationId: correlationId ?? id, causationId: causationId ?? id }
-      return decide(type, aggregateId, payload, causation).pipe(
+      const metadata = mergeMetadata(Context.get(callerContext, CurrentMetadata), given?.metadata)
+      return decide(type, aggregateId, payload, causation, metadata).pipe(
         Effect.tapError((error) =>
           error instanceof ConcurrencyConflict ? Metric.update(metrics.conflicts, 1) : Effect.void
         ),
@@ -650,6 +667,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
           type: stored.type,
           correlationId: stored.correlationId,
           causationId: stored.causationId,
+          metadata: stored.metadata,
           ...(options?.payload === true ? { payload: event } : {})
         })
         return entries

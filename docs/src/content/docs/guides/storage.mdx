@@ -90,8 +90,9 @@ Another database needs an `EventStore.Backend` with three operations, and
 | `readBatch(filter, afterPosition, limit)` | Up to `limit` events past `afterPosition` that match the filter, by position |
 | `head` | The position of the latest event, `0` when the store is empty |
 
-A backend stores each event's `schemaVersion`, `correlationId` and `causationId` along with
-it. `EventStore.toStored` fills in the defaults: version 1 and no causation.
+A backend stores each event's `schemaVersion`, `correlationId`, `causationId` and
+`metadata` along with it. `EventStore.toStored` fills in the defaults: version 1, no
+causation and `{}`.
 
 Positions must follow commit order, so a backend on a database with concurrent writers has
 to guarantee that itself. The store tests in `test/EventStore.test.ts` run against every

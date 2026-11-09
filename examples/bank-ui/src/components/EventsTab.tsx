@@ -126,6 +126,7 @@ export const EventsTab = ({ travel }: { travel: number | undefined }) => {
                           timestamp: new Date(event.timestamp).toISOString(),
                           correlationId: event.stored.correlationId,
                           causationId: event.stored.causationId,
+                          metadata: event.stored.metadata,
                           payload: event.payload
                         },
                         null,

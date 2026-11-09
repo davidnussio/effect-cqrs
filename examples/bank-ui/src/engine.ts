@@ -22,8 +22,10 @@ import { WorkflowEngine } from "effect/workflow"
 import * as AggregateService from "effect-cqrs/AggregateService"
 import * as Checkpoints from "effect-cqrs/Checkpoints"
 import * as EventStore from "effect-cqrs/EventStore"
+import * as Metadata from "effect-cqrs/Metadata"
 import * as Saga from "effect-cqrs/Saga"
 import * as ViewModel from "effect-cqrs/ViewModel"
+import { version as appVersion } from "../../../package.json"
 import {
   type AggregateMetrics,
   type CommandTiming,
@@ -114,6 +116,8 @@ const BusLayer = Layer.effect(
           // `dispatch` is the real entry point: it validates the JSON envelope and
           // payload, rehydrates the aggregate, runs the handler and appends.
           return yield* bank.dispatch(input).pipe(
+            // Recorded on the events beside the app version the service was built with.
+            Metadata.withMetadata({ origin }),
             Effect.tap((result) => Effect.sync(() => devstore.finish(id, toOutcome(result)))),
             Effect.tapError((error) => Effect.sync(() => devstore.finish(id, describeError(error)))),
             Effect.tapDefect((defect) => Effect.sync(() => devstore.finish(id, describeError(defect))))
@@ -344,6 +348,8 @@ const WithBus = BusLayer.pipe(Layer.provideMerge(Core))
 
 const Main = Layer.mergeAll(Bridge, TransferSaga, StatusPoll, MetricsPoll, Autopilot).pipe(
   Layer.provideMerge(WithBus),
+  // Every command records the version of the software that ran it.
+  Layer.provide(Metadata.layer({ appVersion })),
   // A registry of its own, so a reset counts from zero.
   Layer.provideMerge(Layer.sync(Metric.MetricRegistry, () => new Map()))
 )

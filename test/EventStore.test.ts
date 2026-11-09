@@ -72,6 +72,24 @@ for (const [name, adapter] of Object.entries(adapters)) {
         ])
       }).pipe(Effect.provide(adapter)))
 
+    it.effect("round-trips metadata, and stores an empty object when none is given", () =>
+      Effect.gen(function*() {
+        const store = yield* EventStore.EventStore
+        const metadata = { appVersion: "1.4.0", user: { id: 7, roles: ["admin"] }, beta: true, note: null }
+        const appended = yield* store.append({
+          aggregateName: "test",
+          aggregateId: "a",
+          expectedVersion: 0,
+          events: [{ type: "A1", payload: {} }, { type: "A2", payload: {} }],
+          metadata
+        })
+        yield* append("b", 0, "B1")
+        const stored = yield* read()
+
+        assert.deepStrictEqual(stored.slice(0, 2), appended)
+        assert.deepStrictEqual(stored.map((event) => event.metadata), [metadata, metadata, {}])
+      }).pipe(Effect.provide(adapter)))
+
     it.effect("stores no causation when none is given", () =>
       Effect.gen(function*() {
         yield* append("a", 0, "A1")
@@ -364,10 +382,13 @@ describe("SqliteEventStore", () => {
         yield* append("a", 1, "A2")
         const events = yield* read()
 
-        assert.deepStrictEqual(events.map((event) => [event.type, event.schemaVersion, event.correlationId]), [
-          ["A1", 1, null],
-          ["A2", 1, null]
-        ])
+        assert.deepStrictEqual(
+          events.map((event) => [event.type, event.schemaVersion, event.correlationId, event.metadata]),
+          [
+            ["A1", 1, null, {}],
+            ["A2", 1, null, {}]
+          ]
+        )
       }).pipe(Effect.provide(SqliteEventStore.layer()))
     }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))))
 

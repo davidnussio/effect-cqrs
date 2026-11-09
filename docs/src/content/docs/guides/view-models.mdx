@@ -41,7 +41,8 @@ const program = Effect.gen(function*() {
 ## Defining one
 
 `handlers` has one function per event tag the view model cares about, and only accepts
-tags of its `aggregates`. Each gets the decoded event and its metadata. `dispose` clears
+tags of its `aggregates`. Each gets the decoded event and its `EventMeta`, the same as a
+[projection](../aggregates/#the-projection), with the command's `metadata`. `dispose` clears
 everything the view model stored, before a replay rebuilds it.
 
 `ViewModel.layer([...])` starts the view models in the background for as long as the layer

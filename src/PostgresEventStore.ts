@@ -25,8 +25,8 @@ const storeError = (operation: string) => (cause: unknown) => new EventStore.Eve
 
 const isUniqueViolation = (error: SqlError.SqlError) => error.reason._tag === "UniqueViolation"
 
-// The client binds at most 32,767 parameters to a statement, and each row uses 10.
-const rowsPerInsert = 3_000
+// The client binds at most 32,767 parameters to a statement, and each row uses 11.
+const rowsPerInsert = 2_900
 
 export const make = Effect.fnUntraced(function*(options?: Options) {
   const sql = yield* SqlClient.SqlClient
@@ -47,6 +47,7 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
         "timestamp" BIGINT NOT NULL,
         correlation_id TEXT,
         causation_id TEXT,
+        metadata JSONB NOT NULL DEFAULT '{}',
         UNIQUE (aggregate_name, aggregate_id, version)
       )
     `
@@ -54,6 +55,7 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
     yield* sql`ALTER TABLE ${events} ADD COLUMN IF NOT EXISTS schema_version INTEGER NOT NULL DEFAULT 1`
     yield* sql`ALTER TABLE ${events} ADD COLUMN IF NOT EXISTS correlation_id TEXT`
     yield* sql`ALTER TABLE ${events} ADD COLUMN IF NOT EXISTS causation_id TEXT`
+    yield* sql`ALTER TABLE ${events} ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'`
     yield* sql`CREATE INDEX IF NOT EXISTS ${sql(`${prefix}_type_idx`)} ON ${events} (type, position)`
     yield* sql`
       CREATE TABLE IF NOT EXISTS ${counter} (
@@ -75,7 +77,8 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
     payload,
     "timestamp"::float8 AS "timestamp",
     correlation_id AS "correlationId",
-    causation_id AS "causationId"
+    causation_id AS "causationId",
+    metadata
   `)
 
   const append = (input: EventStore.AppendInput) => {
@@ -110,7 +113,8 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
         payload: JSON.stringify(event.payload),
         timestamp,
         correlation_id: event.correlationId,
-        causation_id: event.causationId
+        causation_id: event.causationId,
+        metadata: JSON.stringify(event.metadata)
       }))
       yield* Effect.forEach(
         Arr.chunksOf(rows, rowsPerInsert),

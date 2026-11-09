@@ -55,6 +55,17 @@ Why events were recorded. <a href={sourceUrl("src/Causation.ts")}>Source</a>
 | `causedBy(stored)`, `fromEvent(stored)` | Makes a stored event the cause of the commands an effect runs |
 | `CurrentCausation` | The reference that holds them, `undefined` outside any |
 
+## Metadata
+
+What commands carry beside their payload, such as the software version. <a href={sourceUrl("src/Metadata.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `withMetadata(metadata)` | Runs an effect whose commands record this metadata on top of the current one |
+| `layer(metadata)` | Provides metadata to the services built on top, for values such as the software version |
+| `CurrentMetadata` | The reference that holds it, `{}` outside any |
+| `Metadata` | The type and schema of metadata: a JSON object |
+
 ## ViewModel
 
 Projects events into read models. <a href={sourceUrl("src/ViewModel.ts")}>Source</a>

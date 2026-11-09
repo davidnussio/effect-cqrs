@@ -41,7 +41,7 @@ aggregate's id and the payload, and returns a `CommandResult`:
 `unknown`. It checks the envelope and decodes the payload with the command's JSON codec, so
 an ISO string becomes a `DateTime`. This is the entry point to wire into an HTTP or RPC
 layer. The envelope can also carry a `correlationId` and a `causationId`, to continue a
-correlation the caller started.
+correlation the caller started, and a `metadata` object, see [metadata](#metadata).
 
 ## Errors
 
@@ -60,7 +60,7 @@ A command fails with the errors its handler declares, plus:
 - `readModel(id)` folds the aggregate's events into its state. With `finishTime` it gives
   the state as it was before that moment.
 - `history(id)` lists the aggregate's events as
-  `{ version, timestamp, type, correlationId, causationId }`, with the decoded event as
+  `{ version, timestamp, type, correlationId, causationId, metadata }`, with the decoded event as
   `payload` when you ask for it. `startTime` and `finishTime` narrow the
   window.
 
@@ -189,6 +189,46 @@ yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" }).pipe(
 ```
 
 The command's span carries the correlation as `cqrs.correlation_id`.
+
+## Metadata
+
+A command can carry what the domain doesn't decide on but you want to keep: the version of
+the software that ran it, the user who sent it, the address it came from. Metadata is a JSON
+object, recorded on every event the command writes as `metadata`, and `{}` when there is
+none. Projections and view model handlers find it in their `meta` argument, and `history`
+lists it.
+
+Like causation it travels in the fiber's context. A command records, key by key, from the
+lowest precedence:
+
+1. the metadata where its service was built, with `Metadata.layer`;
+2. the metadata where it runs, added with `Metadata.withMetadata`;
+3. the `metadata` of a `dispatch` envelope.
+
+```ts
+import { Metadata } from "effect-cqrs"
+
+// Once for the whole application: every command records it.
+const AppLayer = Layer.mergeAll(Todos.layer, ViewModelsLayer).pipe(
+  Layer.provide(Metadata.layer({ appVersion: "1.4.0" }))
+)
+
+// Per request, on top of it.
+yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" }).pipe(
+  Metadata.withMetadata({ userId: session.userId, ip: request.remoteAddress })
+)
+```
+
+The service remembers the metadata it was built with, so the software version is recorded
+even by commands run where the layer that provided it isn't visible, such as an HTTP handler
+on a `ManagedRuntime`.
+
+A view model or saga reacting to an event doesn't inherit that event's metadata: the
+commands it runs record their own, including the version of the process that ran them. Their
+`causationId` leads back to the event, and from there to its metadata.
+
+Command handlers don't see metadata: it isn't meant to change a decision. If it should, it
+belongs in the payload.
 
 ## As a service
 

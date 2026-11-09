@@ -34,6 +34,8 @@ export interface EventMeta {
   readonly correlationId: string | null
   /** What directly caused the command that recorded the event. */
   readonly causationId: string | null
+  /** What the command carried beside its payload, such as the software version, see `Metadata`. */
+  readonly metadata: Schema.JsonObject
 }
 
 export interface CommandContext {
