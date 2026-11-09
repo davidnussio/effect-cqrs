@@ -3,14 +3,37 @@
  * aggregate, three view models, a saga for transfers and a command bus that can
  * be slowed down, paused and stepped so every stage is visible.
  */
-import { Context, DateTime, Duration, Effect, Latch, Layer, ManagedRuntime, Schedule, Schema, Semaphore, Stream } from "effect"
+import {
+  Context,
+  DateTime,
+  Duration,
+  Effect,
+  Latch,
+  Layer,
+  ManagedRuntime,
+  Metric,
+  Schedule,
+  Schema,
+  Semaphore,
+  Stream
+} from "effect"
+import { KeyValueStore } from "effect/persistence"
 import { WorkflowEngine } from "effect/workflow"
 import * as AggregateService from "effect-cqrs/AggregateService"
 import * as Checkpoints from "effect-cqrs/Checkpoints"
 import * as EventStore from "effect-cqrs/EventStore"
 import * as Saga from "effect-cqrs/Saga"
 import * as ViewModel from "effect-cqrs/ViewModel"
-import { devstore, type Origin, type Outcome, type Stage, viewModelNames, type ViewName } from "./devstore.ts"
+import {
+  type AggregateMetrics,
+  type CommandTiming,
+  devstore,
+  type Origin,
+  type Outcome,
+  type Stage,
+  viewModelNames,
+  type ViewName
+} from "./devstore.ts"
 import { Account, type AccountEvent, AccountNotOpen } from "./domain/account.ts"
 import { allViews } from "./domain/views.ts"
 
@@ -201,6 +224,57 @@ const StatusPoll = Layer.effectDiscard(Effect.gen(function*() {
   )
 }))
 
+const { MetricNames } = AggregateService
+
+/** Folds the series `AggregateService` records into what the metrics tab shows. */
+const summarize = (snapshots: ReadonlyArray<Metric.Metric.Snapshot>): AggregateMetrics => {
+  const ours = snapshots.filter((snapshot) => snapshot.attributes?.aggregate === Account.name)
+  const of = (id: string, attributes: Record<string, string> = {}) =>
+    ours.filter((snapshot) =>
+      snapshot.id === id && Object.entries(attributes).every(([key, value]) => snapshot.attributes?.[key] === value)
+    )
+  const count = (id: string, attributes?: Record<string, string>) =>
+    of(id, attributes).reduce((sum, { state }) => sum + Number((state as { count: number | bigint }).count), 0)
+  const histogram = (snapshot: Metric.Metric.Snapshot) => snapshot.state as Metric.HistogramState
+  const [read] = of(MetricNames.eventsReplayed).map(histogram)
+  const [size] = of(MetricNames.stateCacheSize)
+  const commands = of(MetricNames.commandDuration).map((snapshot): CommandTiming => {
+    const { count, max, sum } = histogram(snapshot)
+    return {
+      command: String(snapshot.attributes?.command),
+      outcome: String(snapshot.attributes?.outcome),
+      count,
+      totalMs: sum,
+      maxMs: max
+    }
+  })
+  return {
+    loads: {
+      memory: count(MetricNames.stateLoads, { source: "memory" }),
+      snapshot: count(MetricNames.stateLoads, { source: "snapshot" }),
+      replay: count(MetricNames.stateLoads, { source: "replay" })
+    },
+    eventsRead: read?.sum ?? 0,
+    maxEventsRead: read !== undefined && read.count > 0 ? read.max : 0,
+    cacheSize: Number((size?.state as { value: number } | undefined)?.value ?? 0),
+    evictions: count(MetricNames.stateCacheEvictions),
+    snapshotsSaved: count(MetricNames.snapshotSaves, { result: "success" }),
+    snapshotsFailed: count(MetricNames.snapshotSaves, { result: "failure" }),
+    snapshotReadFailures: count(MetricNames.snapshotReadFailures),
+    conflicts: count(MetricNames.concurrencyConflicts),
+    commands: commands.sort((a, b) => a.command.localeCompare(b.command) || b.count - a.count)
+  }
+}
+
+/** Polls `Metric.snapshot` so the devtools show what the account service records. */
+const MetricsPoll = Layer.effectDiscard(
+  Metric.snapshot.pipe(
+    Effect.map((snapshots) => devstore.metrics(summarize(snapshots))),
+    Effect.repeat(Schedule.spaced("250 millis")),
+    Effect.forkScoped
+  )
+)
+
 const formatViewError = (error: ViewModel.ViewModelError): string => {
   const cause = error.cause as { _tag?: string; reason?: string } | undefined
   return `${cause?._tag ?? "Error"} at #${error.position}${cause?.reason ? `: ${cause.reason}` : ""}`
@@ -248,16 +322,31 @@ const Autopilot = Layer.effectDiscard(Effect.gen(function*() {
 }))
 
 // #region wiring
-const Storage = Layer.merge(EventStore.layerMemory, Checkpoints.layerMemory)
+const Storage = Layer.mergeAll(EventStore.layerMemory, Checkpoints.layerMemory, KeyValueStore.layerMemory)
 
-const Core = Layer.merge(
-  Layer.effect(Bank, AggregateService.make(Account)),
-  ViewModel.layer(allViews)
-).pipe(Layer.provideMerge(Storage))
+const AccountState = Schema.Struct({
+  status: Schema.Literals(["none", "open", "closed"]),
+  owner: Schema.String,
+  color: Schema.String,
+  balance: Schema.Number,
+  received: Schema.Array(Schema.String)
+})
+
+// Only four accounts stay in memory, so the metrics tab shows loads from snapshots too.
+const BankService = Layer.effect(
+  Bank,
+  AggregateService.make(Account, { stateCacheSize: 4, snapshots: { every: 5, schema: AccountState } })
+)
+
+const Core = Layer.merge(BankService, ViewModel.layer(allViews)).pipe(Layer.provideMerge(Storage))
 
 const WithBus = BusLayer.pipe(Layer.provideMerge(Core))
 
-const Main = Layer.mergeAll(Bridge, TransferSaga, StatusPoll, Autopilot).pipe(Layer.provideMerge(WithBus))
+const Main = Layer.mergeAll(Bridge, TransferSaga, StatusPoll, MetricsPoll, Autopilot).pipe(
+  Layer.provideMerge(WithBus),
+  // A registry of its own, so a reset counts from zero.
+  Layer.provideMerge(Layer.sync(Metric.MetricRegistry, () => new Map()))
+)
 // #endregion
 
 const seed: ReadonlyArray<CommandInput> = [

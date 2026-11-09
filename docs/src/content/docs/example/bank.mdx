@@ -100,9 +100,11 @@ console, goes through `dispatch`, the entry point for untyped input:
 
 ## Wiring it together
 
-The whole engine is a layer: the in-memory store and checkpoints, the service, the view
-models, and the background fibers that mirror events to the devtools, run the saga, poll
-the view models' status and send random traffic.
+The whole engine is a layer: the in-memory store, checkpoints and snapshots, the service,
+the view models, and the background fibers that mirror events to the devtools, run the
+saga, poll the view models' status and the service's metrics, and send random traffic. The
+service keeps only four accounts in memory and saves a snapshot every five events, so with
+more accounts open the **Metrics** tab shows commands starting from snapshots and replays.
 
 <Code code={region(engine, "wiring")} lang="ts" title={engineFile} />
 
@@ -117,6 +119,7 @@ disposes the runtime and starts a new one.
 | Event store | Read the log as it grows |
 | Projections | See each view model's checkpoint and lag, crash `bank-totals`, and rebuild one |
 | Time travel | Scrub through the log: the customer app becomes a preview, where each account is its events up to the cursor folded with the aggregate's projection. Replay view models up to a chosen event, or entirely |
+| Metrics | Watch the service's [metrics](../../guides/commands/#metrics): where each load found its state, the events it read, the states in memory and those dropped, the snapshots saved, and how long each command took by outcome |
 
 <Aside>
 Replaying up to an event uses the `finishTime` of `viewModels.replay`, since the replay
