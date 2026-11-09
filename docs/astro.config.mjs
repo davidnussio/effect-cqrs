@@ -27,6 +27,8 @@ export default defineConfig({
       customCss: ["./src/styles/custom.css"],
       components: {
         Hero: "./src/components/Hero.astro",
+        SocialIcons: "./src/components/HeaderLinks.astro",
+        Search: "./src/components/HeaderSearch.astro",
         // Dark only, like the demo.
         ThemeProvider: "./src/components/ThemeProvider.astro",
         ThemeSelect: "./src/components/Nothing.astro"

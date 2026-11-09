@@ -105,6 +105,22 @@ kbd {
   filter: drop-shadow(0 0 14px rgba(167, 139, 250, 0.55));
 }
 
+/* On a phone the header also holds the start links, so the logo stands for the title. */
+@media (max-width: 30rem) {
+  .header .title-wrapper {
+    flex-shrink: 0;
+  }
+
+  .site-title span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 .sidebar-pane {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);

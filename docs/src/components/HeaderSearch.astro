@@ -1,0 +1,11 @@
+---
+/**
+ * Takes the place of Starlight's search. On narrow screens, where the social
+ * icons are hidden, the start links go next to the search button instead.
+ */
+import Search from "@astrojs/starlight/components/Search.astro"
+import StartLinks from "./StartLinks.astro"
+---
+
+<StartLinks class="sl-flex md:sl-hidden" />
+<Search {...Astro.props} />

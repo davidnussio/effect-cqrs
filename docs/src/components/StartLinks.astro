@@ -1,0 +1,63 @@
+---
+/**
+ * Links to the pages to start from, shown in the header: next to the social
+ * icons on wide screens, next to the search button on narrow ones.
+ */
+interface Props {
+  readonly class?: string
+}
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, "")
+const current = Astro.locals.starlightRoute.id
+
+const links = [
+  { label: "Getting started", id: "getting-started" },
+  { label: "Tutorial", id: "tutorial" }
+]
+---
+
+<nav class:list={["cq-start-links", Astro.props.class]} aria-label="Start here">
+  {links.map(({ id, label }) => (
+    <a href={`${base}/${id}/`} aria-current={current === id ? "page" : undefined}>{label}</a>
+  ))}
+</nav>
+
+<style>
+  .cq-start-links {
+    gap: 0.25rem;
+    align-items: center;
+  }
+
+  .cq-start-links a {
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    font-size: var(--sl-text-sm);
+    font-weight: 500;
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .cq-start-links a:hover {
+    color: var(--sl-color-white);
+    background: rgba(255, 255, 255, 0.05);
+  }
+
+  .cq-start-links a[aria-current="page"] {
+    color: var(--sl-color-accent-high);
+    background: var(--sl-color-accent-low);
+  }
+
+  /* On a phone the header also holds the title, search and menu buttons. */
+  @media (max-width: 30rem) {
+    .cq-start-links {
+      gap: 0;
+    }
+
+    .cq-start-links a {
+      padding: 0.3rem 0.5rem;
+      font-size: var(--sl-text-xs);
+    }
+  }
+</style>
