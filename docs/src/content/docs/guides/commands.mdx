@@ -76,10 +76,11 @@ it fails with `ConcurrencyConflict`.
 
 ## Remembered state
 
-The service keeps the state of the aggregates it used recently, so a command only reads
-the events it hasn't seen yet. Those can come from another process too: a state plus what
-came after it is always the current state. After a restart, the first command on an
-aggregate replays its whole stream, unless [snapshots](#snapshots) are on.
+The service keeps the state of the aggregates it used recently, including the events its
+own commands wrote, so a command only reads the events it hasn't seen yet. Those can come
+from another process too: a state plus what came after it is always the current state.
+After a restart, the first command on an aggregate replays its whole stream, unless
+[snapshots](#snapshots) are on.
 
 ```ts
 const todos = yield* AggregateService.make(Todo, {
@@ -115,8 +116,10 @@ files, any `effect/sql` database and the browser's `localStorage`.
 - **The version is part of every key.** Snapshots of a state the code no longer produces
   would be wrong rather than unreadable, so change `version` whenever the state or the
   projection changes. The old ones are then ignored and rebuilt from the log.
-- **They are taken when state is loaded.** A command that finds `every` new events since
-  the last snapshot saves one before deciding, in the same fiber.
+- **They are saved in the background.** Once `every` events have been folded since the
+  last snapshot, the service starts saving one and the command carries on without waiting
+  for it. The service needs a `Scope`, which `Layer.effect` provides, and closing it waits
+  for the saves still running.
 - `readModel` with a `finishTime` always replays from the start.
 
 ## Causation

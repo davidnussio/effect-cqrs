@@ -2,7 +2,7 @@
  * Runs an aggregate against the {@link EventStore}: the `command`, `read-model`
  * and `history` actions of moleculer-cqrs, as a typed service.
  */
-import { Array as Arr, type DateTime, Effect, Option, Schedule, Schema, Semaphore, Stream } from "effect"
+import { Array as Arr, type DateTime, Effect, FiberSet, Option, Schedule, Schema, type Scope, Semaphore, Stream } from "effect"
 import { KeyValueStore } from "effect/persistence"
 import * as Aggregate from "./Aggregate.ts"
 import { CurrentCausation } from "./Causation.ts"
@@ -263,15 +263,22 @@ const makeSnapshots = <State>(aggregateName: string, options: SnapshotOptions<St
         )
       )
 
-    const save = (aggregateId: string, loaded: Loaded<State>) =>
+    // Saves run beside the commands rather than in their way. Closing the service
+    // waits for the ones still running, so a clean shutdown keeps its last snapshots.
+    const saving = yield* FiberSet.make<void>()
+    yield* Effect.addFinalizer(() => FiberSet.awaitEmpty(saving))
+
+    // Starts a save once `every` events have been folded since the last snapshot, and
+    // returns the state to remember. A failed save is not retried until `every` more.
+    const save = (aggregateId: string, loaded: Loaded<State>): Effect.Effect<Loaded<State>> =>
       loaded.version - loaded.snapshotVersion < options.every
         ? Effect.succeed(loaded)
-        : store.set(key(aggregateId), { version: loaded.version, position: loaded.position, state: loaded.state }).pipe(
-          Effect.as({ ...loaded, snapshotVersion: loaded.version }),
-          Effect.catch((error) =>
-            Effect.as(Effect.logWarning(`Could not save the ${aggregateName} snapshot of ${aggregateId}`, error), loaded)
+        : FiberSet.run(
+          saving,
+          store.set(key(aggregateId), { version: loaded.version, position: loaded.position, state: loaded.state }).pipe(
+            Effect.catch((error) => Effect.logWarning(`Could not save the ${aggregateName} snapshot of ${aggregateId}`, error))
           )
-        )
+        ).pipe(Effect.as({ ...loaded, snapshotVersion: loaded.version }))
 
     return { get, save }
   })
@@ -310,6 +317,17 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     range?: Pick<EventFilter, "startTime" | "finishTime" | "afterPosition" | "afterVersion">
   ) => store.read({ aggregateNames: [aggregateName], aggregateIds: [aggregateId], ...range })
 
+  const fold = (
+    acc: Loaded<Aggregate.State<A>>,
+    event: Aggregate.Event<A>,
+    stored: StoredEvent
+  ): Loaded<Aggregate.State<A>> => ({
+    state: Aggregate.evolve(aggregate, acc.state, event, stored),
+    version: stored.version,
+    position: stored.position,
+    snapshotVersion: acc.snapshotVersion
+  })
+
   const replayFrom = (
     start: Loaded<Aggregate.State<A>>,
     aggregateId: string,
@@ -318,12 +336,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     replay(
       streamOf(aggregateId, { finishTime, afterPosition: start.position, afterVersion: start.version }),
       start,
-      (acc, event, stored) => ({
-        state: Aggregate.evolve(aggregate, acc.state, event, stored),
-        version: stored.version,
-        position: stored.position,
-        snapshotVersion: acc.snapshotVersion
-      })
+      fold
     )
 
   const initial: Loaded<Aggregate.State<A>> = {
@@ -342,16 +355,33 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       : Effect.map(snapshots.get(aggregateId), Option.getOrElse(() => initial))
   }
 
+  // Returns the state as remembered, with the version of a snapshot it just started.
+  const remember = (aggregateId: string, loaded: Loaded<Aggregate.State<A>>) =>
+    (snapshots === undefined ? Effect.succeed(loaded) : snapshots.save(aggregateId, loaded)).pipe(
+      Effect.tap((remembered) => Effect.sync(() => states.set(aggregateId, remembered)))
+    )
+
   // Streams only grow, so a remembered state plus what came after it is the current
   // state, even if another process wrote those events.
   const load = (aggregateId: string, finishTime?: DateTime.Utc) =>
     finishTime === undefined
       ? start(aggregateId).pipe(
         Effect.flatMap((from) => replayFrom(from, aggregateId)),
-        Effect.flatMap((loaded) => snapshots === undefined ? Effect.succeed(loaded) : snapshots.save(aggregateId, loaded)),
-        Effect.tap((loaded) => Effect.sync(() => states.set(aggregateId, loaded)))
+        Effect.flatMap((loaded) => remember(aggregateId, loaded))
       )
       : replayFrom(initial, aggregateId, finishTime)
+
+  // Folds what a command just wrote into the remembered state, so the next command
+  // finds nothing new to read. The events are decoded from what was stored, as a
+  // replay would, so the state is the one a restart would rebuild. If they don't
+  // decode, the state isn't remembered and the next load reports the error.
+  const rememberWritten = (aggregateId: string, before: Loaded<Aggregate.State<A>>, written: ReadonlyArray<StoredEvent>) =>
+    Effect.forEach(written, decodeEvent).pipe(
+      Effect.flatMap((events) =>
+        remember(aggregateId, events.reduce((acc, event, index) => fold(acc, event, written[index]!), before))
+      ),
+      Effect.ignore
+    )
 
   const decide = Effect.fnUntraced(function*(
     type: string,
@@ -359,7 +389,8 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     payload: unknown,
     causation: { readonly correlationId: string; readonly causationId: string }
   ) {
-    const { position, state, version } = yield* load(aggregateId)
+    const loaded = yield* load(aggregateId)
+    const { position, state, version } = loaded
     const { handler } = aggregate.commands[type]!
     const events: ReadonlyArray<Aggregate.Event<A>> = Arr.ensure(yield* handler(state, payload, { aggregateId, version }))
     const { correlationId } = causation
@@ -373,6 +404,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       events: yield* Effect.forEach(events, encodeEvent),
       ...causation
     })
+    yield* rememberWritten(aggregateId, loaded, stored)
     const last = stored[stored.length - 1]!
     return { aggregateName, aggregateId, version: last.version, position: last.position, events, correlationId }
   })
@@ -476,13 +508,18 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
 /**
  * Builds the service for one aggregate. With `snapshots` it saves states through
  * a `KeyValueStore` from `effect/persistence`, which has layers for memory, files,
- * SQL and the browser's `localStorage`.
+ * SQL and the browser's `localStorage`. Saves run in the background, and closing
+ * the scope waits for the ones still running.
  */
 export const make: {
   <A extends Aggregate.Any>(
     aggregate: A,
     options: Options & { readonly snapshots: SnapshotOptions<Aggregate.State<A>> }
-  ): Effect.Effect<AggregateService<A>, never, EventStore | KeyValueStore.KeyValueStore | Aggregate.Context<A>>
+  ): Effect.Effect<
+    AggregateService<A>,
+    never,
+    EventStore | KeyValueStore.KeyValueStore | Scope.Scope | Aggregate.Context<A>
+  >
   <A extends Aggregate.Any>(
     aggregate: A,
     options?: Options

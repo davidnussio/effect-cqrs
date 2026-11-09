@@ -260,8 +260,8 @@ describe("AggregateService", () => {
         yield* counters.commands.increment("a", {})
         yield* counters.commands.increment("a", {})
 
-        // Each command remembers the state it decided on, without its own event.
-        assert.deepStrictEqual(reads, [0, 0, 1])
+        // Each command remembers the state its own events left.
+        assert.deepStrictEqual(reads, [0, 1, 2])
         assert.strictEqual(yield* counters.readModel("a"), 3)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
@@ -287,7 +287,8 @@ describe("AggregateService", () => {
         yield* counters.commands.increment("b", {})
         yield* counters.commands.increment("a", {})
 
-        assert.deepStrictEqual(reads, [0, 0, 0, 0])
+        // Remembering "b" forgets "a", which is read again from the start.
+        assert.deepStrictEqual(reads, [0, 1, 0, 0])
         assert.strictEqual(yield* counters.readModel("a"), 3)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
