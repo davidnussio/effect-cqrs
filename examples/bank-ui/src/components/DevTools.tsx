@@ -37,10 +37,10 @@ export const DevTools = (
             }`}
           >
             {name}
-            {name === "Commands" && pending > 0 && <Badge color="#fbbf24">{pending}</Badge>}
+            {name === "Commands" && <Badge color="#fbbf24" hidden={pending === 0}>{pending}</Badge>}
             {name === "Event store" && <Badge color="#a78bfa">{eventCount}</Badge>}
-            {name === "Projections" && stalled && <Badge color="#fb7185">!</Badge>}
-            {name === "Time travel" && travel !== undefined && <Badge color="#38bdf8">#{travel}</Badge>}
+            {name === "Projections" && <Badge color="#fb7185" hidden={!stalled}>!</Badge>}
+            {name === "Time travel" && <Badge color="#38bdf8" hidden={travel === undefined}>#{travel ?? 0}</Badge>}
             {tab === name && (
               <motion.span
                 layoutId="tab-underline"
@@ -72,12 +72,14 @@ export const DevTools = (
   )
 }
 
-const Badge = ({ color, children }: { color: string; children: React.ReactNode }) => (
+// A hidden badge still takes its space, so the tabs don't move when it comes and goes.
+const Badge = ({ color, hidden = false, children }: { color: string; hidden?: boolean; children: React.ReactNode }) => (
   <motion.span
-    key={String(children)}
-    initial={{ scale: 1.5 }}
+    key={hidden ? "hidden" : String(children)}
+    initial={{ scale: hidden ? 1 : 1.5 }}
     animate={{ scale: 1 }}
-    className="ml-1.5 rounded-full px-1.5 py-px font-mono text-[9px] font-semibold"
+    aria-hidden={hidden}
+    className={`ml-1.5 rounded-full px-1.5 py-px font-mono text-[9px] font-semibold ${hidden ? "invisible" : ""}`}
     style={{ background: `${color}26`, color }}
   >
     {children}
