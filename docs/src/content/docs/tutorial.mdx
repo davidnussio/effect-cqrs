@@ -1,0 +1,126 @@
+---
+title: Tutorial
+description: Build a small shop step by step, from events to sagas, metadata, metrics and event versions.
+---
+
+import { Code } from "@astrojs/starlight/components"
+import shop from "../../../../examples/tutorial/shop.ts?raw"
+import main from "../../../../examples/tutorial/main.ts?raw"
+import { region } from "../../source.ts"
+
+export const file = "examples/tutorial/shop.ts"
+export const full = shop.replace(/^[ \t]*\/\/ #(region .*|endregion)\n/gm, "")
+
+We build a shop: customers place **orders**, and a **saga** reserves the **stock** for
+each one, then confirms or rejects the order. Every snippet comes from
+[the full example](#the-full-example), which you can run with `pnpm tutorial`.
+
+## 1. Events
+
+Events are what happened. Each aggregate declares its own as a tagged union:
+
+<Code code={region(shop, "events")} lang="ts" title={file} />
+
+## 2. Aggregates and commands
+
+An aggregate folds its events into a state with `projection`, and each command looks at
+that state and returns new events, or fails:
+
+<Code code={region(shop, "errors")} lang="ts" title={file} />
+
+<Code code={region(shop, "stock")} lang="ts" title={file} />
+
+<Code code={region(shop, "order")} lang="ts" title={file} />
+
+Returning `[]` records nothing. `versions` comes in [step 8](#8-event-versioning).
+
+## 3. Running commands
+
+`AggregateService.make` turns an aggregate into a service with one typed function per
+command:
+
+<Code code={region(shop, "services")} lang="ts" title={file} />
+
+<Code code={region(shop, "commands")} lang="ts" title={file} />
+
+A refused command fails with its typed error and stores nothing.
+
+## 4. A view model
+
+A view model reads events into whatever a query needs, here a list of orders:
+
+<Code code={region(shop, "view-model")} lang="ts" title={file} />
+
+## 5. A saga
+
+A saga reacts to an event and runs commands on other aggregates. The trigger starts a
+workflow for each `OrderPlaced`, and each command in it is a step the engine remembers:
+
+<Code code={region(shop, "saga")} lang="ts" title={file} />
+
+## 6. Wiring
+
+Everything is a layer. Here all of it runs in memory:
+
+<Code code={region(shop, "layers")} lang="ts" title={file} />
+
+## 7. Metadata
+
+Metadata is what a command carries beside its payload: the app version, the user, the
+channel. `Metadata.layer` above sets the version for every command, and
+`Metadata.withMetadata` adds to it for one call:
+
+<Code code={region(shop, "metadata")} lang="ts" title={file} />
+
+```txt
+order-2 history [
+  { type: 'OrderPlaced', metadata: { appVersion: '1.0.0', userId: 'bob', channel: 'mobile' } },
+  { type: 'OrderRejected', metadata: { appVersion: '1.0.0' } }
+]
+```
+
+The saga's `OrderRejected` doesn't inherit `userId`: a reaction records its own metadata.
+
+## 8. Event versioning
+
+Stored events never change. When an event's schema does, declare the old shape and how to
+upcast it:
+
+<Code code={region(shop, "versions")} lang="ts" title={file} />
+
+An order stored before quantities existed is read as an order for one item, by the
+projection, the view model and the saga alike:
+
+<Code code={region(shop, "legacy")} lang="ts" title={file} />
+
+```txt
+order-0 is read as { status: 'rejected', sku: 'pear', quantity: 1 }
+```
+
+## 9. Metrics
+
+Every aggregate service records metrics with Effect's `Metric` module. Read them with
+`Metric.snapshot`, or send them to an exporter:
+
+<Code code={region(shop, "metrics")} lang="ts" title={file} />
+
+```txt
+order.place timings [
+  { outcome: 'success', count: 2, totalMs: 0.806 },
+  { outcome: 'OrderAlreadyPlaced', count: 1, totalMs: 0.273 }
+]
+```
+
+## The full example
+
+<Code code={full} lang="ts" title={file} />
+
+<Code code={main} lang="ts" title="examples/tutorial/main.ts" />
+
+```bash
+pnpm tutorial
+```
+
+Next, the guides go deeper into [aggregates](../guides/aggregates/),
+[commands](../guides/commands/), [view models](../guides/view-models/) and
+[sagas](../guides/sagas/).

@@ -42,14 +42,20 @@ The examples live in the repository, where they import the TypeScript sources di
    pnpm test
    ```
 
-3. Run the todo example. It is the moleculer-cqrs README walkthrough as a program, on an
+3. Run the [tutorial](../tutorial/)'s shop, which uses every feature in one file.
+
+   ```bash
+   pnpm tutorial
+   ```
+
+4. Run the todo example. It is the moleculer-cqrs README walkthrough as a program, on an
    in-memory SQLite database.
 
    ```bash
    pnpm example
    ```
 
-4. Serve the bank demo at http://localhost:5173.
+5. Serve the bank demo at http://localhost:5173.
 
    ```bash
    pnpm ui
@@ -71,6 +77,7 @@ The examples live in the repository, where they import the TypeScript sources di
   - PostgresEventStore.ts
   - Fixture.ts tests an aggregate in isolation
 - examples/
+  - tutorial/ the shop of the tutorial
   - todo/ the moleculer-cqrs walkthrough
   - bank-ui/ the bank demo, in the browser
 - bench/ performance and stress tests, and their report
@@ -80,5 +87,6 @@ The examples live in the repository, where they import the TypeScript sources di
 
 ## Next steps
 
+<LinkCard title="Follow the tutorial" href="../tutorial/" />
 <LinkCard title="Define an aggregate" href="../guides/aggregates/" />
 <LinkCard title="Walk through the bank demo" href="../example/bank/" />

@@ -53,7 +53,7 @@ export default defineConfig({
         }
       },
       sidebar: [
-        { label: "Start here", items: ["getting-started"] },
+        { label: "Start here", items: ["getting-started", "tutorial"] },
         {
           label: "Guides",
           items: ["guides/aggregates", "guides/commands", "guides/view-models", "guides/sagas", "guides/testing", "guides/storage"]

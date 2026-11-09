@@ -58,6 +58,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "example": "node examples/todo/main.ts",
+    "tutorial": "node examples/tutorial/main.ts",
     "ui": "vite examples/bank-ui",
     "docs": "astro dev --root docs",
     "docs:build": "vite build examples/bank-ui --base \"${DOCS_BASE:-/effect-cqrs}/demo/\" --outDir ../../docs/public/demo --emptyOutDir && astro build --root docs",
