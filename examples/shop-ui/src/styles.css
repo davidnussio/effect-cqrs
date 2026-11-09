@@ -1,0 +1,3 @@
+/* The bank demo's look, so the two demos read as one thing. */
+@import "../../bank-ui/src/styles.css";
+@source "../../bank-ui/src/components/ui.tsx";

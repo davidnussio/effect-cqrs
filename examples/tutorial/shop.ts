@@ -155,12 +155,12 @@ export const OrderListView = ViewModel.make({
 
 // #region saga
 // One run per order: reserve the stock, then confirm the order or reject it.
-const Fulfil = Saga.workflow("Fulfil", {
+export const Fulfil = Saga.workflow("Fulfil", {
   payload: { orderId: Schema.String, sku: Schema.String, quantity: Schema.Int },
   idempotencyKey: ({ orderId }) => orderId
 })
 
-const FulfilWorkflow = Saga.toLayer(Fulfil, ({ orderId, quantity, sku }) =>
+export const FulfilWorkflow = Saga.toLayer(Fulfil, ({ orderId, quantity, sku }) =>
   Effect.gen(function*() {
     const orders = yield* Orders
     const stocks = yield* Stocks
@@ -177,7 +177,7 @@ const FulfilWorkflow = Saga.toLayer(Fulfil, ({ orderId, quantity, sku }) =>
   }))
 
 // The trigger: starts a run for every order placed.
-const Fulfilment = Saga.make({
+export const Fulfilment = Saga.make({
   name: "fulfilment",
   aggregates: [Order],
   handlers: {

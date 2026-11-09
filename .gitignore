@@ -5,6 +5,7 @@ dist/
 .DS_Store
 # Built by `pnpm docs:build`
 docs/public/demo/
+docs/public/shop-demo/
 docs/.astro/
 
 # Built by `pnpm build` and packed by `pnpm pack`

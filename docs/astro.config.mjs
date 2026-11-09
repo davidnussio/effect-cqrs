@@ -60,7 +60,10 @@ export default defineConfig({
           label: "Guides",
           items: ["guides/aggregates", "guides/commands", "guides/view-models", "guides/sagas", "guides/testing", "guides/storage"]
         },
-        { label: "Example", items: ["example/bank", { label: "Live demo", link: "/demo/" }] },
+        {
+          label: "Example",
+          items: ["example/bank", { label: "Live demo", link: "/demo/" }, { label: "Tutorial demo", link: "/shop-demo/" }]
+        },
         {
           label: "Reference",
           items: ["reference/modules", "reference/moleculer-cqrs", "reference/performance", "reference/limitations"]
