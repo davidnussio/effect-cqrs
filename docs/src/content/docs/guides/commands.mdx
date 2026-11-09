@@ -122,6 +122,42 @@ files, any `effect/sql` database and the browser's `localStorage`.
   for the saves still running.
 - `readModel` with a `finishTime` always replays from the start.
 
+## Metrics
+
+The service records how it works through Effect's `Metric` module, so you can see whether
+the remembered states and snapshots are paying off. Every series carries an `aggregate`
+attribute, and `AggregateService.MetricNames` has their names:
+
+| Metric | Type | What it counts |
+| --- | --- | --- |
+| `cqrs_state_loads_total` | counter | Where a load found the state to start from: `source` is `memory`, `snapshot` or `replay` |
+| `cqrs_events_replayed` | histogram | Events a load read from the store on top of that state |
+| `cqrs_state_cache_size` | gauge | States remembered in memory |
+| `cqrs_state_cache_evictions_total` | counter | States dropped to make room, a sign `stateCacheSize` is too small |
+| `cqrs_snapshot_saves_total` | counter | Snapshots saved, by `result`: `success` or `failure` |
+| `cqrs_snapshot_read_failures_total` | counter | Snapshots that couldn't be read, so the stream was replayed instead |
+| `cqrs_concurrency_conflicts_total` | counter | Appends that lost a race with another process |
+| `cqrs_command_duration` | timer | How long commands took, by `command` and `outcome`: `success`, the tag of the error, `defect` or `interrupted` |
+
+A command is timed from when it asks for its turn on the stream, so time spent behind an
+earlier command on the same aggregate counts. A payload that doesn't decode, or a type the
+aggregate doesn't know, fails before that and isn't recorded.
+
+Send the metrics on with an exporter, such as `OtlpMetrics` or `PrometheusMetrics` from
+`effect/observability`, or read them yourself:
+
+```ts
+import { Metric } from "effect"
+
+const loads = (yield* Metric.snapshot).filter(
+  (metric) => metric.id === AggregateService.MetricNames.stateLoads && metric.attributes?.aggregate === "todo"
+)
+```
+
+Metrics go to the `Metric.MetricRegistry` in context, which by default is one registry for
+the whole process. Provide a fresh `Map` to keep one test's counts apart from another's.
+The [bank demo](../../example/bank/) shows them in its **Metrics** tab.
+
 ## Causation
 
 Every stored event records why it happened, so a chain of reactions can be traced back to

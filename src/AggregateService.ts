@@ -2,7 +2,24 @@
  * Runs an aggregate against the {@link EventStore}: the `command`, `read-model`
  * and `history` actions of moleculer-cqrs, as a typed service.
  */
-import { Array as Arr, type DateTime, Effect, FiberSet, Option, Schedule, Schema, type Scope, Semaphore, Stream } from "effect"
+import {
+  Array as Arr,
+  Cause,
+  type Context,
+  type DateTime,
+  Duration,
+  Effect,
+  Exit,
+  FiberSet,
+  Metric,
+  Option,
+  Predicate,
+  Schedule,
+  Schema,
+  type Scope,
+  Semaphore,
+  Stream
+} from "effect"
 import { KeyValueStore } from "effect/persistence"
 import * as Aggregate from "./Aggregate.ts"
 import { CurrentCausation } from "./Causation.ts"
@@ -185,10 +202,107 @@ interface Loaded<State> {
   readonly snapshotVersion: number
 }
 
+/**
+ * The names of the metrics every aggregate service records through Effect's
+ * `Metric` module. Each series carries an `aggregate` attribute with the
+ * aggregate's name. Read them with `Metric.snapshot`, or send them on with an
+ * exporter such as `OtlpMetrics` from `effect/observability`.
+ */
+export const MetricNames = {
+  /**
+   * Timer: how long a command took, including its wait for an earlier command on
+   * the same stream, by `command` and `outcome`. The outcome is `success`, the tag
+   * of the error, `defect` or `interrupted`. A payload that doesn't decode, or a
+   * type the aggregate doesn't know, fails before this point and isn't recorded.
+   */
+  commandDuration: "cqrs_command_duration",
+  /**
+   * Counter: where loading the current state found a state to start from, by
+   * `source`: `memory`, `snapshot`, or `replay` when it starts from the first event.
+   */
+  stateLoads: "cqrs_state_loads_total",
+  /** Histogram: how many events a load read from the store on top of that state. */
+  eventsReplayed: "cqrs_events_replayed",
+  /** Gauge: how many states are remembered in memory. */
+  stateCacheSize: "cqrs_state_cache_size",
+  /** Counter: states dropped from memory to make room for others, see `stateCacheSize`. */
+  stateCacheEvictions: "cqrs_state_cache_evictions_total",
+  /** Counter: snapshots saved, by `result`: `success` or `failure`. */
+  snapshotSaves: "cqrs_snapshot_saves_total",
+  /** Counter: snapshots that couldn't be read, so the stream was replayed instead. */
+  snapshotReadFailures: "cqrs_snapshot_read_failures_total",
+  /** Counter: appends that lost a race with a writer in another process. Each is retried until `maxRetries` runs out. */
+  concurrencyConflicts: "cqrs_concurrency_conflicts_total"
+} as const
+
+/**
+ * Builds each series once with its attributes: a metric's key is cached, while
+ * `Metric.withAttributes` would compute it again on every update.
+ */
+const makeMetrics = (aggregateName: string) => {
+  const attributes = { aggregate: aggregateName }
+  const counter = (name: string, description: string, extra?: Record<string, string>) =>
+    Metric.counter(name, { description, incremental: true, attributes: { ...attributes, ...extra } })
+  const loads = (source: "memory" | "snapshot" | "replay") =>
+    counter(MetricNames.stateLoads, "Where loading an aggregate found a state to start from", { source })
+  const saves = (result: "success" | "failure") =>
+    counter(MetricNames.snapshotSaves, "Snapshots saved", { result })
+  const durations = new Map<string, Map<string, Metric.Metric<Duration.Duration, unknown>>>()
+  return {
+    loadedFromMemory: loads("memory"),
+    loadedFromSnapshot: loads("snapshot"),
+    loadedFromReplay: loads("replay"),
+    eventsReplayed: Metric.histogram(MetricNames.eventsReplayed, {
+      description: "Events read from the store to bring a state up to date",
+      attributes,
+      boundaries: [0, 1, 5, 10, 50, 100, 500, 1000, 5000, 10000]
+    }),
+    cacheSize: Metric.gauge(MetricNames.stateCacheSize, { description: "States remembered in memory", attributes }),
+    evictions: counter(MetricNames.stateCacheEvictions, "States dropped from memory to make room"),
+    snapshotSaved: saves("success"),
+    snapshotFailed: saves("failure"),
+    snapshotReadFailures: counter(MetricNames.snapshotReadFailures, "Snapshots that couldn't be read"),
+    conflicts: counter(MetricNames.concurrencyConflicts, "Appends that lost a race with another writer"),
+    duration: (command: string, outcome: string) => {
+      let byOutcome = durations.get(command)
+      if (byOutcome === undefined) durations.set(command, byOutcome = new Map())
+      let timer = byOutcome.get(outcome)
+      if (timer === undefined) {
+        timer = Metric.timer(MetricNames.commandDuration, {
+          description: "How long commands take",
+          attributes: { ...attributes, command, outcome }
+        })
+        byOutcome.set(outcome, timer)
+      }
+      return timer
+    }
+  }
+}
+
+type Metrics = ReturnType<typeof makeMetrics>
+
+/** Counts one occurrence and returns `value`, in a single step rather than an effect per update. */
+const recording = <X>(counter: Metric.Counter<number>, value: X): Effect.Effect<X> =>
+  Effect.contextWith((context: Context.Context<never>) => {
+    counter.updateUnsafe(1, context)
+    return Effect.succeed(value)
+  })
+
+const outcomeOf = (exit: Exit.Exit<unknown, unknown>): string => {
+  if (Exit.isSuccess(exit)) return "success"
+  const error = Cause.findErrorOption(exit.cause)
+  if (Option.isSome(error)) {
+    const value = error.value
+    return Predicate.hasProperty(value, "_tag") && Predicate.isString(value._tag) ? value._tag : "error"
+  }
+  return Cause.hasInterruptsOnly(exit.cause) ? "interrupted" : "defect"
+}
+
 /** Remembers recent states, dropping the least recently used. A `Map` iterates in insertion order. */
 const makeStateCache = <State>(capacity: number) => {
   const entries = new Map<string, Loaded<State>>()
   return {
+    size: () => entries.size,
     get: (aggregateId: string) => {
       const entry = entries.get(aggregateId)
       if (entry !== undefined) {
@@ -197,11 +311,14 @@ const makeStateCache = <State>(capacity: number) => {
       }
       return entry
     },
-    set: (aggregateId: string, loaded: Loaded<State>) => {
-      if (capacity === 0 || (entries.get(aggregateId)?.position ?? 0) > loaded.position) return
+    /** Returns whether another state was dropped to make room. */
+    set: (aggregateId: string, loaded: Loaded<State>): boolean => {
+      if (capacity === 0 || (entries.get(aggregateId)?.position ?? 0) > loaded.position) return false
       entries.delete(aggregateId)
       entries.set(aggregateId, loaded)
-      if (entries.size > capacity) entries.delete(entries.keys().next().value!)
+      if (entries.size <= capacity) return false
+      entries.delete(entries.keys().next().value!)
+      return true
     }
   }
 }
@@ -245,7 +362,7 @@ const makeTimeSlice = () => {
 // Only a rival outside this service can cause a conflict, so give it room to finish.
 const conflictBackoff = Schedule.exponential("10 millis").pipe(Schedule.jittered)
 
-const makeSnapshots = <State>(aggregateName: string, options: SnapshotOptions<State>) =>
+const makeSnapshots = <State>(aggregateName: string, options: SnapshotOptions<State>, metrics: Metrics) =>
   Effect.gen(function*() {
     const store = KeyValueStore.toSchemaStore(
       yield* KeyValueStore.KeyValueStore,
@@ -259,7 +376,10 @@ const makeSnapshots = <State>(aggregateName: string, options: SnapshotOptions<St
       store.get(key(aggregateId)).pipe(
         Effect.map(Option.map((snapshot): Loaded<State> => ({ ...snapshot, snapshotVersion: snapshot.version }))),
         Effect.catch((error) =>
-          Effect.as(Effect.logWarning(`Ignoring the ${aggregateName} snapshot of ${aggregateId}`, error), Option.none())
+          Metric.update(metrics.snapshotReadFailures, 1).pipe(
+            Effect.andThen(Effect.logWarning(`Ignoring the ${aggregateName} snapshot of ${aggregateId}`, error)),
+            Effect.as(Option.none<Loaded<State>>())
+          )
         )
       )
 
@@ -276,7 +396,13 @@ const makeSnapshots = <State>(aggregateName: string, options: SnapshotOptions<St
         : FiberSet.run(
           saving,
           store.set(key(aggregateId), { version: loaded.version, position: loaded.position, state: loaded.state }).pipe(
-            Effect.catch((error) => Effect.logWarning(`Could not save the ${aggregateName} snapshot of ${aggregateId}`, error))
+            Effect.andThen(Metric.update(metrics.snapshotSaved, 1)),
+            Effect.catch((error) =>
+              Effect.andThen(
+                Metric.update(metrics.snapshotFailed, 1),
+                Effect.logWarning(`Could not save the ${aggregateName} snapshot of ${aggregateId}`, error)
+              )
+            )
           )
         ).pipe(Effect.as({ ...loaded, snapshotVersion: loaded.version }))
 
@@ -296,9 +422,10 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   const states = makeStateCache<Aggregate.State<A>>(options?.stateCacheSize ?? 10_000)
   const lockStream = makeKeyedLock()
   const timeSlice = makeTimeSlice()
+  const metrics = makeMetrics(aggregateName)
   const snapshots = options?.snapshots === undefined
     ? undefined
-    : yield* makeSnapshots<Aggregate.State<A>>(aggregateName, options.snapshots)
+    : yield* makeSnapshots<Aggregate.State<A>>(aggregateName, options.snapshots, metrics)
 
   const replay = <Acc>(
     stream: Stream.Stream<StoredEvent, EventStoreError>,
@@ -348,28 +475,57 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
 
   // Remembered states come first, as they are the most recent. Without one the
   // last snapshot saves replaying the start of the stream.
-  const start = (aggregateId: string) => {
+  const start = (aggregateId: string): Effect.Effect<Loaded<Aggregate.State<A>>> => {
     const remembered = states.get(aggregateId)
-    return remembered !== undefined || snapshots === undefined
-      ? Effect.succeed(remembered ?? initial)
-      : Effect.map(snapshots.get(aggregateId), Option.getOrElse(() => initial))
+    if (remembered !== undefined) return recording(metrics.loadedFromMemory, remembered)
+    if (snapshots === undefined) return recording(metrics.loadedFromReplay, initial)
+    return Effect.flatMap(
+      snapshots.get(aggregateId),
+      Option.match({
+        onNone: () => recording(metrics.loadedFromReplay, initial),
+        onSome: (snapshot) => recording(metrics.loadedFromSnapshot, snapshot)
+      })
+    )
   }
 
   // Returns the state as remembered, with the version of a snapshot it just started.
-  const remember = (aggregateId: string, loaded: Loaded<Aggregate.State<A>>) =>
+  // `read` is how many events the load read from the store, when one did.
+  const remember = (aggregateId: string, loaded: Loaded<Aggregate.State<A>>, read?: number) =>
     (snapshots === undefined ? Effect.succeed(loaded) : snapshots.save(aggregateId, loaded)).pipe(
-      Effect.tap((remembered) => Effect.sync(() => states.set(aggregateId, remembered)))
+      Effect.tap((remembered) =>
+        Effect.contextWith((context: Context.Context<never>) => {
+          const evicted = states.set(aggregateId, remembered)
+          if (read !== undefined) metrics.eventsReplayed.updateUnsafe(read, context)
+          metrics.cacheSize.updateUnsafe(states.size(), context)
+          if (evicted) metrics.evictions.updateUnsafe(1, context)
+          return Effect.void
+        })
+      )
     )
 
   // Streams only grow, so a remembered state plus what came after it is the current
-  // state, even if another process wrote those events.
+  // state, even if another process wrote those events. Versions have no gaps, so the
+  // difference between two is the number of events read.
   const load = (aggregateId: string, finishTime?: DateTime.Utc) =>
     finishTime === undefined
-      ? start(aggregateId).pipe(
-        Effect.flatMap((from) => replayFrom(from, aggregateId)),
-        Effect.flatMap((loaded) => remember(aggregateId, loaded))
-      )
+      ? Effect.flatMap(start(aggregateId), (from) =>
+        Effect.flatMap(
+          replayFrom(from, aggregateId),
+          (loaded) => remember(aggregateId, loaded, loaded.version - from.version)
+        ))
       : replayFrom(initial, aggregateId, finishTime)
+
+  // Measures from the moment the command asks for its turn on the stream.
+  const timed = (type: string) => <X, E, R>(effect: Effect.Effect<X, E, R>): Effect.Effect<X, E, R> =>
+    Effect.clockWith((clock) => {
+      const started = clock.currentTimeNanosUnsafe()
+      return Effect.onExit(effect, (exit) =>
+        Effect.contextWith((context: Context.Context<never>) => {
+          const elapsed = Duration.nanos(clock.currentTimeNanosUnsafe() - started)
+          metrics.duration(type, outcomeOf(exit)).updateUnsafe(elapsed, context)
+          return Effect.void
+        }))
+    })
 
   // Folds what a command just wrote into the remembered state, so the next command
   // finds nothing new to read. The events are decoded from what was stored, as a
@@ -426,6 +582,9 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       const id = correlationId ?? causationId ?? crypto.randomUUID()
       const causation = { correlationId: correlationId ?? id, causationId: causationId ?? id }
       return decide(type, aggregateId, payload, causation).pipe(
+        Effect.tapError((error) =>
+          error instanceof ConcurrencyConflict ? Metric.update(metrics.conflicts, 1) : Effect.void
+        ),
         Effect.retry({
           times: maxRetries,
           while: (error) => error instanceof ConcurrencyConflict,
@@ -434,6 +593,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
         Effect.provideContext(context),
         lockStream(aggregateId),
         (decided) => Effect.andThen(timeSlice, decided),
+        timed(type),
         Effect.withSpan(`${aggregateName}.${type}`, {
           attributes: { "aggregate.id": aggregateId, "cqrs.correlation_id": causation.correlationId }
         })

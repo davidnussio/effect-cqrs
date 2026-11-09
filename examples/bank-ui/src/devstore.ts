@@ -110,12 +110,51 @@ export interface Pulse {
   readonly lane: "command" | "event" | "projection" | "rejected"
 }
 
+export interface CommandTiming {
+  readonly command: string
+  /** `success`, or the tag of the error that refused the command. */
+  readonly outcome: string
+  readonly count: number
+  readonly totalMs: number
+  readonly maxMs: number
+}
+
+/** What the account service recorded through `Metric`, read with `Metric.snapshot`. */
+export interface AggregateMetrics {
+  /** Where each load found a state to start from. */
+  readonly loads: { readonly memory: number; readonly snapshot: number; readonly replay: number }
+  /** Events read from the store on top of that state, over all loads. */
+  readonly eventsRead: number
+  readonly maxEventsRead: number
+  readonly cacheSize: number
+  readonly evictions: number
+  readonly snapshotsSaved: number
+  readonly snapshotsFailed: number
+  readonly snapshotReadFailures: number
+  readonly conflicts: number
+  readonly commands: ReadonlyArray<CommandTiming>
+}
+
+export const emptyMetrics: AggregateMetrics = {
+  loads: { memory: 0, snapshot: 0, replay: 0 },
+  eventsRead: 0,
+  maxEventsRead: 0,
+  cacheSize: 0,
+  evictions: 0,
+  snapshotsSaved: 0,
+  snapshotsFailed: 0,
+  snapshotReadFailures: 0,
+  conflicts: 0,
+  commands: []
+}
+
 export interface Snapshot {
   readonly events: ReadonlyArray<EventEntry>
   readonly commands: ReadonlyArray<CommandEntry>
   readonly views: { readonly [K in ViewName]: ViewState<ViewData[K]> }
   readonly settings: Settings
   readonly pulses: ReadonlyArray<Pulse>
+  readonly metrics: AggregateMetrics
   readonly epoch: number
 }
 
@@ -155,6 +194,7 @@ const initial = (settings: Settings, epoch: number): Snapshot => ({
   views: { accounts: emptyView("accounts"), totals: emptyView("totals"), feed: emptyView("feed") },
   settings,
   pulses: [],
+  metrics: emptyMetrics,
   epoch
 })
 
@@ -233,6 +273,11 @@ export const devstore = {
   replaying: (name: ViewName, replaying: boolean) => updateView(name, (view) => ({ ...view, replaying })),
   replayed: (name: ViewName, lastReplay: { upTo: number | undefined; eventCount: number }) =>
     updateView(name, (view) => ({ ...view, lastReplay })),
+  metrics: (metrics: AggregateMetrics) => {
+    // Polled several times a second, so only a change is worth a render.
+    if (JSON.stringify(metrics) === JSON.stringify(state.metrics)) return
+    set((s) => ({ ...s, metrics }))
+  },
   status: (name: ViewName, position: number, error: string | undefined) => {
     const view = state.views[name]
     if (view.position === position && view.error === error) return

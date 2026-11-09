@@ -130,6 +130,18 @@ TodoEvent.cases.TodoCreated.make({ title, createdAt }) // fills in _tag
   values as JSON. `KeyValueStore` has `layerMemory`, `layerFileSystem`, `layerSql` and
   `layerStorage` for `localStorage`.
 
+## Metrics
+
+- Build each series once with its attributes: `Metric.counter(name, { attributes })`. A
+  metric caches its registry key, while `Metric.withAttributes` adds them to the context
+  and computes the key again on every update.
+- On a hot path, update several metrics in one `Effect.contextWith` with `updateUnsafe`
+  rather than one `Metric.update` effect each. `Effect.clockWith` and
+  `clock.currentTimeNanosUnsafe()` time a step without two more effects.
+- Metrics go to `Metric.MetricRegistry`, a `Context.Reference` whose default `Map` is shared
+  by the whole process. Tests provide `new Map()` for counts of their own, and a runtime
+  that should start from zero provides `Layer.sync(Metric.MetricRegistry, () => new Map())`.
+
 ## Testing
 
 - `it.effect` runs on `TestClock`: time stands still until `TestClock.adjust`, so
