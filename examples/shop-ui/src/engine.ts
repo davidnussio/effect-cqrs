@@ -5,6 +5,7 @@
  * checkpoints and the metrics.
  */
 import {
+  DateTime,
   Duration,
   Effect,
   Exit,
@@ -25,7 +26,16 @@ import * as EventStore from "effect-cqrs/EventStore"
 import * as Metadata from "effect-cqrs/Metadata"
 import * as ViewModel from "effect-cqrs/ViewModel"
 import { version as appVersion } from "../../../package.json"
-import { Fulfil, Fulfilment, FulfilWorkflow, Order, Orders, Stock, Stocks } from "../../tutorial/shop.ts"
+import {
+  Fulfil,
+  Fulfilment,
+  FulfilWorkflow,
+  Order,
+  Orders,
+  paymentTimeout,
+  Stock,
+  Stocks
+} from "../../tutorial/shop.ts"
 import { makeRecordingTracer } from "../../devtools/tracing.ts"
 import { type CommandTiming, devstore, type EngineStatus, type Metrics } from "./devstore.ts"
 
@@ -98,6 +108,21 @@ const OrdersView = ViewModel.make({
           ...(Predicate.isString(appVersion) ? { appVersion } : {})
         }))
       }),
+    // The saga starts its clock right after it records the request, so the deadline is close enough.
+    PaymentRequested: (_, meta) =>
+      Effect.sync(() =>
+        devstore.order(meta.aggregateId, (order) =>
+          order && {
+            ...order,
+            status: "awaiting-payment",
+            deadline: DateTime.toEpochMillis(meta.timestamp) + Duration.toMillis(paymentTimeout),
+            position: meta.position
+          })
+      ),
+    OrderPaid: (_, meta) =>
+      Effect.sync(() =>
+        devstore.order(meta.aggregateId, (order) => order && { ...order, status: "paid", position: meta.position })
+      ),
     OrderConfirmed: (_, meta) =>
       Effect.sync(() =>
         devstore.order(meta.aggregateId, (order) => order && { ...order, status: "confirmed", position: meta.position })
@@ -122,6 +147,14 @@ const InventoryView = ViewModel.make({
           ...row,
           available: row.available - quantity,
           reserved: row.reserved + quantity
+        }))
+      ),
+    StockReleased: ({ quantity }, meta) =>
+      Effect.sync(() =>
+        devstore.stock(meta.aggregateId, (row) => ({
+          ...row,
+          available: row.available + quantity,
+          reserved: row.reserved - quantity
         }))
       )
   }
@@ -317,6 +350,18 @@ export const engine = {
       Orders.use((orders) => orders.commands.place(orderId, { sku, quantity })).pipe(
         Metadata.withMetadata({ userId: customer, channel: "web" }),
         Effect.withSpan("ui.placeOrder", { attributes: { orderId, sku, quantity, customer } }),
+        outcome
+      )
+    )
+  },
+
+  /** Pays for an order the saga is waiting on. The trigger turns `OrderPaid` into the saga's signal. */
+  pay: (orderId: string): Promise<Outcome> => {
+    const { customer } = devstore.get().settings
+    return runtime.runPromise(
+      Orders.use((orders) => orders.commands.pay(orderId, {})).pipe(
+        Metadata.withMetadata({ userId: customer, channel: "web" }),
+        Effect.withSpan("ui.pay", { attributes: { orderId, customer } }),
         outcome
       )
     )

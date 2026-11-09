@@ -8,6 +8,8 @@ export const useSnapshot = <A>(select: (snapshot: Snapshot) => A): A =>
 
 export const statusColor = {
   placed: "#fbbf24",
+  "awaiting-payment": "#38bdf8",
+  paid: "#2dd4bf",
   confirmed: "#34d399",
   rejected: "#fb7185"
 } as const

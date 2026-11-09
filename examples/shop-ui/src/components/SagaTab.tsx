@@ -32,9 +32,8 @@ const duration = (span: SpanEntry | undefined) =>
 
 const stepsOf = (order: OrderRow, spans: ReadonlyArray<SpanEntry>): ReadonlyArray<Step> => {
   const started = spans.find((span) => span.name === "Fulfil.execute" && span.attributes.executionId === order.executionId)
-  const reserve = activity(spans, order.executionId, "reserve")
-  const confirm = activity(spans, order.executionId, "confirm")
-  const reject = activity(spans, order.executionId, "reject")
+  const span = (name: string) => activity(spans, order.executionId, name)
+  const reserve = span("reserve")
   const reserveState = stateOf(reserve)
   const step = (label: string, sub: string, state: StepState, detail: string | undefined): Step => ({
     label,
@@ -42,15 +41,43 @@ const stepsOf = (order: OrderRow, spans: ReadonlyArray<SpanEntry>): ReadonlyArra
     state,
     ...(detail === undefined ? {} : { detail })
   })
-  // The last step depends on how the reservation went: confirm, or reject on `OutOfStock`.
-  const last = reserveState === "ok"
-    ? step("confirm", "order.confirm", stateOf(confirm), duration(confirm))
-    : reserveState === "failed"
-    ? step("reject", "order.reject", stateOf(reject), duration(reject))
-    : step("confirm | reject", "after reserve", "pending", undefined)
-  return [
+  const head = [
     step("trigger", "OrderPlaced → start", started === undefined ? "pending" : "ok", undefined),
-    step("reserve", "stock.reserve", reserveState, reserve?.error ?? duration(reserve)),
+    step("reserve", "stock.reserve", reserveState, reserve?.error ?? duration(reserve))
+  ]
+  // Out of stock: the saga rejects the order and ends.
+  if (reserveState === "failed") {
+    const reject = span("reject")
+    return [...head, step("reject", "order.reject", stateOf(reject), duration(reject))]
+  }
+
+  const request = span("request-payment")
+  const confirm = span("confirm")
+  const expire = span("expire")
+  const release = span("release")
+  // The race between the payment and the clock, read from the order's state.
+  const payment = order.status === "awaiting-payment"
+    ? step("payment", "pay or 1 min", "running", "waiting")
+    : order.status === "paid" || order.status === "confirmed"
+    ? step("payment", "pay or 1 min", "ok", "paid")
+    : order.status === "rejected" && request !== undefined
+    ? step("payment", "pay or 1 min", "failed", "timed out")
+    : step("payment", "pay or 1 min", "pending", undefined)
+  // Then confirm, or expire the order and release its stock.
+  const last = confirm !== undefined || payment.state === "ok"
+    ? step("confirm", "order.confirm", stateOf(confirm), duration(confirm))
+    : expire !== undefined
+    ? step(
+      "expire",
+      "reject + release",
+      release === undefined ? "running" : stateOf(release),
+      duration(release)
+    )
+    : step("confirm | expire", "after payment", "pending", undefined)
+  return [
+    ...head,
+    step("request", "order.requestPayment", stateOf(request), duration(request)),
+    payment,
     last
   ]
 }
@@ -65,7 +92,9 @@ export const SagaTab = () => {
     <div className="space-y-3">
       <p className="text-xs leading-relaxed text-white/50">
         Each <Code>OrderPlaced</Code> starts a <Code>Fulfil</Code> workflow. Its steps are activities: the engine keeps
-        each result, so a replay after a crash skips the steps that finished. Step states come from the activities'
+        each result, so a replay after a crash skips the steps that finished. The payment step races a{" "}
+        <Code>DurableDeferred</Code>, which <Code>OrderPaid</Code> completes, against a one-minute{" "}
+        <Code>DurableClock</Code>. Step states come from the activities'
         spans, the execution's from <Code>Fulfil.poll</Code>.
       </p>
       {list.length === 0 && <div className="py-6 text-center text-xs text-white/25">no sagas yet</div>}
@@ -97,7 +126,7 @@ const SagaCard = (
         exec {short(order.executionId, 10)}
       </span>
       <div className="ml-auto flex items-center gap-1.5">
-        <Pill color={statusColor[order.status]}>{order.status}</Pill>
+        <Pill color={statusColor[order.status]}>{order.status.replace("-", " ")}</Pill>
         <Pill color={status === undefined ? "#64748b" : engineColor[status]} solid={status === "succeeded"}>
           {status ?? "not started"}
         </Pill>

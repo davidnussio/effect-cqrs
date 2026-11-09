@@ -115,6 +115,9 @@ checkpoints that live as long:
   the cluster's message storage, with durable checkpoints such as
   `SqliteEventStore.layerCheckpoints` or `PostgresEventStore.layerCheckpoints`.
 
-Inside a workflow, `effect/workflow` also offers `DurableClock.sleep` for timeouts that
-survive restarts, and `DurableDeferred` for waiting on a signal, such as a later event that
-another trigger turns into `DurableDeferred.done`.
+Inside a workflow, `effect/workflow` also offers `DurableClock.sleep` for timeouts, and
+`DurableDeferred` for waiting on a signal, such as a later event that a trigger turns into
+`DurableDeferred.succeed`. `DurableClock.sleep` keeps a minute or less in memory, and
+schedules a clock with the engine beyond that, so it survives restarts on a durable engine.
+The [tutorial's saga](../../tutorial/#5-a-saga) races the two to give a customer a minute to
+pay.

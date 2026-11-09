@@ -7,7 +7,15 @@ import { engineColor, ms, short, useSnapshot } from "../hooks.ts"
 const tables = ["cqrs_events", "cqrs_checkpoints", "workflow_executions", "workflow_activities"] as const
 type Table = (typeof tables)[number]
 
-const activities = new Set(["reserve", "confirm", "reject"])
+const activities = new Set([
+  "reserve",
+  "reject",
+  "request-payment",
+  "DurableClock/payment-timeout",
+  "confirm",
+  "expire",
+  "release"
+])
 
 export const DatabaseTab = () => {
   const [table, setTable] = useState<Table>("cqrs_events")

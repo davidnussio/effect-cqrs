@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "motion/react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { AnimatedNumber, Button, Code, Pill, SectionTitle } from "../../../bank-ui/src/components/ui.tsx"
 import { devstore, type OrderRow } from "../devstore.ts"
 import { catalog, customers, engine } from "../engine.ts"
@@ -15,8 +15,9 @@ export const ShopApp = () => {
       <h1 className="text-2xl font-semibold tracking-tight">Fruit shop</h1>
       <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-white/50">
         Shelves and orders are read from the <Code>inventory</Code> and <Code>orders</Code> view models. Placing an
-        order records <Code>OrderPlaced</Code>, and the <Code>Fulfil</Code> saga reserves the stock, then confirms or
-        rejects it.
+        order records <Code>OrderPlaced</Code>, and the <Code>Fulfil</Code> saga reserves the stock and asks for the
+        payment. Pay within a minute and the saga confirms the order. Otherwise it rejects the order and releases the
+        stock.
       </p>
 
       <Customer />
@@ -33,7 +34,8 @@ export const ShopApp = () => {
         </SectionTitle>
         {list.length === 0 && (
           <div className="glass rounded-2xl px-4 py-8 text-center text-xs text-white/30">
-            No orders yet. Order more than a shelf holds to see the saga reject one.
+            No orders yet. Order more than a shelf holds, or let a minute pass without paying, to see the saga reject
+            one.
           </div>
         )}
         <div className="space-y-2">
@@ -147,7 +149,7 @@ const OrderCard = ({ order }: { order: OrderRow }) => {
       className="glass flex items-center gap-3 rounded-xl px-3.5 py-2.5"
       style={{ boxShadow: `inset 3px 0 0 ${color}` }}
     >
-      <div className="w-20 font-mono text-[11px] text-white/70">{order.id}</div>
+      <div className="w-20 shrink-0 font-mono text-[11px] text-white/70">{order.id}</div>
       <div className="flex items-center gap-1.5 text-[13px]">
         <span className="font-semibold tabular-nums">{order.quantity}×</span>
         <span style={{ color: product?.color }}>{product?.label ?? order.sku}</span>
@@ -168,15 +170,41 @@ const OrderCard = ({ order }: { order: OrderRow }) => {
           </motion.span>
         )}
         {order.reason !== undefined && <span className="text-[10.5px] text-rose-300/70">{order.reason}</span>}
+        {order.status === "awaiting-payment" && order.deadline !== undefined && (
+          <>
+            <Countdown deadline={order.deadline} />
+            <Button tone="primary" onClick={() => void engine.pay(order.id)}>Pay</Button>
+          </>
+        )}
         <motion.span
           key={order.status}
           initial={{ scale: 0.6, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ type: "spring", stiffness: 500, damping: 22 }}
         >
-          <Pill color={color} solid={order.status !== "placed"}>{order.status}</Pill>
+          <Pill color={color} solid={order.status !== "placed" && order.status !== "awaiting-payment"}>
+            {order.status.replace("-", " ")}
+          </Pill>
         </motion.span>
       </div>
     </motion.div>
+  )
+}
+
+/** The time left to pay. When it runs out, the saga's clock fires and the order is rejected. */
+const Countdown = ({ deadline }: { deadline: number }) => {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(timer)
+  }, [])
+  const left = Math.max(0, Math.ceil((deadline - now) / 1000))
+  return (
+    <span
+      className={`whitespace-nowrap font-mono text-[10.5px] tabular-nums ${left <= 10 ? "text-rose-300" : "text-sky-300/80"}`}
+      title="DurableClock.sleep in the Fulfil saga"
+    >
+      {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")} to pay
+    </span>
   )
 }

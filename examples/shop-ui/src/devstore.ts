@@ -27,8 +27,10 @@ export interface OrderRow {
   readonly id: string
   readonly sku: string
   readonly quantity: number
-  readonly status: "placed" | "confirmed" | "rejected"
+  readonly status: "placed" | "awaiting-payment" | "paid" | "confirmed" | "rejected"
   readonly reason?: string
+  /** When the saga stops waiting for the payment, in epoch milliseconds. */
+  readonly deadline?: number
   /** From the event's metadata. */
   readonly userId?: string
   readonly appVersion?: string
