@@ -5,7 +5,6 @@
  * checkpoints and the metrics.
  */
 import {
-  Cause,
   Duration,
   Effect,
   Exit,
@@ -27,6 +26,7 @@ import * as Metadata from "effect-cqrs/Metadata"
 import * as ViewModel from "effect-cqrs/ViewModel"
 import { version as appVersion } from "../../../package.json"
 import { Fulfil, Fulfilment, FulfilWorkflow, Order, Orders, Stock, Stocks } from "../../tutorial/shop.ts"
+import { makeRecordingTracer } from "../../devtools/tracing.ts"
 import { type CommandTiming, devstore, type EngineStatus, type Metrics } from "./devstore.ts"
 
 export const catalog = [
@@ -37,60 +37,8 @@ export const catalog = [
 
 export const customers = ["alice", "bob", "carol"] as const
 
-// ---------------------------------------------------------------------------
-// Tracing: a tracer whose spans report to the devtools as they start, change and end.
-
-const millis = (nanos: bigint) => Number(nanos / 1000n) / 1000
-
-const failureOf = (exit: Exit.Exit<unknown, unknown>): string => {
-  if (Exit.isSuccess(exit)) return "success"
-  const error = Cause.findErrorOption(exit.cause)
-  if (Option.isSome(error)) {
-    const value = error.value
-    return Predicate.hasProperty(value, "_tag") && Predicate.isString(value._tag) ? value._tag : "error"
-  }
-  return Cause.hasInterruptsOnly(exit.cause) ? "interrupted" : "defect"
-}
-
-class RecordedSpan extends Tracer.NativeSpan {
-  private endedAt: number | undefined = undefined
-  private failure: string | undefined = undefined
-
-  constructor(options: ConstructorParameters<typeof Tracer.NativeSpan>[0]) {
-    super(options)
-    this.record()
-  }
-
-  private record() {
-    const parent = Option.getOrUndefined(this.parent)
-    devstore.span({
-      spanId: this.spanId,
-      traceId: this.traceId,
-      parentId: parent?.spanId,
-      name: this.name,
-      start: millis(this.startTime),
-      end: this.endedAt,
-      attributes: Object.fromEntries(this.attributes),
-      status: this.endedAt === undefined ? "running" : this.failure === undefined ? "ok" : "error",
-      ...(this.failure === undefined ? {} : { error: this.failure })
-    })
-  }
-
-  override attribute(key: string, value: unknown) {
-    super.attribute(key, value)
-    // Fields aren't set yet while the parent constructor runs.
-    if (this.spanId !== undefined) this.record()
-  }
-
-  override end(endTime: bigint, exit: Exit.Exit<unknown, unknown>) {
-    super.end(endTime, exit)
-    this.endedAt = millis(endTime)
-    this.failure = Exit.isSuccess(exit) ? undefined : failureOf(exit)
-    this.record()
-  }
-}
-
-const tracer = Tracer.make({ span: (options) => new RecordedSpan(options) })
+// Tracing: every span reports to the devtools as it starts, changes and ends.
+const tracer = makeRecordingTracer(devstore.span)
 
 // ---------------------------------------------------------------------------
 // The command side: the tutorial's aggregates, slowed down so the saga can be watched.

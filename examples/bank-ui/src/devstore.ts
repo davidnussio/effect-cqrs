@@ -3,6 +3,7 @@
  * engine writes into it and components subscribe with `useSyncExternalStore`.
  */
 import type { StoredEvent } from "effect-cqrs/EventStore"
+import { type SpanEntry, upsertSpan } from "../../devtools/tracing.ts"
 import type { AccountEvent } from "./domain/account.ts"
 
 export interface EventEntry {
@@ -155,6 +156,8 @@ export interface Snapshot {
   readonly settings: Settings
   readonly pulses: ReadonlyArray<Pulse>
   readonly metrics: AggregateMetrics
+  /** Every span the tracer saw, for the trace tab. */
+  readonly spans: ReadonlyArray<SpanEntry>
   readonly epoch: number
 }
 
@@ -195,10 +198,12 @@ const initial = (settings: Settings, epoch: number): Snapshot => ({
   settings,
   pulses: [],
   metrics: emptyMetrics,
+  spans: [],
   epoch
 })
 
 const maxCommands = 60
+const maxSpans = 600
 
 let state = initial(defaultSettings, 0)
 const listeners = new Set<() => void>()
@@ -244,6 +249,8 @@ export const devstore = {
   },
 
   settings: (patch: Partial<Settings>) => set((s) => ({ ...s, settings: { ...s.settings, ...patch } })),
+
+  span: (span: SpanEntry) => set((s) => ({ ...s, spans: upsertSpan(s.spans, span, maxSpans) })),
 
   addEvent: (entry: EventEntry) => {
     set((s) => ({ ...s, events: [...s.events, entry] }))

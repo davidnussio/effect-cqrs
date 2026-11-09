@@ -3,21 +3,9 @@
  * engine and the tracer write into it, and components subscribe with
  * `useSyncExternalStore`.
  */
+import { type SpanEntry, upsertSpan } from "../../devtools/tracing.ts"
 
-/** A span the tracer saw, while it runs and after it ends. */
-export interface SpanEntry {
-  readonly spanId: string
-  readonly traceId: string
-  readonly parentId: string | undefined
-  readonly name: string
-  /** Milliseconds, on the clock the spans were timed with. */
-  readonly start: number
-  readonly end: number | undefined
-  readonly attributes: Readonly<Record<string, unknown>>
-  readonly status: "running" | "ok" | "error"
-  /** The tag of the error, `defect` or `interrupted`, when the span failed. */
-  readonly error?: string
-}
+export type { SpanEntry }
 
 /** A row of the event store, as the store keeps it and as the aggregate reads it. */
 export interface EventRow {
@@ -145,15 +133,6 @@ const setIfChanged = <K extends keyof Snapshot>(key: K, value: Snapshot[K]) => {
   set((s) => ({ ...s, [key]: value }))
 }
 
-const upsertSpan = (span: SpanEntry) =>
-  set((s) => {
-    const index = s.spans.findIndex((entry) => entry.spanId === span.spanId)
-    if (index === -1) return { ...s, spans: [...s.spans, span].slice(-maxSpans) }
-    const spans = s.spans.slice()
-    spans[index] = span
-    return { ...s, spans }
-  })
-
 export const devstore = {
   subscribe: (listener: () => void) => {
     listeners.add(listener)
@@ -168,7 +147,7 @@ export const devstore = {
 
   settings: (patch: Partial<Settings>) => set((s) => ({ ...s, settings: { ...s.settings, ...patch } })),
 
-  span: upsertSpan,
+  span: (span: SpanEntry) => set((s) => ({ ...s, spans: upsertSpan(s.spans, span, maxSpans) })),
 
   addEvent: (row: EventRow) => set((s) => ({ ...s, events: [...s.events, row] })),
 

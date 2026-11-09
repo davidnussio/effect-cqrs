@@ -7,8 +7,9 @@ import { EventsTab } from "./EventsTab.tsx"
 import { MetricsTab } from "./MetricsTab.tsx"
 import { ProjectionsTab } from "./ProjectionsTab.tsx"
 import { TimeTravelTab } from "./TimeTravelTab.tsx"
+import { TraceTab } from "./TraceTab.tsx"
 
-const tabs = ["Commands", "Event store", "Projections", "Time travel", "Metrics"] as const
+const tabs = ["Commands", "Event store", "Projections", "Time travel", "Trace", "Metrics"] as const
 type Tab = (typeof tabs)[number]
 
 export const DevTools = (
@@ -64,6 +65,7 @@ export const DevTools = (
             {tab === "Event store" && <EventsTab travel={travel} />}
             {tab === "Projections" && <ProjectionsTab />}
             {tab === "Time travel" && <TimeTravelTab travel={travel} onTravel={onTravel} />}
+            {tab === "Trace" && <TraceTab />}
             {tab === "Metrics" && <MetricsTab />}
           </motion.div>
         </AnimatePresence>

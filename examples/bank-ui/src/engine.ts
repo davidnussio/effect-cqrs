@@ -15,7 +15,8 @@ import {
   Schedule,
   Schema,
   Semaphore,
-  Stream
+  Stream,
+  Tracer
 } from "effect"
 import { KeyValueStore } from "effect/persistence"
 import { WorkflowEngine } from "effect/workflow"
@@ -26,6 +27,7 @@ import * as Metadata from "effect-cqrs/Metadata"
 import * as Saga from "effect-cqrs/Saga"
 import * as ViewModel from "effect-cqrs/ViewModel"
 import { version as appVersion } from "../../../package.json"
+import { makeRecordingTracer } from "../../devtools/tracing.ts"
 import {
   type AggregateMetrics,
   type CommandTiming,
@@ -102,12 +104,13 @@ const BusLayer = Layer.effect(
       Effect.gen(function*() {
         const id = devstore.addCommand({ origin, ...input })
         return yield* lane.withPermit(Effect.gen(function*() {
+          // Each stage is a span, so the trace shows where the bus held the command.
           const advance = (stage: Stage) =>
             Effect.gen(function*() {
               if (origin !== "seed") yield* gate.await
               devstore.stage(id, stage)
               yield* pause(origin)
-            })
+            }).pipe(Effect.withSpan(`bus.${stage}`))
           yield* advance("validating")
           yield* advance("loading")
           yield* advance("deciding")
@@ -124,7 +127,9 @@ const BusLayer = Layer.effect(
           )
           // #endregion
         }))
-      })
+      }).pipe(
+        Effect.withSpan(`bus.${input.type}`, { attributes: { origin, "aggregate.id": input.aggregateId } })
+      )
 
     const submit = (input: CommandInput, origin: Origin) =>
       run(input, origin).pipe(
@@ -351,7 +356,9 @@ const Main = Layer.mergeAll(Bridge, TransferSaga, StatusPoll, MetricsPoll, Autop
   // Every command records the version of the software that ran it.
   Layer.provide(Metadata.layer({ appVersion })),
   // A registry of its own, so a reset counts from zero.
-  Layer.provideMerge(Layer.sync(Metric.MetricRegistry, () => new Map()))
+  Layer.provideMerge(Layer.sync(Metric.MetricRegistry, () => new Map())),
+  // Every span reports to the devtools' trace tab as it starts, changes and ends.
+  Layer.provideMerge(Layer.succeed(Tracer.Tracer, makeRecordingTracer(devstore.span)))
 )
 // #endregion
 

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../devtools";
 
 @theme {
   --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
