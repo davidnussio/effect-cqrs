@@ -6,11 +6,12 @@
  */
 import { NodeRuntime } from "@effect/platform-node"
 import { SqliteClient } from "@effect/sql-sqlite-node"
-import { Console, Effect, Layer, Option, Stream } from "effect"
+import { Console, Effect, Layer, Option, Schema, Stream } from "effect"
 import { SqlClient } from "effect/sql"
-import { AggregateService, EventStore, SqliteEventStore, ViewModel } from "effect-cqrs"
+import { Aggregate, AggregateService, EventStore, PersonalData, SqliteEventStore, ViewModel } from "effect-cqrs"
 import {
   Account,
+  type AccountState,
   type Backend,
   backends,
   environment,
@@ -380,6 +381,59 @@ const concurrency = (backend: Backend) =>
     )
   }, { discard: true })
 
+// The same account, with the reference of each movement as personal data.
+const personal = PersonalData.field(Schema.String, { redacted: "" })
+const PersonalAccountEvent = Schema.TaggedUnion({
+  Deposited: { amount: Schema.Int, reference: personal, at: Schema.DateTimeUtc },
+  Withdrawn: { amount: Schema.Int, reference: personal, at: Schema.DateTimeUtc }
+})
+const PersonalAccount = Aggregate.make<AccountState>()({
+  name: Account.name,
+  events: PersonalAccountEvent,
+  initial: Account.initial,
+  projection: Account.projection
+})
+  .command("deposit", Account.commands.deposit)
+  .command("depositMany", Account.commands.depositMany)
+
+const keys = PersonalData.layerMemory().pipe(Layer.provide(PersonalData.layerMasterKeyEphemeral))
+
+/** What encrypting one field per event costs, next to the same account without it. */
+const personalData = (backend: Backend) =>
+  Effect.forEach([["plain", Account], ["personal", PersonalAccount]] as const, ([kind, aggregate]) =>
+    Effect.gen(function*() {
+      const count = scaled(5_000)
+      yield* throughput(
+        { scenario: "personal data", backend, label: `${kind}, new stream each`, count, unit: "commands/s" },
+        Effect.gen(function*() {
+          const accounts = yield* AggregateService.make(aggregate as typeof Account)
+          for (let index = 0; index < count; index++) {
+            yield* accounts.commands.deposit(`a-${index}`, { amount: 1, reference: "r" })
+          }
+        }).pipe(Effect.provide(keys))
+      )
+      yield* Effect.gen(function*() {
+        const accounts = yield* AggregateService.make(aggregate as typeof Account)
+        const cold = yield* AggregateService.make(aggregate as typeof Account, { stateCacheSize: 0 })
+        const streams = scaled(20)
+        for (let stream = 0; stream < streams; stream++) {
+          yield* accounts.commands.depositMany(`long-${stream}`, { amount: 1, reference: "r", count: 1_000 })
+        }
+        yield* cold.readModel("long-0")
+        const samples = scaled(100)
+        const reads = yield* sample(samples, (index) => cold.readModel(`long-${index % streams}`))
+        yield* record({
+          scenario: "personal data",
+          backend,
+          label: `${kind}, cold load of 1000`,
+          count: samples,
+          rate: Math.round((samples / reads.ms) * 1000),
+          unit: "reads/s",
+          latencyMs: reads.latency
+        })
+      }).pipe(Effect.provide(Layer.merge(storage(backend), keys)))
+    }), { discard: true })
+
 /** The plans behind the reads that matter, on a store with no `ANALYZE` statistics. */
 const queryPlans = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
@@ -413,7 +467,7 @@ const queryPlans = Effect.gen(function*() {
 const program = Effect.gen(function*() {
   const env = yield* environment
   yield* Console.log(JSON.stringify(env))
-  const suites = [
+  const suites = {
     appendSingle,
     appendBatch,
     commandOnNewStreams,
@@ -422,16 +476,24 @@ const program = Effect.gen(function*() {
     viewModelCatchUp,
     readYourWrites,
     fanOut,
-    concurrency
-  ]
-  for (const suite of suites) {
+    concurrency,
+    personalData
+  }
+  // `BENCH_SUITES=personalData,fanOut` runs only those.
+  const only = process.env.BENCH_SUITES?.split(",")
+  for (const [name, suite] of Object.entries(suites)) {
+    if (only !== undefined && !only.includes(name)) continue
     for (const backend of backends) {
       yield* suite(backend)
     }
   }
   const plans = yield* queryPlans
   yield* Console.log(JSON.stringify(plans, null, 2))
-  const name = process.env.BENCH_BACKENDS === undefined ? "performance" : `performance-${backends.join("-")}`
+  const name = [
+    "performance",
+    ...(process.env.BENCH_BACKENDS === undefined ? [] : backends),
+    ...(only ?? [])
+  ].join("-")
   yield* writeResults(name, { environment: env, rounds: ROUNDS, plans, results })
 })
 

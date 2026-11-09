@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, Context, Effect, Exit, Layer, Ref, Schema, Stream } from "effect"
 import { WorkflowEngine } from "effect/workflow"
-import { AggregateService, Checkpoints, EventStore, Saga, ViewModel } from "effect-cqrs"
+import { AggregateService, Checkpoints, EventStore, PersonalData, Saga, ViewModel } from "effect-cqrs"
 import { Account, AccountNotOpen } from "../examples/bank-ui/src/domain/account.ts"
 
 class Bank extends Context.Service<Bank, AggregateService.AggregateService<typeof Account>>()("test/Bank") {}
@@ -46,6 +46,8 @@ const Base = TransferLayer.pipe(
   Layer.provideMerge(Layer.mergeAll(
     EventStore.layerMemory,
     Checkpoints.layerMemory,
+    // The account's owner is personal data.
+    PersonalData.layerMemory().pipe(Layer.provide(PersonalData.layerMasterKeyEphemeral)),
     Layer.effect(Runs, Ref.make(0))
   ))
 )

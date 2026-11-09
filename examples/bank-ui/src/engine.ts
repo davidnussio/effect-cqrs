@@ -24,6 +24,7 @@ import * as AggregateService from "effect-cqrs/AggregateService"
 import * as Checkpoints from "effect-cqrs/Checkpoints"
 import * as EventStore from "effect-cqrs/EventStore"
 import * as Metadata from "effect-cqrs/Metadata"
+import * as PersonalData from "effect-cqrs/PersonalData"
 import * as Saga from "effect-cqrs/Saga"
 import * as ViewModel from "effect-cqrs/ViewModel"
 import { version as appVersion } from "../../../package.json"
@@ -145,8 +146,8 @@ const BusLayer = Layer.effect(
 /** Mirrors every stored event to the devtools, decoded with the aggregate's schema. */
 const Bridge = Layer.effectDiscard(Effect.gen(function*() {
   const store = yield* EventStore.EventStore
-  const decode = AggregateService.makeEventDecoder(Account)
-  yield* store.subscribe().pipe(
+  const decode = AggregateService.makeEventDecoder(Account, yield* PersonalData.Keys)
+  yield* store.subscribe({ aggregateNames: [Account.name] }).pipe(
     Stream.runForEach((stored) =>
       decode(stored).pipe(
         Effect.map((event) =>
@@ -331,7 +332,11 @@ const Autopilot = Layer.effectDiscard(Effect.gen(function*() {
 }))
 
 // #region wiring
-const Storage = Layer.mergeAll(EventStore.layerMemory, Checkpoints.layerMemory, KeyValueStore.layerMemory)
+// The keys that encrypt owners' names. A random master key is enough for a store that
+// lives as long as the page.
+const Keys = PersonalData.layerMemory().pipe(Layer.provide(PersonalData.layerMasterKeyEphemeral))
+
+const Storage = Layer.mergeAll(EventStore.layerMemory, Checkpoints.layerMemory, KeyValueStore.layerMemory, Keys)
 
 const AccountState = Schema.Struct({
   status: Schema.Literals(["none", "open", "closed"]),
@@ -412,6 +417,22 @@ export const engine = {
       for (const view of views) devstore.replaying(view, false)
     }
   },
+
+  // #region forget
+  /**
+   * Forgets the owner of an account: the key that encrypts their name is
+   * destroyed. Stored events stay as they were, view models erase the name in
+   * `onForget`, and the events tab decodes the log again to show the replacement.
+   */
+  forget: (subject: string) =>
+    runtime.runPromise(Effect.gen(function*() {
+      yield* PersonalData.forget(subject).pipe(Metadata.withMetadata({ origin: "app" }))
+      const decode = AggregateService.makeEventDecoder(Account, yield* PersonalData.Keys)
+      const entries = devstore.get().events.filter((entry) => entry.aggregateId === subject)
+      const decoded = yield* Effect.forEach(entries, (entry) => decode(entry.stored))
+      devstore.redecoded(new Map(entries.map((entry, index) => [entry.position, decoded[index]!])))
+    })),
+  // #endregion
 
   setPaused,
 

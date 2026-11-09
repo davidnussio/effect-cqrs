@@ -18,10 +18,12 @@
  * with `Aggregate.historical`, which then go through the same upcasting as events
  * read from a real store.
  */
-import { Arbitrary, Effect, Effectable, Schema } from "effect"
+import { Arbitrary, Effect, Effectable, Option, Schema } from "effect"
 import * as Aggregate from "./Aggregate.ts"
 import * as AggregateService from "./AggregateService.ts"
 import { EventStore, makeMemory } from "./EventStore.ts"
+import type * as EventVersions from "./EventVersions.ts"
+import * as PersonalData from "./PersonalData.ts"
 
 /** Raised as a defect, so a command's error channel only holds what the command can do. */
 export class ExpectationFailed extends Schema.TaggedError<ExpectationFailed>()("ExpectationFailed", {
@@ -185,12 +187,23 @@ export const make = <A extends Aggregate.Any>(
 ): Fixture<A> => {
   const aggregateId = options?.aggregateId ?? "fixture-id"
   const history = options?.events ?? []
-  const encodeEvent = AggregateService.makeEventEncoder(aggregate)
-  const encodeGiven = (event: GivenEvent<A>) =>
-    event instanceof Aggregate.Historical ? Effect.succeed(event) : encodeEvent(event)
+  const hasPersonalData = PersonalData.fieldsByTag(aggregate.events, aggregate.name).size > 0 ||
+    Object.values(aggregate.versions as Record<string, EventVersions.Any | undefined>).some((versions) =>
+      versions?.schemas.some((schema) => PersonalData.fieldsOf(schema, aggregate.name).length > 0)
+    )
+
+  const ownKeys = Effect.suspend(() => PersonalData.make(PersonalData.makeMemoryBackend())).pipe(
+    Effect.provide(PersonalData.layerMasterKeyEphemeral)
+  )
 
   const seeded = Effect.gen(function*() {
     const store = yield* makeMemory
+    // Personal fields are encrypted with the keys the test provides, or with keys of its own.
+    const provided = yield* Effect.serviceOption(PersonalData.Keys)
+    const keys = !hasPersonalData ? undefined : Option.isSome(provided) ? provided.value : yield* ownKeys
+    const encodeEvent = AggregateService.makeEventEncoder(aggregate, keys)
+    const encodeGiven = (event: GivenEvent<A>) =>
+      event instanceof Aggregate.Historical ? Effect.succeed(event) : encodeEvent(event, aggregateId)
     if (history.length > 0) {
       yield* store.append({
         aggregateName: aggregate.name,
@@ -199,7 +212,8 @@ export const make = <A extends Aggregate.Any>(
         events: yield* Effect.forEach(history, encodeGiven)
       })
     }
-    const service = yield* AggregateService.make(aggregate).pipe(Effect.provideService(EventStore, store))
+    const built = AggregateService.make(aggregate).pipe(Effect.provideService(EventStore, store))
+    const service = yield* (keys === undefined ? built : Effect.provideService(built, PersonalData.Keys, keys))
     return service
   }).pipe(
     // A store with nothing but memory behind it can't fail, and a history that

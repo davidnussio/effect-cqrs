@@ -28,10 +28,12 @@ import {
   type EventFilter,
   EventStore,
   type EventStoreError,
+  type NewEvent as EventStoreNewEvent,
   type StoredEvent
 } from "./EventStore.ts"
 import * as EventVersions from "./EventVersions.ts"
 import { CurrentMetadata, Metadata } from "./Metadata.ts"
+import * as PersonalData from "./PersonalData.ts"
 
 export class UnknownCommand extends Schema.TaggedError<UnknownCommand>()("UnknownCommand", {
   aggregateName: Schema.String,
@@ -57,10 +59,14 @@ export class EventDecodeError extends Schema.TaggedError<EventDecodeError>()("Ev
   message: Schema.String
 }) {}
 
-export type ReadError = EventStoreError | EventDecodeError
+/** How reading events can fail. `PersonalDataError` comes from aggregates with personal fields, see `PersonalData`. */
+export type ReadError = EventStoreError | EventDecodeError | PersonalData.PersonalDataError
 
-/** How a command can fail, on top of the errors its own handler declares. */
-export type CommandFailure = ConcurrencyConflict | InvalidCommand | ReadError
+/**
+ * How a command can fail, on top of the errors its own handler declares.
+ * `SubjectForgotten` means an event would record personal data of a forgotten subject.
+ */
+export type CommandFailure = ConcurrencyConflict | InvalidCommand | ReadError | PersonalData.SubjectForgotten
 
 export interface CommandResult<Event> {
   readonly aggregateName: string
@@ -129,17 +135,53 @@ const versionsOf = (aggregate: Aggregate.Any) =>
     versions === undefined ? [] : [[tag, versions] as const]
   )
 
-/**
- * Decodes a stored event with the schema of the aggregate it belongs to. An
- * event stored in an older version is upcast to the current one on the way.
- */
-export const makeEventDecoder = <A extends Aggregate.Any>(aggregate: A) => {
+interface PersonalFields {
+  /** By tag, for events in their current version. */
+  readonly current: ReadonlyMap<string, ReadonlyArray<PersonalData.Field>>
+  /** By tag, then by schema version minus one, for events stored in an older version. */
+  readonly old: ReadonlyMap<string, ReadonlyArray<ReadonlyArray<PersonalData.Field>>>
+}
+
+/** The personal fields of every event and every older version, `undefined` when there are none. */
+const personalFieldsOf = (aggregate: Aggregate.Any): PersonalFields | undefined => {
+  const current = PersonalData.fieldsByTag(aggregate.events, aggregate.name)
+  const old = new Map(versionsOf(aggregate).flatMap(([tag, versions]) => {
+    const fields = versions.schemas.slice(0, -1).map((schema, index) =>
+      PersonalData.fieldsOf(schema, `${aggregate.name}, ${tag} version ${index + 1}`)
+    )
+    return fields.some((each) => each.length > 0) ? [[tag, fields] as const] : []
+  }))
+  return current.size === 0 && old.size === 0 ? undefined : { current, old }
+}
+
+/** The keys an aggregate with personal fields needs, checked when a service is built rather than at the first event. */
+const requireKeys = (aggregate: Aggregate.Any, keys: PersonalData.Keys["Service"] | undefined) => {
+  if (keys === undefined) {
+    throw new Error(`${aggregate.name} has personal fields, so it needs PersonalData.Keys`)
+  }
+  return keys
+}
+
+/** An event decoded from the store, with the subjects whose personal data it holds in plaintext. */
+interface Decoded<Event> {
+  readonly event: Event
+  readonly subjects: ReadonlyArray<string>
+}
+
+const noSubjects: ReadonlyArray<string> = []
+
+// How many events of a stream decrypt at once while it is replayed.
+const decryptConcurrency = 32
+
+const makeDecoder = <A extends Aggregate.Any>(aggregate: A, keys: PersonalData.Keys["Service"] | undefined) => {
   const decodeCurrent = Schema.decodeUnknownEffect(Schema.toCodecJson(aggregate.events))
   const upcasters = new Map(versionsOf(aggregate).map(([tag, versions]) => [tag, {
     current: EventVersions.current(versions),
     decoders: EventVersions.decoders(tag, versions).map((decoder) => Schema.decodeUnknownEffect(decoder))
   }]))
-  return (stored: StoredEvent): Effect.Effect<Aggregate.Event<A>, EventDecodeError> => {
+  const personal = personalFieldsOf(aggregate)
+  const personalKeys = personal === undefined ? undefined : requireKeys(aggregate, keys)
+  return (stored: StoredEvent): Effect.Effect<Decoded<Aggregate.Event<A>>, EventDecodeError | PersonalData.PersonalDataError> => {
     const fail = (message: string) =>
       new EventDecodeError({
         aggregateName: stored.aggregateName,
@@ -155,26 +197,83 @@ export const makeEventDecoder = <A extends Aggregate.Any>(aggregate: A) => {
     if (decode === undefined) {
       return Effect.fail(fail(`${aggregate.name} knows ${stored.type} up to schema version ${current}`))
     }
-    return decode(stored.payload).pipe(
-      Effect.mapError((error) => fail(error.message))
-    ) as Effect.Effect<Aggregate.Event<A>, EventDecodeError>
+    const decodePayload = (payload: unknown) =>
+      decode(payload).pipe(
+        Effect.mapError((error) => fail(error.message))
+      ) as Effect.Effect<Aggregate.Event<A>, EventDecodeError>
+    const fields = personal === undefined
+      ? undefined
+      : stored.schemaVersion === current
+      ? personal.current.get(stored.type)
+      : personal.old.get(stored.type)?.[stored.schemaVersion - 1]
+    if (fields === undefined || fields.length === 0) {
+      return Effect.map(decodePayload(stored.payload), (event) => ({ event, subjects: noSubjects }))
+    }
+    return Effect.flatMap(
+      PersonalData.open(personalKeys!, fields, { aggregateName: stored.aggregateName, type: stored.type }, stored.payload),
+      ({ payload, subjects }) => Effect.map(decodePayload(payload), (event) => ({ event, subjects }))
+    )
   }
 }
 
-/** Encodes events into the JSON form the store keeps, in the current version of their schema. */
-export const makeEventEncoder = <A extends Aggregate.Any>(aggregate: A) => {
+/**
+ * Decodes a stored event with the schema of the aggregate it belongs to. An
+ * event stored in an older version is upcast to the current one on the way.
+ * An aggregate with personal fields needs `keys` to decrypt them, see `PersonalData`.
+ */
+export const makeEventDecoder = <A extends Aggregate.Any>(aggregate: A, keys?: PersonalData.Keys["Service"]) => {
+  const decode = makeDecoder(aggregate, keys)
+  return (stored: StoredEvent): Effect.Effect<Aggregate.Event<A>, EventDecodeError | PersonalData.PersonalDataError> =>
+    Effect.map(decode(stored), ({ event }) => event)
+}
+
+/** An event encoded for the store, with its payload before encryption and the subjects it encrypted for. */
+interface Encoded {
+  readonly event: EventStoreNewEvent
+  readonly plain: Schema.Json
+  readonly subjects: ReadonlyArray<string>
+}
+
+const makeEncoder = <A extends Aggregate.Any>(aggregate: A, keys: PersonalData.Keys["Service"] | undefined) => {
   const encode = Schema.encodeUnknownEffect(Schema.toCodecJson(aggregate.events))
   const versions = new Map(versionsOf(aggregate).map(([tag, versions]) => [tag, EventVersions.current(versions)]))
-  return (event: Aggregate.Event<A>) =>
-    encode(event).pipe(
+  const personal = personalFieldsOf(aggregate)?.current
+  const personalKeys = personal === undefined ? undefined : requireKeys(aggregate, keys)
+  return (
+    event: Aggregate.Event<A>,
+    aggregateId?: string
+  ): Effect.Effect<Encoded, PersonalData.SubjectForgotten | PersonalData.PersonalDataError> => {
+    const fields = personal?.get(event._tag)
+    const schemaVersion = versions.get(event._tag) ?? 1
+    return encode(event).pipe(
       // Events come from the aggregate's own handlers, so this is a programming error.
       Effect.orDie,
-      Effect.map((payload) => ({
-        type: event._tag,
-        payload: payload as Schema.Json,
-        schemaVersion: versions.get(event._tag) ?? 1
-      }))
+      Effect.flatMap((encoded) => {
+        const plain = encoded as Schema.Json
+        if (fields === undefined) {
+          return Effect.succeed({ event: { type: event._tag, payload: plain, schemaVersion }, plain, subjects: noSubjects })
+        }
+        return Effect.map(
+          PersonalData.seal(personalKeys!, fields, { aggregateName: aggregate.name, type: event._tag, aggregateId }, plain),
+          ({ payload, subjects }) => ({ event: { type: event._tag, payload, schemaVersion }, plain, subjects })
+        )
+      })
     )
+  }
+}
+
+/**
+ * Encodes events into the JSON form the store keeps, in the current version of
+ * their schema. An aggregate with personal fields needs `keys` to encrypt them,
+ * and the id of the stream the event goes to, the default subject.
+ */
+export const makeEventEncoder = <A extends Aggregate.Any>(aggregate: A, keys?: PersonalData.Keys["Service"]) => {
+  const encode = makeEncoder(aggregate, keys)
+  return (
+    event: Aggregate.Event<A>,
+    aggregateId?: string
+  ): Effect.Effect<EventStoreNewEvent, PersonalData.SubjectForgotten | PersonalData.PersonalDataError> =>
+    Effect.map(encode(event, aggregateId), ({ event }) => event)
 }
 
 /** Saves the state of each aggregate every so often, so a cold start replays only what came after. */
@@ -204,6 +303,14 @@ interface Loaded<State> {
   readonly position: number
   /** The version of the last snapshot saved or loaded, `0` when there is none. */
   readonly snapshotVersion: number
+  /** The subjects whose personal data the state may hold, see `PersonalData`. */
+  readonly subjects: ReadonlyArray<string>
+}
+
+/** Adds subjects, keeping the same array when there is nothing new. */
+const addSubjects = (subjects: ReadonlyArray<string>, more: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const fresh = more.filter((subject) => !subjects.includes(subject))
+  return fresh.length === 0 ? subjects : [...subjects, ...fresh]
 }
 
 /**
@@ -315,6 +422,7 @@ const makeStateCache = <State>(capacity: number) => {
       }
       return entry
     },
+    delete: (aggregateId: string) => void entries.delete(aggregateId),
     /** Returns whether another state was dropped to make room. */
     set: (aggregateId: string, loaded: Loaded<State>): boolean => {
       if (capacity === 0 || (entries.get(aggregateId)?.position ?? 0) > loaded.position) return false
@@ -366,19 +474,76 @@ const makeTimeSlice = () => {
 // Only a rival outside this service can cause a conflict, so give it room to finish.
 const conflictBackoff = Schedule.exponential("10 millis").pipe(Schedule.jittered)
 
-const makeSnapshots = <State>(aggregateName: string, options: SnapshotOptions<State>, metrics: Metrics) =>
+const makeSnapshots = <State>(
+  aggregateName: string,
+  options: SnapshotOptions<State>,
+  metrics: Metrics,
+  keys: PersonalData.Keys["Service"] | undefined
+) =>
   Effect.gen(function*() {
-    const store = KeyValueStore.toSchemaStore(
-      yield* KeyValueStore.KeyValueStore,
-      Schema.Struct({ version: Schema.Int, position: Schema.Int, state: options.schema })
-    )
+    const keyValueStore = yield* KeyValueStore.KeyValueStore
     const key = (aggregateId: string) =>
       `effect-cqrs/snapshot/${JSON.stringify([aggregateName, String(options.version ?? 1), aggregateId])}`
 
+    let read: (aggregateId: string) => Effect.Effect<Option.Option<Loaded<State>>, unknown>
+    let write: (aggregateId: string, loaded: Loaded<State>) => Effect.Effect<void, unknown>
+    if (keys === undefined) {
+      const store = KeyValueStore.toSchemaStore(
+        keyValueStore,
+        Schema.Struct({ version: Schema.Int, position: Schema.Int, state: options.schema })
+      )
+      read = (aggregateId) =>
+        store.get(key(aggregateId)).pipe(
+          Effect.map(Option.map((snapshot): Loaded<State> => ({
+            ...snapshot,
+            snapshotVersion: snapshot.version,
+            subjects: noSubjects
+          })))
+        )
+      write = (aggregateId, { position, state, version }) => store.set(key(aggregateId), { version, position, state })
+    } else {
+      // The state of an aggregate with personal fields is sealed with the key of
+      // every subject it holds data of, so forgetting any of them destroys it.
+      const store = KeyValueStore.toSchemaStore(
+        keyValueStore,
+        Schema.Struct({ version: Schema.Int, position: Schema.Int, sealed: PersonalData.Sealed })
+      )
+      const stateText = Schema.fromJsonString(Schema.toCodecJson(options.schema))
+      const purpose = (aggregateId: string) => `snapshot ${JSON.stringify([aggregateName, aggregateId])}`
+      read = (aggregateId) =>
+        store.get(key(aggregateId)).pipe(
+          Effect.flatMap((found): Effect.Effect<Option.Option<Loaded<State>>, unknown> =>
+            Option.match(found, {
+            onNone: () => Effect.succeed(Option.none<Loaded<State>>()),
+            onSome: ({ position, sealed, version }) =>
+              PersonalData.openText(keys, sealed, purpose(aggregateId)).pipe(
+                Effect.flatMap((text): Effect.Effect<Option.Option<Loaded<State>>, unknown> =>
+                  Option.match(text, {
+                  // A subject was forgotten, so the snapshot can't be read again.
+                  onNone: () => Effect.as(store.remove(key(aggregateId)), Option.none<Loaded<State>>()),
+                  onSome: (text) =>
+                    Effect.map(Schema.decodeEffect(stateText)(text), (state) =>
+                      Option.some<Loaded<State>>({
+                        state,
+                        version,
+                        position,
+                        snapshotVersion: version,
+                        subjects: sealed.subjects.map(({ subject }) => subject)
+                      }))
+                }))
+              )
+          }))
+        )
+      write = (aggregateId, { position, state, subjects, version }) =>
+        Schema.encodeEffect(stateText)(state).pipe(
+          Effect.flatMap((text) => PersonalData.sealText(keys, subjects, text, purpose(aggregateId))),
+          Effect.flatMap((sealed) => store.set(key(aggregateId), { version, position, sealed }))
+        )
+    }
+
     // A snapshot is only a shortcut, so a failure to read or save one falls back to the log.
     const get = (aggregateId: string) =>
-      store.get(key(aggregateId)).pipe(
-        Effect.map(Option.map((snapshot): Loaded<State> => ({ ...snapshot, snapshotVersion: snapshot.version }))),
+      read(aggregateId).pipe(
         Effect.catch((error) =>
           Metric.update(metrics.snapshotReadFailures, 1).pipe(
             Effect.andThen(Effect.logWarning(`Ignoring the ${aggregateName} snapshot of ${aggregateId}`, error)),
@@ -399,7 +564,7 @@ const makeSnapshots = <State>(aggregateName: string, options: SnapshotOptions<St
         ? Effect.succeed(loaded)
         : FiberSet.run(
           saving,
-          store.set(key(aggregateId), { version: loaded.version, position: loaded.position, state: loaded.state }).pipe(
+          write(aggregateId, loaded).pipe(
             Effect.andThen(Metric.update(metrics.snapshotSaved, 1)),
             Effect.catch((error) =>
               Effect.andThen(
@@ -426,27 +591,42 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     current === builtWith && given === undefined ? builtWith : { ...builtWith, ...current, ...given }
   const maxRetries = options?.maxRetries ?? 5
   const aggregateName = aggregate.name
-  const decodeEvent = makeEventDecoder(aggregate)
-  const encodeEvent = makeEventEncoder(aggregate)
+  const keys = personalFieldsOf(aggregate) === undefined
+    ? undefined
+    : requireKeys(aggregate, Option.getOrUndefined(yield* Effect.serviceOption(PersonalData.Keys)))
+  const decodeEvent = makeDecoder(aggregate, keys)
+  const encodeEvent = makeEncoder(aggregate, keys)
+  // What a command just wrote is decoded from its payload before encryption, which
+  // is what decrypting it would give back.
+  const decodeWritten = Schema.decodeUnknownEffect(Schema.toCodecJson(aggregate.events))
   const states = makeStateCache<Aggregate.State<A>>(options?.stateCacheSize ?? 10_000)
   const lockStream = makeKeyedLock()
   const timeSlice = makeTimeSlice()
   const metrics = makeMetrics(aggregateName)
   const snapshots = options?.snapshots === undefined
     ? undefined
-    : yield* makeSnapshots<Aggregate.State<A>>(aggregateName, options.snapshots, metrics)
+    : yield* makeSnapshots<Aggregate.State<A>>(aggregateName, options.snapshots, metrics, keys)
 
   const replay = <Acc>(
     stream: Stream.Stream<StoredEvent, EventStoreError>,
     initial: Acc,
-    step: (acc: Acc, event: Aggregate.Event<A>, stored: StoredEvent) => Acc
+    step: (acc: Acc, decoded: Decoded<Aggregate.Event<A>>, stored: StoredEvent) => Acc
   ) =>
-    stream.pipe(
-      Stream.runFoldEffect(
-        () => initial,
-        (acc, stored) => Effect.map(decodeEvent(stored), (event) => step(acc, event, stored))
+    keys === undefined
+      ? stream.pipe(
+        Stream.runFoldEffect(
+          () => initial,
+          (acc, stored) => Effect.map(decodeEvent(stored), (decoded) => step(acc, decoded, stored))
+        )
       )
-    )
+      // Decrypting waits on WebCrypto, so several events decrypt at once, still folded in order.
+      : stream.pipe(
+        Stream.mapEffect(
+          (stored) => Effect.map(decodeEvent(stored), (decoded) => [decoded, stored] as const),
+          { concurrency: decryptConcurrency }
+        ),
+        Stream.runFold(() => initial, (acc, [decoded, stored]) => step(acc, decoded, stored))
+      )
 
   const streamOf = (
     aggregateId: string,
@@ -455,13 +635,14 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
 
   const fold = (
     acc: Loaded<Aggregate.State<A>>,
-    event: Aggregate.Event<A>,
+    { event, subjects }: Decoded<Aggregate.Event<A>>,
     stored: StoredEvent
   ): Loaded<Aggregate.State<A>> => ({
     state: Aggregate.evolve(aggregate, acc.state, event, stored),
     version: stored.version,
     position: stored.position,
-    snapshotVersion: acc.snapshotVersion
+    snapshotVersion: acc.snapshotVersion,
+    subjects: addSubjects(acc.subjects, subjects)
   })
 
   const replayFrom = (
@@ -479,14 +660,29 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     state: aggregate.initial as Aggregate.State<A>,
     version: 0,
     position: 0,
-    snapshotVersion: 0
+    snapshotVersion: 0,
+    subjects: noSubjects
   }
 
   // Remembered states come first, as they are the most recent. Without one the
   // last snapshot saves replaying the start of the stream.
-  const start = (aggregateId: string): Effect.Effect<Loaded<Aggregate.State<A>>> => {
+  const start = (aggregateId: string): Effect.Effect<Loaded<Aggregate.State<A>>, PersonalData.PersonalDataError> => {
     const remembered = states.get(aggregateId)
-    if (remembered !== undefined) return recording(metrics.loadedFromMemory, remembered)
+    if (remembered === undefined) return startOver(aggregateId)
+    if (keys === undefined || remembered.subjects.length === 0) return recording(metrics.loadedFromMemory, remembered)
+    // A state holding personal data of a subject forgotten since, here or in
+    // another process, is rebuilt so the data reads as its replacement.
+    return Effect.flatMap(
+      Effect.forEach(remembered.subjects, keys.isForgotten),
+      (forgotten) => {
+        if (!forgotten.includes(true)) return recording(metrics.loadedFromMemory, remembered)
+        states.delete(aggregateId)
+        return startOver(aggregateId)
+      }
+    )
+  }
+
+  const startOver = (aggregateId: string): Effect.Effect<Loaded<Aggregate.State<A>>> => {
     if (snapshots === undefined) return recording(metrics.loadedFromReplay, initial)
     return Effect.flatMap(
       snapshots.get(aggregateId),
@@ -540,10 +736,19 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   // finds nothing new to read. The events are decoded from what was stored, as a
   // replay would, so the state is the one a restart would rebuild. If they don't
   // decode, the state isn't remembered and the next load reports the error.
-  const rememberWritten = (aggregateId: string, before: Loaded<Aggregate.State<A>>, written: ReadonlyArray<StoredEvent>) =>
-    Effect.forEach(written, decodeEvent).pipe(
-      Effect.flatMap((events) =>
-        remember(aggregateId, events.reduce((acc, event, index) => fold(acc, event, written[index]!), before))
+  const rememberWritten = (
+    aggregateId: string,
+    before: Loaded<Aggregate.State<A>>,
+    written: ReadonlyArray<StoredEvent>,
+    encoded: ReadonlyArray<Encoded>
+  ) =>
+    Effect.forEach(written, (_, index) =>
+      Effect.map(
+        decodeWritten(encoded[index]!.plain) as Effect.Effect<Aggregate.Event<A>, Schema.SchemaError>,
+        (event): Decoded<Aggregate.Event<A>> => ({ event, subjects: encoded[index]!.subjects })
+      )).pipe(
+      Effect.flatMap((decoded) =>
+        remember(aggregateId, decoded.reduce((acc, event, index) => fold(acc, event, written[index]!), before))
       ),
       Effect.ignore
     )
@@ -563,15 +768,16 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     if (events.length === 0) {
       return { aggregateName, aggregateId, version, position, events, correlationId }
     }
+    const encoded = yield* Effect.forEach(events, (event) => encodeEvent(event, aggregateId))
     const stored = yield* store.append({
       aggregateName,
       aggregateId,
       expectedVersion: version,
-      events: yield* Effect.forEach(events, encodeEvent),
+      events: encoded.map(({ event }) => event),
       ...causation,
       metadata
     })
-    yield* rememberWritten(aggregateId, loaded, stored)
+    yield* rememberWritten(aggregateId, loaded, stored, encoded)
     const last = stored[stored.length - 1]!
     return { aggregateName, aggregateId, version: last.version, position: last.position, events, correlationId }
   })
@@ -660,7 +866,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     replay(
       streamOf(aggregateId, { startTime: options?.startTime, finishTime: options?.finishTime }),
       [] as Array<HistoryEntry<Aggregate.Event<A>>>,
-      (entries, event, stored) => {
+      (entries, { event }, stored) => {
         entries.push({
           version: stored.version,
           timestamp: stored.timestamp,

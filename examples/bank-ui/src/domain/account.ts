@@ -4,12 +4,18 @@
  */
 import { DateTime, Effect, Schema } from "effect"
 import * as Aggregate from "effect-cqrs/Aggregate"
+import * as PersonalData from "effect-cqrs/PersonalData"
 
 const Amount = Schema.Int.check(Schema.isGreaterThan(0))
 
 // #region events
 export const AccountEvent = Schema.TaggedUnion({
-  AccountOpened: { owner: Schema.NonEmptyString, color: Schema.String, openedAt: Schema.DateTimeUtc },
+  // Encrypted with a key of the account's own, which "forget" destroys.
+  AccountOpened: {
+    owner: PersonalData.field(Schema.NonEmptyString, { redacted: "[forgotten]" }),
+    color: Schema.String,
+    openedAt: Schema.DateTimeUtc
+  },
   MoneyDeposited: { amount: Amount },
   MoneyWithdrawn: { amount: Amount },
   TransferSent: { transferId: Schema.String, to: Schema.String, amount: Amount },

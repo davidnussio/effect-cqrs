@@ -111,6 +111,18 @@ more accounts open the **Metrics** tab shows commands starting from snapshots an
 A `ManagedRuntime` runs it, and React reaches it through plain functions. **Reset store**
 disposes the runtime and starts a new one.
 
+## Forgetting an owner
+
+The owner's name is [personal data](../../guides/personal-data/): `AccountOpened` stores it
+encrypted with a key of the account's own, which the **Event store** tab shows as a
+`$personal` block. **forget** on a card destroys that key:
+
+<Code code={region(engine, "forget")} lang="ts" title={engineFile} />
+
+The log doesn't change and the totals still add up, while the card, the feed and every
+replay read `[forgotten]`. The accounts view erases the name in `onForget`, and new
+commands on the account still work, since deposits hold no personal data.
+
 ## The devtools
 
 | Tab | What you can do |

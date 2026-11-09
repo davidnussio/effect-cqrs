@@ -15,6 +15,8 @@ export class ProjectionCrashed extends Schema.TaggedError<ProjectionCrashed>()("
   reason: Schema.String
 }) {}
 
+const forgotten = "[forgotten]"
+
 /** How slow each view model is compared to the projection latency setting. */
 export const lagFactor: Record<ViewName, number> = { accounts: 1, totals: 1.6, feed: 0.6 }
 
@@ -88,7 +90,16 @@ export const AccountsView = ViewModel.make({
           }
         }
       })
-    ))
+    )),
+  // The owner's name is personal data: once they are forgotten, the row keeps the
+  // balance and loses the name.
+  onForget: (subject, { position }) =>
+    Effect.sync(() =>
+      devstore.apply("accounts", position, (accounts) => {
+        const current = accounts[subject]
+        return current === undefined ? accounts : { ...accounts, [subject]: { ...current, owner: forgotten } }
+      })
+    )
 })
 // #endregion
 
@@ -152,7 +163,17 @@ export const FeedView = ViewModel.make({
         const item: FeedItem = { position, aggregateId, type: event._tag, text: describe(event), delta: balanceDelta(event) }
         return [item, ...feed].slice(0, feedSize)
       })
-    ))
+    )),
+  // Only the opening line names the owner.
+  onForget: (subject, { position }) =>
+    Effect.sync(() =>
+      devstore.apply("feed", position, (feed) =>
+        feed.map((item) =>
+          item.aggregateId === subject && item.type === "AccountOpened"
+            ? { ...item, text: `${forgotten} opened an account` }
+            : item
+        ))
+    )
 })
 
 export const allViews = [AccountsView, TotalsView, FeedView] as const

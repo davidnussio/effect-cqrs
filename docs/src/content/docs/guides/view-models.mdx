@@ -86,6 +86,12 @@ out of it.
 Moleculer-cqrs needed replay to recover events lost on the broker. Here view models can't
 lose events, so replay is for rebuilding a view model that changed, or one that got damaged.
 
+## Personal data
+
+Handlers receive [personal fields](../personal-data/) decrypted. A view model that stores
+them handles `onForget(subject, meta)` to erase them when a subject is forgotten, see
+[view models and personal data](../personal-data/#view-models).
+
 ## Checkpoints
 
 A checkpoint has to live as long as its view model:

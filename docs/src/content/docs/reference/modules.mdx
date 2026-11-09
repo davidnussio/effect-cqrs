@@ -32,8 +32,22 @@ Runs an aggregate against the event store. <a href={sourceUrl("src/AggregateServ
 | `SnapshotOptions` | `every`, `schema` and `version` of the snapshots |
 | `CommandResult`, `HistoryEntry` | What a command and `history` return |
 | `UnknownCommand`, `InvalidCommand`, `EventDecodeError` | Its errors, besides the store's |
-| `makeEventDecoder`, `makeEventEncoder` | Convert between stored JSON and an aggregate's events |
+| `makeEventDecoder(aggregate, keys)`, `makeEventEncoder(aggregate, keys)` | Convert between stored JSON and an aggregate's events, decrypting and encrypting personal fields with `keys` |
 | `MetricNames` | The names of the [metrics](../../guides/commands/#metrics) the service records |
+
+## PersonalData
+
+Crypto-shredding of personal fields, see [personal data](../../guides/personal-data/). <a href={sourceUrl("src/PersonalData.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `field(schema, { redacted, subject })` | Marks a field of an event as personal |
+| `forget(subject)` | Destroys the key of a subject and records it in the log |
+| `Keys`, `layerMemory`, `layerSql`, `make(backend)` | The keys of subjects, and where they are stored |
+| `MasterKey`, `layerMasterKey`, `layerMasterKeyConfig`, `layerMasterKeyEphemeral` | What wraps the keys of subjects |
+| `Backend`, `makeMemoryBackend`, `makeSqlBackend` | Key stores, to implement another |
+| `SubjectForgotten`, `PersonalDataError` | Its errors |
+| `streamName`, `subjectForgottenType` | Where forgetting is recorded |
 
 ## EventVersions
 
@@ -72,7 +86,7 @@ Projects events into read models. <a href={sourceUrl("src/ViewModel.ts")}>Source
 
 | Export | What it is |
 | --- | --- |
-| `make({ name, aggregates, handlers, dispose })` | Defines a view model |
+| `make({ name, aggregates, handlers, dispose, onForget })` | Defines a view model. `onForget` erases what it stored about a [forgotten subject](../../guides/personal-data/#view-models) |
 | `layer([...])` | Runs view models in the background and provides `ViewModels` |
 | `ViewModels` | The service: `replay`, `caughtUp`, `status` |
 | `ViewModelError`, `UnknownViewModel` | A handler's failure, and a replay of an unknown name |

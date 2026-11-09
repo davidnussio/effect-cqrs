@@ -256,6 +256,15 @@ export const devstore = {
     set((s) => ({ ...s, events: [...s.events, entry] }))
     pulse("event")
   },
+  /** Replaces the decoded events at these positions, as after a subject is forgotten. */
+  redecoded: (events: ReadonlyMap<number, AccountEvent>) =>
+    set((s) => ({
+      ...s,
+      events: s.events.map((entry) => {
+        const event = events.get(entry.position)
+        return event === undefined ? entry : { ...entry, event }
+      })
+    })),
 
   addCommand: (command: Omit<CommandEntry, "id" | "stage" | "enqueuedAt">) => {
     const id = nextId++

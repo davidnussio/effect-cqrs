@@ -26,6 +26,7 @@ import { makeEventDecoder } from "./AggregateService.ts"
 import * as Causation from "./Causation.ts"
 import { Checkpoints } from "./Checkpoints.ts"
 import { type EventFilter, EventStore, type EventStoreError, type StoredEvent } from "./EventStore.ts"
+import * as PersonalData from "./PersonalData.ts"
 
 export class UnknownViewModel extends Schema.TaggedError<UnknownViewModel>()("UnknownViewModel", {
   name: Schema.String
@@ -59,25 +60,59 @@ export interface ViewModel<out Name extends string, out E, out R> {
   readonly handlers: Record<string, (event: never, meta: Aggregate.EventMeta) => Effect.Effect<unknown, E, R>>
   /** Clears everything the view model stored, before a replay rebuilds it. */
   readonly dispose: Effect.Effect<void, E, R>
+  /** Erases what the view model stored about a forgotten subject, see `PersonalData.forget`. */
+  readonly onForget?: ((subject: string, meta: Aggregate.EventMeta) => Effect.Effect<unknown, E, R>) | undefined
 }
 
 export type Any = ViewModel<string, any, any>
 
 export type Context<V extends Any> = V extends ViewModel<any, any, infer R> ? R : never
 
-/** Handlers are keyed by event tag, and events without one are skipped. */
+/**
+ * Handlers are keyed by event tag, and events without one are skipped.
+ *
+ * A view model that keeps personal data handles `onForget`, which runs when
+ * `PersonalData.forget` records that a subject was forgotten, in order with the
+ * events around it. Events the view model reads afterwards already carry the
+ * replacements, so it only has to erase what it stored before.
+ */
 export const make = <
   const Name extends string,
   const Aggregates extends ReadonlyArray<Aggregate.Any>,
   const H extends Handlers<Aggregate.Event<Aggregates[number]>>,
   E = never,
-  R = never
+  R = never,
+  FE = never,
+  FR = never
 >(options: {
   readonly name: Name
   readonly aggregates: Aggregates
   readonly handlers: H
   readonly dispose: Effect.Effect<void, E, R>
-}): ViewModel<Name, E | HandlerError<H>, R | HandlerContext<H>> => options as any
+  readonly onForget?: ((subject: string, meta: Aggregate.EventMeta) => Effect.Effect<unknown, FE, FR>) | undefined
+}): ViewModel<Name, E | FE | HandlerError<H>, R | FR | HandlerContext<H>> => options as any
+
+const isForgetting = (stored: StoredEvent) =>
+  stored.aggregateName === PersonalData.streamName && stored.type === PersonalData.subjectForgottenType
+
+/** What a view model reads from the store: its events, and forgotten subjects when it erases them. */
+const filterOf = (viewModels: ReadonlyArray<Any>): EventFilter => {
+  const forgets = viewModels.some((viewModel) => viewModel.onForget !== undefined)
+  return {
+    aggregateNames: Array.from(
+      new Set([
+        ...viewModels.flatMap((viewModel) => viewModel.aggregates.map(({ name }) => name)),
+        ...(forgets ? [PersonalData.streamName] : [])
+      ])
+    ),
+    eventTypes: Array.from(
+      new Set([
+        ...viewModels.flatMap((viewModel) => Object.keys(viewModel.handlers)),
+        ...(forgets ? [PersonalData.subjectForgottenType] : [])
+      ])
+    )
+  }
+}
 
 export interface ReplayOptions {
   readonly viewModels: ReadonlyArray<string>
@@ -131,10 +166,7 @@ const tailSize = 500
  * itself is most of what a view model costs.
  */
 const makeTail = (store: EventStore["Service"], viewModels: ReadonlyArray<Any>) => {
-  const filter: EventFilter = {
-    aggregateNames: Array.from(new Set(viewModels.flatMap((viewModel) => viewModel.aggregates.map(({ name }) => name)))),
-    eventTypes: Array.from(new Set(viewModels.flatMap((viewModel) => Object.keys(viewModel.handlers))))
-  }
+  const filter = filterOf(viewModels)
   const decoded = new WeakMap<StoredEvent, unknown>()
   let last: { readonly afterPosition: number; readonly latest: number; readonly events: ReadonlyArray<StoredEvent> } | undefined
 
@@ -169,13 +201,15 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
   const lastError = yield* Ref.make(Option.none<ViewModelError>())
   const stall = yield* Ref.make({ position: -1, attempts: 0 })
 
-  const decoders = new Map(viewModel.aggregates.map((aggregate) => [aggregate.name, makeEventDecoder(aggregate)]))
-  const filter: EventFilter = {
-    aggregateNames: Array.from(decoders.keys()),
-    eventTypes: Object.keys(viewModel.handlers)
-  }
+  // Aggregates with personal fields need the keys, and fail here when they're missing.
+  const keys = Option.getOrUndefined(yield* Effect.serviceOption(PersonalData.Keys))
+  const decoders = new Map(viewModel.aggregates.map((aggregate) => [aggregate.name, makeEventDecoder(aggregate, keys)]))
+  const filter = filterOf([viewModel])
+  const onForget = viewModel.onForget
   const wants = (stored: StoredEvent) =>
-    decoders.has(stored.aggregateName) && Object.hasOwn(viewModel.handlers, stored.type)
+    isForgetting(stored)
+      ? onForget !== undefined
+      : decoders.has(stored.aggregateName) && Object.hasOwn(viewModel.handlers, stored.type)
 
   const decode = (stored: StoredEvent) => decoders.get(stored.aggregateName)!(stored)
 
@@ -188,9 +222,17 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
 
   const handle = (decodeEvent: (stored: StoredEvent) => Effect.Effect<unknown, unknown>) => (stored: StoredEvent) =>
     Effect.gen(function*() {
+      // The filter reads the stream of forgotten subjects only for a view model that erases them.
+      if (isForgetting(stored)) {
+        yield* onForget!(stored.aggregateId, stored).pipe(Causation.causedBy(stored))
+        return
+      }
+      // The filter crosses names with types, so an event can match without a handler.
+      const handler = viewModel.handlers[stored.type]
+      if (handler === undefined) return
       const event = yield* decodeEvent(stored)
       // Commands the handler runs record this event as their cause.
-      yield* viewModel.handlers[stored.type]!(event as never, stored).pipe(Causation.causedBy(stored))
+      yield* handler(event as never, stored).pipe(Causation.causedBy(stored))
     }).pipe(
       Effect.mapError(fail(stored.position)),
       Effect.catchDefect((defect) => Effect.fail(fail(stored.position)(defect)))

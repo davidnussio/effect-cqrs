@@ -1,0 +1,240 @@
+{
+  "environment": {
+    "date": "2026-11-09T20:25:04.636Z",
+    "commit": "8301c33-dirty",
+    "node": "v26.13.0",
+    "effect": "4.0.6",
+    "sqlite": "3.54.1",
+    "cpu": "Apple M4 Pro",
+    "cores": 12,
+    "memoryGb": 24,
+    "platform": "darwin 27.2.0",
+    "scale": 1
+  },
+  "rounds": 5,
+  "plans": {
+    "read one stream": [
+      "SEARCH cqrs_events USING INDEX sqlite_autoindex_cqrs_events_1 (aggregate_name=? AND aggregate_id=? AND version>?)"
+    ],
+    "read for a view model": [
+      "SEARCH cqrs_events USING INDEX cqrs_events_type_idx (type=? AND position>?)",
+      "USE TEMP B-TREE FOR ORDER BY"
+    ],
+    "read one event type": [
+      "SEARCH cqrs_events USING INDEX cqrs_events_type_idx (type=? AND position>?)"
+    ],
+    "version check": [
+      "SEARCH cqrs_events USING COVERING INDEX sqlite_autoindex_cqrs_events_1 (aggregate_name=? AND aggregate_id=?)"
+    ]
+  },
+  "results": [
+    {
+      "scenario": "personal data",
+      "backend": "memory",
+      "label": "plain, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 36705,
+      "range": [
+        30776,
+        42150
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "memory",
+      "label": "plain, cold load of 1000",
+      "count": 100,
+      "rate": 1004,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 0.9709170000000995,
+        "p95": 1.1330830000001697,
+        "p99": 1.5302079999999023,
+        "max": 1.9644160000000284
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "memory",
+      "label": "personal, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 8698,
+      "range": [
+        7120,
+        8763
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "memory",
+      "label": "personal, cold load of 1000",
+      "count": 100,
+      "rate": 79,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 12.458542000000307,
+        "p95": 13.723791000000347,
+        "p99": 14.640833000000384,
+        "max": 16.484042000000045
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-memory",
+      "label": "plain, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 12952,
+      "range": [
+        12617,
+        13226
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-memory",
+      "label": "plain, cold load of 1000",
+      "count": 100,
+      "rate": 213,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 4.577957999999853,
+        "p95": 5.465958000000683,
+        "p99": 6.526499999999942,
+        "max": 7.414084000000003
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-memory",
+      "label": "personal, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 5821,
+      "range": [
+        5655,
+        5909
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-memory",
+      "label": "personal, cold load of 1000",
+      "count": 100,
+      "rate": 58,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 17.11029200000121,
+        "p95": 18.219250000000102,
+        "p99": 18.63304199999766,
+        "max": 19.787374999999884
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-file",
+      "label": "plain, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 7150,
+      "range": [
+        6913,
+        7690
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-file",
+      "label": "plain, cold load of 1000",
+      "count": 100,
+      "rate": 205,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 4.5972079999992275,
+        "p95": 6.649750000000495,
+        "p99": 8.863624999998137,
+        "max": 10.189082999997481
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-file",
+      "label": "personal, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 4127,
+      "range": [
+        4012,
+        4279
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-file",
+      "label": "personal, cold load of 1000",
+      "count": 100,
+      "rate": 57,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 16.896874999998545,
+        "p95": 18.405334000002767,
+        "p99": 35.68329200000153,
+        "max": 36.40191699999923
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "postgres",
+      "label": "plain, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 749,
+      "range": [
+        424,
+        762
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "postgres",
+      "label": "plain, cold load of 1000",
+      "count": 100,
+      "rate": 205,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 4.229332999995677,
+        "p95": 10.742083999997703,
+        "p99": 12.947666000007303,
+        "max": 14.200542000005953
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "postgres",
+      "label": "personal, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 617,
+      "range": [
+        412,
+        643
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "postgres",
+      "label": "personal, cold load of 1000",
+      "count": 100,
+      "rate": 51,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 18.97933400000329,
+        "p95": 22.80587499999092,
+        "p99": 34.23429200000828,
+        "max": 34.96991699998034
+      }
+    }
+  ]
+}

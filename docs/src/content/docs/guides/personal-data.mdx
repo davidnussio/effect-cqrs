@@ -1,0 +1,132 @@
+---
+title: Personal data
+description: Forget a person without rewriting the log, by encrypting their data with a key you can destroy.
+---
+
+The log is append-only, so an event can't be edited or deleted when someone asks to be
+forgotten, as the GDPR allows. Crypto-shredding gets around that: the personal fields of
+an event are encrypted with a key that belongs to the person they describe, the
+*subject*, and forgetting the subject destroys the key. The event stays where it is with
+its amounts, dates and ids, so streams still replay and balances still add up, while its
+personal fields read as a replacement.
+
+## Marking fields
+
+`PersonalData.field` marks a field of an event and says what it reads as once its subject
+is forgotten:
+
+```ts
+import { PersonalData } from "effect-cqrs"
+
+const AccountEvent = Schema.TaggedUnion({
+  AccountOpened: {
+    owner: PersonalData.field(Schema.String, { redacted: "[forgotten]" }),
+    email: Schema.optional(PersonalData.field(Schema.String, { redacted: "forgotten@example.invalid" })),
+    currency: Schema.Literals(["CHF", "EUR"])
+  },
+  TransferSent: {
+    to: Schema.String,
+    beneficiary: PersonalData.field(Schema.String, { redacted: "[forgotten]", subject: "to" }),
+    amount: Schema.Number
+  }
+})
+```
+
+- **The subject** is the aggregate id of the stream, unless `subject` names a property next
+  to the field. Above, `beneficiary` belongs to the account in `to`, so forgetting the
+  receiver of a transfer leaves the sender's events readable.
+- **The replacement** has to be a valid value of the field. It is checked when the field is
+  defined.
+- **Where a field can be:** a property of the event, of a nested struct, optional or
+  nullable. Building an aggregate fails when a personal field sits in an array, a record or
+  an untagged union, or names a subject that isn't next to it.
+
+Schemas stay plain: a personal field is an ordinary string to projections, handlers and
+tests. Encryption happens where `AggregateService` writes to and reads from the store, so
+nothing else can write a personal field unencrypted.
+
+## Keys
+
+An aggregate with personal fields needs `PersonalData.Keys`, and building its service fails
+without it. Each subject gets its own AES-256 key the first time it is written. The key
+store only holds that key wrapped by a `MasterKey`:
+
+```ts
+const Keys = PersonalData.layerSql().pipe(
+  Layer.provide(PersonalData.layerMasterKeyConfig()),
+  Layer.provide(SqliteClient.layer({ filename: "./data/keys.sqlite" }))
+)
+```
+
+| Key store | For |
+| --- | --- |
+| `PersonalData.layerMemory()` | Tests and the browser. Keys are gone after a restart, and with them everything they encrypted. |
+| `PersonalData.layerSql({ table })` | SQLite or PostgreSQL, through any `effect/sql` client |
+
+| Master key | For |
+| --- | --- |
+| `layerMasterKeyConfig()` | 32 bytes in base64 from `PERSONAL_DATA_MASTER_KEY`, with its id in `PERSONAL_DATA_MASTER_KEY_ID` |
+| `layerMasterKey({ keyId, key, previous })` | A key you load yourself. Keys wrapped by older master keys stay readable while they are in `previous`. |
+| `layerMasterKeyEphemeral` | A random key for tests and demos |
+| Your own `MasterKey` | A KMS such as AWS KMS, Google Cloud KMS or HashiCorp Vault, which keeps the master key out of the process |
+
+A `MasterKey` is two functions, `wrap` and `unwrap`, so implementing one on a KMS is a
+call to its encrypt and decrypt endpoints. Changing the master key rewraps subject keys,
+never events.
+
+Keep the key store apart from the events: another database or at least another client, with
+its own permissions and backups. A copy of the keys outlives a forget for as long as the
+copy is kept, so let backups of the key table expire.
+
+## Forgetting
+
+```ts
+yield* PersonalData.forget("alice")
+```
+
+- **The key is destroyed** and the subject is marked as forgotten for good. Commands that
+  would record new personal data of the subject fail with `SubjectForgotten`.
+- **The request is recorded** as a `SubjectForgotten` event in the stream
+  `PersonalData.streamName`, with the current causation and metadata, and no personal data.
+  Running it again records nothing new.
+- **States and snapshots follow.** A state in memory that holds the subject's data is rebuilt
+  the next time it is used. Snapshots are encrypted with the key of every subject they hold
+  data of, so the snapshot becomes unreadable and is deleted on the next read.
+
+Other processes keep using a key they have in memory until it expires, a minute by default.
+Set `cacheTtl` on the key store to change that.
+
+## View models
+
+View models receive events with their personal fields decrypted, so what they store is in
+plaintext. `onForget` lets one erase it:
+
+```ts
+const Owners = ViewModel.make({
+  name: "owners",
+  aggregates: [Account],
+  handlers: {
+    AccountOpened: ({ owner }, { aggregateId }) => OwnerStore.set(aggregateId, owner)
+  },
+  onForget: (subject) => OwnerStore.delete(subject),
+  dispose: OwnerStore.clear
+})
+```
+
+`onForget` runs when the `SubjectForgotten` event comes up, in order with the other events
+and again on every replay. Events after it already carry the replacements. A view model
+without `onForget` only loses the data when it is replayed.
+
+## What it doesn't cover
+
+- **Fields marked later.** Events stored before a field became personal keep it in
+  plaintext, because the log is never rewritten. They still decode.
+- **Copies outside effect-cqrs.** Logs, traces, caches and exports that saw a decrypted value
+  keep it. Don't log payloads of events with personal fields.
+- **Identifiers.** The subject id is stored in plaintext next to each encrypted field, so
+  use an opaque id rather than an email address.
+- **Deleted bytes.** Databases keep overwritten rows for a while in free pages, dead tuples
+  or their write-ahead log, until they are vacuumed.
+
+The cost is one AES-GCM operation per personal field on every write and read, see
+[performance](../../reference/performance/).

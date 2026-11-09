@@ -296,17 +296,30 @@ const AccountCard = (
         </AnimatePresence>
       </motion.div>
 
-      {live && !closed && (
+      {live && (
         <div className="mt-2 flex flex-wrap items-center gap-1">
-          {quick.map((q) => (
-            <Button key={q.label} onClick={() => void send(q.type, { amount: q.amount })}>
-              <span className={q.type === "deposit" ? "text-emerald-300" : "text-amber-300"}>{q.label}</span>
+          {!closed && (
+            <>
+              {quick.map((q) => (
+                <Button key={q.label} onClick={() => void send(q.type, { amount: q.amount })}>
+                  <span className={q.type === "deposit" ? "text-emerald-300" : "text-amber-300"}>{q.label}</span>
+                </Button>
+              ))}
+              <Button onClick={onTransfer} title="Or drag the card onto another one">⇄</Button>
+              <Button tone="ghost" onClick={() => void send("closeAccount", {})} title="Only an empty account can close">
+                ✕
+              </Button>
+            </>
+          )}
+          {row.owner !== "[forgotten]" && (
+            <Button
+              tone="danger"
+              onClick={() => void engine.forget(row.id)}
+              title="Forget the owner: destroys the key that encrypts their name, the events stay"
+            >
+              forget
             </Button>
-          ))}
-          <Button onClick={onTransfer} title="Or drag the card onto another one">⇄</Button>
-          <Button tone="ghost" onClick={() => void send("closeAccount", {})} title="Only an empty account can close">
-            ✕
-          </Button>
+          )}
         </div>
       )}
 
