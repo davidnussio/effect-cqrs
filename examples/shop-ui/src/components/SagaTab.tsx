@@ -57,12 +57,12 @@ const stepsOf = (order: OrderRow, spans: ReadonlyArray<SpanEntry>): ReadonlyArra
   const release = span("release")
   // The race between the payment and the clock, read from the order's state.
   const payment = order.status === "awaiting-payment"
-    ? step("payment", "pay or 1 min", "running", "waiting")
+    ? step("payment", "pay or 15 s", "running", "waiting")
     : order.status === "paid" || order.status === "confirmed"
-    ? step("payment", "pay or 1 min", "ok", "paid")
+    ? step("payment", "pay or 15 s", "ok", "paid")
     : order.status === "rejected" && request !== undefined
-    ? step("payment", "pay or 1 min", "failed", "timed out")
-    : step("payment", "pay or 1 min", "pending", undefined)
+    ? step("payment", "pay or 15 s", "failed", "timed out")
+    : step("payment", "pay or 15 s", "pending", undefined)
   // Then confirm, or expire the order and release its stock.
   const last = confirm !== undefined || payment.state === "ok"
     ? step("confirm", "order.confirm", stateOf(confirm), duration(confirm))
@@ -93,7 +93,7 @@ export const SagaTab = () => {
       <p className="text-xs leading-relaxed text-white/50">
         Each <Code>OrderPlaced</Code> starts a <Code>Fulfil</Code> workflow. Its steps are activities: the engine keeps
         each result, so a replay after a crash skips the steps that finished. The payment step races a{" "}
-        <Code>DurableDeferred</Code>, which <Code>OrderPaid</Code> completes, against a one-minute{" "}
+        <Code>DurableDeferred</Code>, which <Code>OrderPaid</Code> completes, against a 15-second{" "}
         <Code>DurableClock</Code>. Step states come from the activities'
         spans, the execution's from <Code>Fulfil.poll</Code>.
       </p>

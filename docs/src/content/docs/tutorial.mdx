@@ -14,7 +14,7 @@ export const file = "examples/tutorial/shop.ts"
 export const full = shop.replace(/^[ \t]*\/\/ #(region .*|endregion)\n/gm, "")
 
 We build a shop: customers place **orders**, and a **saga** holds the **stock** for each
-one and gives the customer a minute to pay. It confirms a paid order, and rejects one that
+one and gives the customer 15 seconds to pay. It confirms a paid order, and rejects one that
 is out of stock or not paid in time. Every snippet comes from
 [the full example](#the-full-example), which you can run with `pnpm tutorial`.
 
@@ -77,7 +77,7 @@ The run waits for the payment in the middle of the process:
   `DurableDeferred.succeed`, which wakes the run.
 - `DurableDeferred.raceAll` races the payment against `DurableClock.sleep` and saves the
   winner, so a replay takes the same branch.
-- When the minute runs out, the saga rejects the order and releases the stock. If the
+- When the time runs out, the saga rejects the order and releases the stock. If the
   customer paid just before, the order refuses with `OrderAlreadyPaid`, and the saga confirms
   it instead. Each aggregate decides alone, so the order settles any race between the two.
 

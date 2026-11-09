@@ -29,7 +29,7 @@ describe("tutorial", () => {
       Effect.provideService(References.MinimumLogLevel, "None")
     ))
 
-  it.effect("rejects an order that isn't paid within a minute and gives its stock back", () =>
+  it.effect("rejects an order that isn't paid within 15 seconds and gives its stock back", () =>
     Effect.gen(function*() {
       const orders = yield* Orders
       const stocks = yield* Stocks
@@ -46,8 +46,8 @@ describe("tutorial", () => {
         seconds++
       }
       yield* Fiber.join(done)
-      assert.isAtLeast(seconds, 60)
-      assert.isAtMost(seconds, 61)
+      assert.isAtLeast(seconds, 15)
+      assert.isAtMost(seconds, 16)
 
       assert.strictEqual((yield* orders.readModel("order-1")).status, "rejected")
       assert.deepStrictEqual(yield* stocks.readModel("apple"), { available: 5, reserved: {} })

@@ -1,6 +1,6 @@
 /**
  * The tutorial's shop: a saga holds the stock for each order and gives the
- * customer a minute to pay. It uses commands, events, a view model, a saga with
+ * customer 15 seconds to pay. It uses commands, events, a view model, a saga with
  * a timeout, metadata, metrics and an event version. Run it with `pnpm tutorial`.
  */
 import { Context, Duration, Effect, Layer, Metric, Option, Ref, Schema, Stream } from "effect"
@@ -204,7 +204,7 @@ export const OrderListView = ViewModel.make({
 
 // #region saga
 /** How long a customer has to pay once the stock is held. */
-export const paymentTimeout = Duration.minutes(1)
+export const paymentTimeout = Duration.seconds(15)
 
 // The customer's payment, which a run of the saga waits for.
 export const Payment = DurableDeferred.make("Payment")
@@ -327,7 +327,7 @@ export const program = Effect.gen(function*() {
   // #region commands
   yield* stocks.commands.add("apple", { quantity: 5 })
   yield* orders.commands.place("order-1", { sku: "apple", quantity: 3 })
-  // The saga holds the stock and asks for the payment: the customer has a minute to pay.
+  // The saga holds the stock and asks for the payment: the customer has 15 seconds to pay.
   yield* reached("order-1", "PaymentRequested", "OrderRejected")
   yield* orders.commands.pay("order-1", {})
   yield* settled("order-1")

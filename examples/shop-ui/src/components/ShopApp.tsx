@@ -16,7 +16,7 @@ export const ShopApp = () => {
       <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-white/50">
         Shelves and orders are read from the <Code>inventory</Code> and <Code>orders</Code> view models. Placing an
         order records <Code>OrderPlaced</Code>, and the <Code>Fulfil</Code> saga reserves the stock and asks for the
-        payment. Pay within a minute and the saga confirms the order. Otherwise it rejects the order and releases the
+        payment. Pay within 15 seconds and the saga confirms the order. Otherwise it rejects the order and releases the
         stock.
       </p>
 
@@ -34,7 +34,7 @@ export const ShopApp = () => {
         </SectionTitle>
         {list.length === 0 && (
           <div className="glass rounded-2xl px-4 py-8 text-center text-xs text-white/30">
-            No orders yet. Order more than a shelf holds, or let a minute pass without paying, to see the saga reject
+            No orders yet. Order more than a shelf holds, or let 15 seconds pass without paying, to see the saga reject
             one.
           </div>
         )}
