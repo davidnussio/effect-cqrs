@@ -70,6 +70,7 @@
     "docs:preview": "astro preview --root docs",
     "bench": "node bench/performance.ts",
     "stress": "node --expose-gc bench/stress.ts",
+    "qualify": "vitest run test/qualification --reporter=default --reporter=json --outputFile.json=qualification-report/results.json; node test/qualification/report.ts",
     "changeset": "changeset",
     "version-packages": "changeset version"
   },

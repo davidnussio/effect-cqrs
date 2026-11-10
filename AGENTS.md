@@ -15,6 +15,9 @@ CQRS and event sourcing for Effect v4, inspired by `repos/moleculer-cqrs`.
 The example page quotes the demo's code between `// #region name` and `// #endregion` comments, and the docs build fails if one goes missing.
 - `pnpm bench`: measure performance, about 4 minutes
 - `pnpm stress`: run the stress scenarios at full size, about 5 minutes
+- `pnpm qualify`: run the qualification suite in `test/qualification` and write its report to `qualification-report`
+
+The qualification suite traces tests to the requirements in `test/qualification/requirements.ts`, for teams that use the package in regulated software. A test there names the requirement it verifies with `verifies`, and `test/qualification/README.md` says how to add one.
 
 `docker compose up -d --wait` starts a Postgres. With `POSTGRES_URL=postgres://postgres:postgres@localhost:5432/cqrs` set, `pnpm test` covers it too. Without it those tests are skipped.
 

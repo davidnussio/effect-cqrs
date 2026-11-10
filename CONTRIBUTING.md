@@ -50,6 +50,7 @@ adding or upgrading a dependency.
 | `pnpm docs:build` | Build the documentation into `docs/dist`, with the demos, the API reference and `llms.txt` |
 | `pnpm bench` | Measure performance, about 4 minutes |
 | `pnpm stress` | Run the stress scenarios at full size, about 5 minutes |
+| `pnpm qualify` | Run the qualification suite and write its report, see `test/qualification/README.md` |
 
 Before you open a pull request, run `pnpm check`, `pnpm lint` and `pnpm test`, with
 PostgreSQL running if the change touches a store. CI runs the same.

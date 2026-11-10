@@ -1,0 +1,177 @@
+{
+  "Aggregate": [
+    "Historical",
+    "evolve",
+    "historical",
+    "make",
+    "schemaVersion"
+  ],
+  "AggregateService": [
+    "CommandIdReused",
+    "EventDecodeError",
+    "InvalidCommand",
+    "MetricNames",
+    "UnknownCommand",
+    "WrongExpectedVersion",
+    "commandIdKey",
+    "commandTypeKey",
+    "make",
+    "makeEventDecoder",
+    "makeEventEncoder"
+  ],
+  "Causation": [
+    "CurrentCausation",
+    "causedBy",
+    "fromEvent",
+    "withCausation"
+  ],
+  "Checkpoints": [
+    "Checkpoints",
+    "layerMemory"
+  ],
+  "CommandApi": [
+    "CommandRejected",
+    "ConcurrencyConflictError",
+    "InvalidCommandError",
+    "WrongExpectedVersionError",
+    "commandResult",
+    "group",
+    "historyEntry",
+    "layer"
+  ],
+  "EventCatalog": [
+    "IncompatibleSamples",
+    "Sample",
+    "captureSamples",
+    "checkCompatibility",
+    "commands",
+    "document",
+    "events",
+    "readSamples",
+    "saveSamples"
+  ],
+  "EventStore": [
+    "ConcurrencyConflict",
+    "EventStore",
+    "EventStoreError",
+    "StoredEvent",
+    "eventId",
+    "groupCommit",
+    "isOneStream",
+    "layerMemory",
+    "make",
+    "makeMemory",
+    "toStored"
+  ],
+  "EventVersions": [
+    "current",
+    "decoders",
+    "from"
+  ],
+  "Fixture": [
+    "ExpectationFailed",
+    "make"
+  ],
+  "Ids": [
+    "IdGenerator",
+    "next",
+    "sequential"
+  ],
+  "Leases": [
+    "Leases",
+    "layerMemory",
+    "layerPostgres",
+    "makePostgres",
+    "memory"
+  ],
+  "Metadata": [
+    "CurrentMetadata",
+    "Metadata",
+    "layer",
+    "withMetadata"
+  ],
+  "Outbox": [
+    "OutboxError",
+    "Outboxes",
+    "layer",
+    "make"
+  ],
+  "ParkedEvents": [
+    "ParkedEvent",
+    "ParkedEvents",
+    "layerMemory",
+    "layerSql",
+    "makeMemory",
+    "makeSql",
+    "migrations"
+  ],
+  "PersonalData": [
+    "Cipher",
+    "Keys",
+    "MasterKey",
+    "PersonalDataError",
+    "Sealed",
+    "SubjectForgotten",
+    "field",
+    "fieldsByTag",
+    "fieldsOf",
+    "forget",
+    "ivLength",
+    "keyLength",
+    "layerMasterKey",
+    "layerMasterKeyConfig",
+    "layerMasterKeyEphemeral",
+    "layerMemory",
+    "layerSql",
+    "make",
+    "makeMasterKey",
+    "makeMemoryBackend",
+    "makeSqlBackend",
+    "migrations",
+    "open",
+    "openText",
+    "seal",
+    "sealText",
+    "streamName",
+    "subjectForgottenType",
+    "tagLength",
+    "webCrypto"
+  ],
+  "PersonalDataNode": [
+    "cipher",
+    "layerCipher"
+  ],
+  "PostgresEventStore": [
+    "layer",
+    "layerCheckpoints",
+    "make",
+    "migrations"
+  ],
+  "Saga": [
+    "CausationSchema",
+    "CommandOutcome",
+    "command",
+    "layer",
+    "make",
+    "start",
+    "toLayer",
+    "workflow"
+  ],
+  "SqliteEventStore": [
+    "layer",
+    "layerCheckpoints",
+    "make",
+    "migrations"
+  ],
+  "ViewModel": [
+    "MetricNames",
+    "UnknownViewModel",
+    "ViewModelError",
+    "ViewModels",
+    "layer",
+    "make",
+    "park",
+    "sqlTransaction",
+    "stall"
+  ]
+}
