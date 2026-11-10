@@ -10,3 +10,6 @@ docs/.astro/
 
 # Built by `pnpm build` and packed by `pnpm pack`
 *.tgz
+
+# Written by `pnpm example:server`
+todo-server.sqlite*

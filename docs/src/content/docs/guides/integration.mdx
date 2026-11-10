@@ -1,0 +1,208 @@
+---
+title: Integration
+description: Serve aggregates over HTTP, describe their events, publish them to other systems and keep tenants apart.
+---
+
+import { Aside } from "@astrojs/starlight/components"
+
+An aggregate service runs in one process. These modules connect it to the rest of a system:
+
+| Module | For |
+| --- | --- |
+| `CommandApi` | Commands and reads over HTTP, with OpenAPI |
+| `EventCatalog` | JSON Schema of events and commands, and a guard against breaking stored events |
+| `Outbox` | Publishing events to Kafka, NATS, SQS and the like |
+| `LayerMap` | One store per tenant, a pattern rather than a module |
+
+`examples/server` puts the first one together with a view model, SQLite or PostgreSQL and
+OpenTelemetry. Run it with `pnpm example:server`.
+
+## HTTP
+
+`CommandApi.group` builds an `HttpApiGroup` from an aggregate, and `CommandApi.layer`
+implements it with an aggregate service:
+
+```ts
+import { HttpApi, HttpApiBuilder, HttpApiScalar } from "effect/http-api"
+import { AggregateService, CommandApi } from "effect-cqrs"
+
+const TodoApi = CommandApi.group(Todo, {
+  state: TodoState, // a schema of the state, for GET /todo/:aggregateId
+  errors: [TodoAlreadyCreated, TodoNotFound, TodoAlreadyDeleted]
+})
+
+class Api extends HttpApi.make("api").add(TodoApi) {}
+
+const Routes = Layer.mergeAll(
+  HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
+    Layer.provide(CommandApi.layer(Api, "todo", AggregateService.make(Todo)))
+  ),
+  HttpApiScalar.layer(Api, { path: "/docs" })
+)
+```
+
+| Endpoint | Does |
+| --- | --- |
+| `POST /todo/:aggregateId/<command>` | Runs the command with the body as payload, and answers with the `CommandResult` |
+| `GET /todo/:aggregateId/history` | `history`, with optional `payload`, `startTime` and `finishTime` in the query |
+| `GET /todo/:aggregateId` | `readModel`, with an optional `finishTime`. Only with `state` |
+
+The group is an ordinary `HttpApiGroup`: `name` and `prefix` change its identifier and
+path, and middleware, OpenAPI annotations and `HttpApiClient` work as with any other.
+A request without a body runs a command whose payload has no required fields.
+
+Failures map to status codes:
+
+| Status | When | Body |
+| --- | --- | --- |
+| `400` | The body isn't JSON or doesn't match the payload schema | `InvalidCommand` |
+| `409` | Another writer kept winning the race for the stream | `ConcurrencyConflict` |
+| `422` | The handler failed with an error in `errors` | The error, with its fields |
+| `422` | The handler failed with another error | `CommandRejected`, with the error's tag and message |
+| `500` | The store, decoding or the keys failed | Empty |
+
+A command's errors are Effect types rather than schemas, so the ones a client should see
+in full are listed in `errors`. They are answered with `422`, or with their own
+`httpApiStatus`: `Schema.TaggedError<X>()("X", { ... }, { httpApiStatus: 404 })`.
+
+`HttpApiTest.groups(Api, ["todo"])` gives a typed client that calls the handlers without a
+server, which is how `test/CommandApi.test.ts` tests them.
+
+## Event catalog
+
+`EventCatalog` describes events and commands as JSON Schema, for teams that consume them:
+
+```ts
+import { EventCatalog } from "effect-cqrs"
+
+EventCatalog.events(Account)   // every event, with every version from EventVersions
+EventCatalog.commands(Account) // every command payload
+EventCatalog.document([Account, Transfer], { title: "Bank", version: "1.0.0" }) // AsyncAPI 3.0
+```
+
+The schemas describe the JSON form of each event, as `Schema.toCodecJson` encodes it. In
+the AsyncAPI document each aggregate has a channel of events it sends and one of commands it
+receives. A message keeps its older versions under `x-versions` and the paths of its
+personal fields under `x-personal-fields`.
+
+### Compatibility guard
+
+A change to an event schema can make events already in the store unreadable. The guard
+keeps a few stored payloads of every event type and version in a file, and a test checks
+that the current aggregate still decodes them, the way a store read does:
+
+```ts
+// Once in a while, against a copy of production data:
+const samples = yield* EventCatalog.captureSamples([Account])
+yield* EventCatalog.saveSamples("test/samples/account.json", samples)
+
+// In a test:
+it.effect("still reads stored events", () =>
+  Effect.gen(function*() {
+    const samples = yield* EventCatalog.readSamples("test/samples/account.json")
+    yield* EventCatalog.checkCompatibility(Account, samples)
+  }).pipe(Effect.provide(NodeFileSystem.layer)))
+```
+
+`checkCompatibility` fails with `IncompatibleSamples`, which lists each sample that no
+longer decodes and why. It returns how many samples it checked. `saveSamples` adds to the
+file and leaves the samples already there, so it keeps the shapes the store held over time.
+
+<Aside>
+In the store, [personal fields](../personal-data/) are encrypted. `captureSamples` puts each
+field's `redacted` value in their place, so samples hold no personal data, can be committed,
+and are checked without keys. What the guard can't see is a personal field whose plaintext
+type changed: the redacted value is checked, not real data.
+</Aside>
+
+## Outbox
+
+An outbox publishes events to another system as integration events:
+
+```ts
+import { Outbox } from "effect-cqrs"
+
+const TodoOutbox = Outbox.make({
+  name: "todo-outbox",
+  aggregates: [Todo],
+  messages: {
+    TodoCreated: ({ title }, { aggregateId }) => ({ type: "todo.created.v1", payload: { id: aggregateId, title } }),
+    TodoDeleted: (_, { aggregateId }) => ({ type: "todo.deleted.v1", payload: { id: aggregateId } })
+  },
+  publish: (messages) => producer.send(messages), // an Effect
+  batchSize: 100,
+  linger: "10 millis"
+})
+
+const Publishing = Outbox.layer([TodoOutbox]).pipe(
+  Layer.provide(Layer.merge(SqliteEventStore.layer(), SqliteEventStore.layerCheckpoints()))
+)
+```
+
+`messages` maps events by tag, and only those are published. A mapping that returns
+`undefined` skips the event. Without `messages`, every event is published as
+`<aggregate>.<tag>` with its JSON form as payload. Each `Message` carries the payload with
+the event's stream, version, position, timestamp, `correlationId` and `causationId`.
+
+An outbox is a [view model](../view-models/): it reads the store from its checkpoint, so
+events stored while it was down are published when it starts, and nothing is lost between
+storing an event and publishing it. Delivery is at least once:
+
+- Messages go out in batches of up to `batchSize`, when a batch is full or `linger` after
+  its first message. The checkpoint never moves past a message that wasn't published.
+- A failed batch is retried in order, with growing pauses, until it succeeds. Once
+  `batchSize` messages wait, the outbox stops reading the store, and the `status` of
+  `Outbox.Outboxes` shows the failure.
+- After a crash, messages published since the last checkpoint are published again.
+  `Message.id` is the event's id, such as `todo/a@1`, and stays the same, so consumers
+  deduplicate on it.
+
+Checkpoints should be durable. With `Checkpoints.layerMemory` an outbox publishes
+everything again after every restart. In tests, `Outboxes`' `published(position)` waits until
+everything up to a position is published.
+
+<Aside type="caution">
+Events reach the mappings decrypted. Leave personal fields out of integration events, or
+other systems keep data that `PersonalData.forget` can no longer erase.
+</Aside>
+
+## Tenants
+
+Every service here works on whatever `EventStore` it is given, so tenants are kept apart by
+giving each one its own store. Effect's `LayerMap` builds the layers of a tenant the first
+time it is asked for, keeps them while they are used, and releases them after
+`idleTimeToLive`:
+
+```ts
+import { LayerMap } from "effect"
+
+class Tenants extends LayerMap.Service<Tenants>()("app/Tenants", {
+  lookup: (tenant: string) => {
+    const tables = { eventsTable: `${tenant}_events`, checkpointsTable: `${tenant}_checkpoints` }
+    return Layer.mergeAll(Todos.layer, ViewModel.layer([TodoList])).pipe(
+      Layer.provideMerge(Layer.mergeAll(
+        SqliteEventStore.layer(tables),
+        SqliteEventStore.layerCheckpoints(tables),
+        Layer.fresh(TodoListStore.layer)
+      ))
+    )
+  },
+  dependencies: [SqliteClient.layer({ filename: "events.sqlite" })],
+  idleTimeToLive: "5 minutes"
+}) {}
+
+const listForTenant = (tenant: string) => listTodos.pipe(Effect.provide(Tenants.get(tenant)))
+```
+
+- The tenants share the database client of `dependencies`, and each has its own tables, so
+  the same aggregate id in two tenants is two streams. PostgreSQL works the same way, with
+  `PostgresEventStore`. Another database per tenant also works: put the client in `lookup`.
+- A layer value is built once per `LayerMap`, so in-memory state of a tenant's own, like the
+  list above, needs `Layer.fresh`.
+- Table names come from the tenant id. `sql(name)` quotes identifiers, but check the id
+  against a known alphabet before it gets there.
+- View models and outboxes of a tenant run while its layers are alive. A tenant evicted for
+  being idle catches up from its checkpoints the next time it is used.
+- Personal data keys go per tenant too, with `PersonalData.layerSql({ table })`.
+
+`test/MultiTenancy.test.ts` runs this on SQLite and PostgreSQL.
