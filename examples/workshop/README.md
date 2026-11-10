@@ -22,7 +22,7 @@ after it is forgotten.
 | `server/http.ts` | The handlers of the API |
 | `server/live.ts` | The live streams: events, presence, metrics, spans, and the AsyncAPI document |
 | `server/limits.ts` | The rate limits |
-| `server/main.ts` | The server: configuration, storage, Swagger |
+| `server/main.ts` | The server: configuration, storage, Scalar |
 | `server/vite.config.ts` | Bundles the server into one file for the Docker image |
 | `ui/` | The UI, a Vite and React app, and the control room at `#sala` |
 | `load.ts` | The rehearsal: many virtual participants at once |
@@ -80,11 +80,11 @@ server named by `VITE_API_URL`.
 | `GET /stream/events` | Server-Sent Events: events with personal fields hidden, and presence |
 | `GET /stream/control` | Server-Sent Events: everything the control room shows. Admin only |
 | `GET /asyncapi.json` | The AsyncAPI 3 document of the events and the two streams |
-| `GET /docs` | Swagger UI |
+| `GET /docs` | The API reference in Scalar, where you can try the routes |
 | `GET /openapi.json` | The OpenAPI document |
 
 Every route under `/me`, `/participants`, `/shop` and `/admin` needs `Authorization: Bearer <token>`. In
-Swagger, call `/auth/join`, copy the token and paste it under **Authorize**. The reads
+Scalar, call `/auth/join`, copy the token and paste it in the bearer field of **Authentication**. The reads
 take a `position` from an earlier answer and wait until the view models have seen it,
 so a client reads its own writes.
 

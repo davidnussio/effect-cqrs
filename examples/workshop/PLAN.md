@@ -61,7 +61,7 @@ Usa solo `effect-cqrs` ed Effect v4.
 
 ### API e documentazione
 
-- **R18 REST.** `HttpApi` di Effect con OpenAPI, Swagger UI (`HttpApiSwagger`) su `/docs` e
+- **R18 REST.** `HttpApi` di Effect con OpenAPI, Scalar (`HttpApiScalar`) su `/docs` e
   `/openapi.json`. La UI usa lo stesso `api.ts` con `HttpApiClient`, quindi è tipata.
 - **R19 Stream.** Server-Sent Events con `effect/encoding/Sse`: un canale personale (il mio
   conto e i miei ordini), uno pubblico (eventi, con i dati personali solo come

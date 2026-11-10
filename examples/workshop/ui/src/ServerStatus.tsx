@@ -58,7 +58,7 @@ export const ServerStatus = () => {
       )}
       {status._tag === "Failed" && <span className="font-mono">{status.message}</span>}
       <span className="ml-auto flex gap-3">
-        <a className="hover:text-zinc-300" href={`${apiUrl}/docs`} target="_blank" rel="noreferrer">Swagger</a>
+        <a className="hover:text-zinc-300" href={`${apiUrl}/docs`} target="_blank" rel="noreferrer">API</a>
         <a className="hover:text-zinc-300" href={`${apiUrl}/openapi.json`} target="_blank" rel="noreferrer">
           openapi.json
         </a>

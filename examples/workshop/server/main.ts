@@ -25,7 +25,7 @@ import { SqliteClient } from "@effect/sql-sqlite-node"
 import { Config, Effect, Layer, Option, Redacted, Tracer } from "effect"
 import { PersonalData, PostgresEventStore, SqliteEventStore } from "effect-cqrs"
 import { HttpRouter } from "effect/http"
-import { HttpApiBuilder, HttpApiSwagger } from "effect/http-api"
+import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
 import { createServer } from "node:http"
 import { Api } from "../api.ts"
 import { AutomationLive } from "../domain/automation.ts"
@@ -108,7 +108,12 @@ const Cors = Layer.unwrap(Effect.gen(function*() {
 
 const Routes = Layer.mergeAll(
   HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(Layer.provide(Handlers)),
-  HttpApiSwagger.layer(Api, { path: "/docs" }),
+  // Scalar's script is served inline, so the page works without reaching a CDN. The
+  // bearer scheme is picked already: paste the token from /auth/join and send.
+  HttpApiScalar.layer(Api, {
+    path: "/docs",
+    scalar: { forceDarkModeState: "dark", authentication: { preferredSecurityScheme: "bearer" } }
+  }),
   Cors
 )
 

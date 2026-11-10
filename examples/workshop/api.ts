@@ -427,5 +427,24 @@ export class Api extends HttpApi.make("workshop-api")
   .add(Shop)
   .add(Admin)
   .add(Live)
-  .annotateMerge(OpenApi.annotations({ title: "effect-cqrs workshop", version: "0.5.0" }))
+  .annotateMerge(OpenApi.annotations({ title: "effect-cqrs workshop", version: "0.5.0", transform: lowercaseSchemes }))
 {}
+
+/**
+ * Effect writes the scheme as `Bearer`, as the header carries it. Schemes are case
+ * insensitive, but Scalar only recognises `bearer` and otherwise asks for a username
+ * and a password, so the document spells it in lower case.
+ */
+function lowercaseSchemes(spec: Record<string, any>): Record<string, any> {
+  const schemes: Record<string, { readonly type?: string; readonly scheme?: string }> =
+    spec.components?.securitySchemes ?? {}
+  const securitySchemes = Object.fromEntries(
+    Object.entries(schemes).map(([name, scheme]) => [
+      name,
+      scheme.type === "http" && scheme.scheme !== undefined
+        ? { ...scheme, scheme: scheme.scheme.toLowerCase() }
+        : scheme
+    ])
+  )
+  return { ...spec, components: { ...spec.components, securitySchemes } }
+}
