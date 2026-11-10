@@ -489,7 +489,11 @@ export const makeMemory: Effect.Effect<EventStore["Service"], EventStoreError> =
       Effect.sync(() => {
         const source = candidates(filter)
         const batch: Array<StoredEvent> = []
-        for (let index = firstAfter(source, afterPosition); index < source.length && batch.length < limit; index++) {
+        // In the array of one stream an event's index is its version minus one.
+        const start = isOneStream(filter)
+          ? Math.max(firstAfter(source, afterPosition), filter.afterVersion ?? 0)
+          : firstAfter(source, afterPosition)
+        for (let index = start; index < source.length && batch.length < limit; index++) {
           const event = source[index]!
           if (matches(filter, event)) batch.push(event)
         }

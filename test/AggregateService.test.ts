@@ -378,6 +378,18 @@ describe("AggregateService", () => {
   })
 
   describe("command ids", () => {
+    it.effect("returns only the events of the command run again, later in its stream", () =>
+      Effect.gen(function*() {
+        const todos = yield* makeTodos
+        yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" })
+        yield* todos.commands.completeTodo("todo-1", {}, { commandId: "complete" })
+
+        const again = yield* todos.commands.completeTodo("todo-1", {}, { commandId: "complete" })
+
+        assert.deepStrictEqual(again.events.map((event) => event._tag), ["TodoCompleted"])
+        assert.strictEqual(again.version, 2)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
     const Events = Schema.TaggedUnion({ Deposited: { amount: Schema.Number }, Fee: { amount: Schema.Number } })
     const Account = Aggregate.make<number>()({
       name: "account",
