@@ -3,7 +3,7 @@ import { Effect, Layer, References, Schema } from "effect"
 import { AggregateService, CommandApi, EventStore } from "effect-cqrs"
 import { HttpRouter, HttpServer } from "effect/http"
 import { HttpApi, HttpApiBuilder, HttpApiTest, OpenApi } from "effect/http-api"
-import { Todo, TodoAlreadyCreated, TodoAlreadyDeleted } from "../examples/todo/aggregate.ts"
+import { Todo, TodoAlreadyCreated, TodoAlreadyDeleted } from "./fixtures/todo.ts"
 
 const TodoState = Schema.Union([
   Schema.Struct({ status: Schema.Literal("missing") }),

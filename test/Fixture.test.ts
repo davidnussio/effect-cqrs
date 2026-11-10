@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Arbitrary, Cause, DateTime, Effect, Exit, Schema } from "effect"
 import { Aggregate, Fixture } from "effect-cqrs"
-import { Todo, TodoEvent } from "../examples/todo/aggregate.ts"
+import { Todo, TodoEvent } from "./fixtures/todo.ts"
 
 const at = DateTime.makeUnsafe(0)
 const created = TodoEvent.cases.TodoCreated.make({ title: "Buy Milk", createdAt: at })

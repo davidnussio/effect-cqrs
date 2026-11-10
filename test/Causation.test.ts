@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Schema, Stream } from "effect"
 import { Aggregate, AggregateService, Causation, Checkpoints, EventStore, ViewModel } from "effect-cqrs"
-import { Todo } from "../examples/todo/aggregate.ts"
+import { Todo } from "./fixtures/todo.ts"
 
 const AuditEvent = Schema.TaggedUnion({ Noted: { todo: Schema.String } })
 const Audit = Aggregate.make<number>()({

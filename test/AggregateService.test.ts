@@ -4,7 +4,7 @@ import { Cause, DateTime, Duration, Effect, Exit, Fiber, Layer, Ref, Schema, Str
 import { Aggregate, AggregateService, EventStore, Ids, SqliteEventStore } from "effect-cqrs"
 import { TestClock } from "effect/testing"
 import { postgresUrl, storage } from "../bench/common.ts"
-import { Todo, TodoEvent } from "../examples/todo/aggregate.ts"
+import { Todo, TodoEvent } from "./fixtures/todo.ts"
 
 const makeTodos = AggregateService.make(Todo)
 

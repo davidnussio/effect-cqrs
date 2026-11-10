@@ -7,8 +7,7 @@ import { TestClock } from "effect/testing"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Todo } from "../examples/todo/aggregate.ts"
-import { listTodos, TodoList, TodoListStore } from "../examples/todo/view-model.ts"
+import { listTodos, Todo, TodoList, TodoListStore } from "./fixtures/todo.ts"
 
 const Storage = Layer.merge(EventStore.layerMemory, Checkpoints.layerMemory)
 

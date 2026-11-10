@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Layer, Schema, Stream } from "effect"
 import { Aggregate, AggregateService, Checkpoints, EventStore, Metadata, ViewModel } from "effect-cqrs"
-import { Todo } from "../examples/todo/aggregate.ts"
+import { Todo } from "./fixtures/todo.ts"
 
 const NoteEvent = Schema.TaggedUnion({ Noted: { text: Schema.String } })
 const Notes = Aggregate.make<ReadonlyArray<Metadata.Metadata>>()({

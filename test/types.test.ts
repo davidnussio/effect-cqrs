@@ -1,12 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
 import { Aggregate, type AggregateService, type EventStore, EventVersions, Fixture, ViewModel } from "effect-cqrs"
-import {
-  Todo,
-  type TodoAlreadyCreated,
-  type TodoAlreadyDeleted,
-  type TodoNotFound
-} from "../examples/todo/aggregate.ts"
+import { Todo, type TodoAlreadyCreated, type TodoAlreadyDeleted, type TodoNotFound } from "./fixtures/todo.ts"
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
 

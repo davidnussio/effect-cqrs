@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Deferred, Effect, Layer, Ref, References } from "effect"
 import { AggregateService, Checkpoints, EventStore, Outbox } from "effect-cqrs"
-import { Todo } from "../examples/todo/aggregate.ts"
+import { Todo } from "./fixtures/todo.ts"
 
 /** Collects what is published, in calls, failing the first `failures` calls. */
 const makePublisher = (failures = 0) =>

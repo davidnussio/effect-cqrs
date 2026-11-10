@@ -3,7 +3,7 @@ import { Effect, Exit, Layer, Ref, References, Schedule, Scope } from "effect"
 import { AggregateService, Checkpoints, EventStore, Leases, ViewModel } from "effect-cqrs"
 import { SqlClient } from "effect/sql"
 import { postgresClient, postgresStorage, postgresUrl } from "../bench/common.ts"
-import { Todo } from "../examples/todo/aggregate.ts"
+import { Todo } from "./fixtures/todo.ts"
 
 const statusOf = ViewModel.ViewModels.use((viewModels) => Effect.map(viewModels.status, ([status]) => status!))
 

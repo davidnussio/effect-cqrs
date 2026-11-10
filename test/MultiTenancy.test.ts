@@ -8,8 +8,7 @@ import { Context, Effect, Layer, LayerMap } from "effect"
 import { AggregateService, PostgresEventStore, SqliteEventStore, ViewModel } from "effect-cqrs"
 import { SqlClient } from "effect/sql"
 import { postgresClient, postgresUrl } from "../bench/common.ts"
-import { Todo } from "../examples/todo/aggregate.ts"
-import { listTodos, TodoList, TodoListStore } from "../examples/todo/view-model.ts"
+import { listTodos, Todo, TodoList, TodoListStore } from "./fixtures/todo.ts"
 
 class Todos extends Context.Service<Todos, AggregateService.AggregateService<typeof Todo>>()("test/Todos") {}
 

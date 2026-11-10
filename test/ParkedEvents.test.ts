@@ -7,7 +7,7 @@ import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { postgresClient, postgresUrl } from "../bench/common.ts"
-import { Todo } from "../examples/todo/aggregate.ts"
+import { Todo } from "./fixtures/todo.ts"
 
 const Storage = Layer.merge(EventStore.layerMemory, Checkpoints.layerMemory)
 
