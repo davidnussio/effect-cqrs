@@ -29,6 +29,7 @@ import { HttpApiBuilder, HttpApiSwagger } from "effect/http-api"
 import { createServer } from "node:http"
 import { Api } from "../api.ts"
 import { BankLive } from "../domain/bank.ts"
+import { seedCatalog, ShopLive } from "../domain/shop.ts"
 import * as Auth from "./auth.ts"
 import { Handlers, StoreKind } from "./http.ts"
 
@@ -76,7 +77,15 @@ const MasterKey = Layer.unwrap(Effect.gen(function*() {
 /** The keys of personal data, in the same database as the events. */
 const Keys = PersonalData.layerSql().pipe(Layer.provide(MasterKey))
 
-const Bank = BankLive.pipe(Layer.provideMerge(Keys), Layer.provideMerge(Storage))
+// Lists the products the shop opens with. Products already listed stay as they are.
+const Seed = Layer.effectDiscard(seedCatalog)
+
+const Workshop = Seed.pipe(
+  Layer.provideMerge(ShopLive),
+  Layer.provideMerge(BankLive),
+  Layer.provideMerge(Keys),
+  Layer.provideMerge(Storage)
+)
 
 const Cors = Layer.unwrap(Effect.gen(function*() {
   const origins = yield* Config.option(Config.String("CORS_ORIGIN"))
@@ -100,6 +109,6 @@ const HttpLive = Layer.unwrap(Effect.gen(function*() {
   return HttpRouter.serve(Routes).pipe(Layer.provide(NodeHttpServer.layer(createServer, { port })))
 }))
 
-const Main = HttpLive.pipe(Layer.provide(Auth.layerConfig), Layer.provide(Bank))
+const Main = HttpLive.pipe(Layer.provide(Auth.layerConfig), Layer.provide(Workshop))
 
 Layer.launch(Main).pipe(NodeRuntime.runMain)

@@ -94,39 +94,39 @@ Il conto parte da `examples/bank-ui/src/domain/account.ts`, lo shop dal tutorial
 `examples/tutorial/shop.ts`. Le differenze sono queste.
 
 **`account`**
-- Comandi: `openAccount { nickname }`, `deposit`, `withdraw`, `sendTransfer`,
-  `receiveTransfer`, `refundTransfer`, `payOrder { orderId, amount }`,
-  `refundOrder { orderId, amount }`, `closeAccount`.
+- Comandi: `openAccount { nickname }`, `deposit`, `sendTransfer`, `receiveTransfer`,
+  `refundTransfer`, `payOrder { orderId, amount }`, `refundOrder { orderId, amount,
+  reason }`, `closeAccount`.
 - `payOrder` e `refundOrder` ricordano gli `orderId` già visti, così una saga che ripete
   il passo non addebita due volte.
 - `closeAccount` emette `MoneyWithdrawn` del residuo e `AccountClosed`.
 - Il conto non sa quali ordini sono ancora in coda, quindi la chiusura passa da
-  `POST /me/close`: annulla i backorder aperti del partecipante (dal view model
-  `Orders`), aspetta che i rimborsi siano accreditati, poi esegue `closeAccount`.
+  `POST /me/close`: annulla i backorder aperti del partecipante e li rimborsa nella
+  stessa richiesta, poi esegue `closeAccount` e `PersonalData.forget`.
 
 **`product`**
-- Comandi: `list { name, price, emoji }` (bot o admin), `restock { quantity }` (bot),
-  `reserve { orderId, quantity }`, `enqueue { orderId, quantity }`, `dequeue { orderId }`,
-  `allocate {}`.
-- Lo stato tiene la disponibilità e la coda FIFO dei backorder. `allocate` assegna la
-  merce disponibile alla coda in ordine e emette un `BackorderAllocated` per ordine.
+- Comandi: `list { name, emoji, price, stock }`, `restock { quantity }`,
+  `take { orderId, quantity }`, `enqueue { orderId, quantity }`, `dequeue { orderId }`.
+- Lo stato tiene la disponibilità e la coda FIFO dei backorder. `restock` ed `enqueue`
+  assegnano subito la merce disponibile alla coda, in ordine, con un
+  `BackorderAllocated` per ordine. Il primo ordine che non ci sta ferma l'assegnazione.
+- Con una coda, `take` rifiuta: chi arriva dopo si mette in fila.
 
 **`order`**
-- Comandi: `place { productId, quantity, address? }`, `markPaid`, `markReserved`,
-  `markBackordered`, `fulfil`, `cancel`, `reject { reason }`.
-- `address` è `PersonalData.field` con `subject: "customer"`.
-- Stati: `placed → paid → reserved → fulfilled`, oppure `paid → backordered → fulfilled
-  | cancelled`, oppure `placed → rejected` se il saldo non basta.
+- Comandi: `place`, `markPaid`, `markBackordered`, `fulfil`, `cancel`, `reject { reason }`.
+  Tranne `place` e `cancel`, non fanno niente se l'ordine ha già passato quel punto.
+- Stati: `placed → paid → fulfilled`, oppure `paid → backordered → fulfilled | cancelled`,
+  oppure `rejected` (saldo insufficiente, conto chiuso o esaurito senza backorder).
+- L'indirizzo di spedizione di R8 è rimandato: il nickname basta come dato personale.
 
 **Saghe**
-- `Transfer` (esiste già in bank-ui): `TransferSent` porta a `receiveTransfer` sul
-  destinatario; se fallisce, `refundTransfer`.
-- `Checkout`: `OrderPlaced` porta a `payOrder`, poi `reserve`. Se c'è merce, segue
-  `markReserved` e `fulfil`; altrimenti `enqueue` e `markBackordered`. Se il pagamento
-  fallisce, `reject`; se un passo dopo il pagamento fallisce, `refundOrder` e `reject`.
-- `Restock`: `ProductRestocked` porta a `allocate`; ogni `BackorderAllocated` porta a
-  `fulfil` dell'ordine.
-- `Cancel`: `OrderCancelled` porta a `dequeue` e `refundOrder`.
+- `Transfer`: `TransferSent` porta a `receiveTransfer` sul destinatario; se fallisce,
+  `refundTransfer`.
+- `Checkout`: `OrderPlaced` porta a `payOrder`, poi `markPaid` e `take`. Se c'è merce,
+  `fulfil`; altrimenti, con il backorder, `enqueue` e `markBackordered`, senza,
+  `refundOrder` e `reject`. Se il pagamento fallisce, `reject`.
+- `Fulfil`: `BackorderAllocated` porta a `fulfil` dell'ordine.
+- `RefundCancelled`: `OrderCancelled` porta a `refundOrder`.
 - La chiusura chiama `PersonalData.forget` subito dopo `closeAccount`, nella stessa
   richiesta: non serve una saga.
 
@@ -145,7 +145,7 @@ stock, coda), `Orders` (per cliente e globali), `Ledger` (movimenti per conto),
         ├─ HttpApi: REST, /docs, /openapi.json, /asyncapi.json
         ├─ middleware: CORS, token del server → CurrentUser, rate limit
         ├─ AggregateService: account, product, order
-        ├─ Saga: Transfer, Checkout, Restock, Cancel
+        ├─ Saga: Transfer, Checkout, Fulfil, RefundCancelled
         ├─ ViewModel: Participants, Catalog, Orders, Ledger, Totals
         ├─ Bot e simulatore di clienti (fiber con Schedule)
         └─ Hub: PubSub di eventi, presenze, metriche, span → SSE
@@ -175,15 +175,17 @@ Ogni fase finisce con `pnpm check` e `pnpm test` verdi e con il deploy aggiornat
    `Ledger`, endpoint, test in `test/Workshop.test.ts`, chiusura con oblio del nickname.
    *Fatto quando* due browser aprono un conto, ricaricano e si scambiano soldi, e un
    bonifico a un conto chiuso torna indietro.
-4. **Shop e backorder.** Aggregate `product` e `order`, saghe `Checkout`, `Restock` e
-   `Cancel`, view model `Catalog`, `Orders` e `Totals`.
+4. **Shop e backorder.** *Fatta*, tranne `Totals`, rimandato alla sala di controllo.
+   Aggregate `product` e `order`, saghe `Checkout`, `Fulfil` e `RefundCancelled`, view
+   model `Catalog` e `Orders`, rifornimento manuale per l'admin, chiusura del conto che
+   annulla e rimborsa i backorder. Il catalogo è di prova: caffè, cornetto, succo,
+   cioccolato, quaderno, cappellino e cuffie, queste ultime esaurite in partenza.
    *Fatto quando* un test lancia 20 acquisti concorrenti sull'ultimo pezzo e ne passa uno
    solo, e un backorder viene evaso al rifornimento successivo o annullato con
    rimborso.
 5. **Bot.** Bot di rifornimento con parametri modificabili e simulatore di clienti.
-   La chiusura deve anche annullare i backorder aperti prima di pagare il saldo.
-   *Fatto quando* il bot rifornisce da solo, si ferma e riparte dalla sala di
-   controllo, e un conto con backorder aperti si chiude con i rimborsi accreditati.
+   *Fatto quando* il bot rifornisce da solo e si ferma e riparte dalla sala di
+   controllo.
 6. **Tempo reale e AsyncAPI.** Hub con `PubSub`, tre stream SSE, presenze, metriche Effect
    (`Metric`), tracer che pubblica le span, `/asyncapi.json`.
    *Fatto quando* `curl -N` su ciascuno stream mostra eventi, presenze e metriche, e il

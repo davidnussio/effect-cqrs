@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer, Option, Redacted, References, Schedule } from "effect"
+import { Effect, Layer, Option, Redacted, Ref, References, Schedule } from "effect"
 import { EventStore, PersonalData } from "effect-cqrs"
 import { HttpClientRequest, HttpServer } from "effect/http"
 import { HttpApiMiddleware, HttpApiTest } from "effect/http-api"
@@ -7,6 +7,7 @@ import { TestClock } from "effect/testing"
 import { Api, Authorization } from "../examples/workshop/api.ts"
 import { forgotten } from "../examples/workshop/domain/account.ts"
 import { Accounts, BankLive } from "../examples/workshop/domain/bank.ts"
+import { Orders, OrdersStore, Products, reasons, seedCatalog, ShopLive } from "../examples/workshop/domain/shop.ts"
 import * as Auth from "../examples/workshop/server/auth.ts"
 import { Handlers, StoreKind } from "../examples/workshop/server/http.ts"
 
@@ -19,8 +20,9 @@ const Tokens = Layer.effect(
 
 const Keys = PersonalData.layerMemory().pipe(Layer.provide(PersonalData.layerMasterKeyEphemeral))
 
-const Server = Layer.mergeAll(Handlers, HttpServer.layerServices).pipe(
+const Server = Layer.mergeAll(Handlers, HttpServer.layerServices, Layer.effectDiscard(seedCatalog)).pipe(
   Layer.provide(Tokens),
+  Layer.provideMerge(ShopLive),
   Layer.provideMerge(BankLive),
   Layer.provideMerge(Keys),
   Layer.provideMerge(EventStore.layerMemory),
@@ -29,7 +31,7 @@ const Server = Layer.mergeAll(Handlers, HttpServer.layerServices).pipe(
 
 /** An in-memory client that sends `token`, or no token at all. */
 const clientAs = (token?: string) =>
-  HttpApiTest.groups(Api, ["system", "auth", "me", "bank"]).pipe(
+  HttpApiTest.groups(Api, ["system", "auth", "me", "bank", "shop", "admin"]).pipe(
     Effect.provide(HttpApiMiddleware.layerClient(
       Authorization,
       ({ next, request }) => next(token === undefined ? request : HttpClientRequest.bearerToken(request, token))
@@ -191,6 +193,152 @@ describe("workshop", () => {
         assert.strictEqual((yield* accounts.readModel("alice")).balance, 50)
       }).pipe(Effect.provide(Server), quiet))
   })
+})
+
+/** Joins, adds `amount` and returns the session with a client for it. */
+const participant = (nickname: string, amount: number, code?: string) =>
+  Effect.gen(function*() {
+    const session = yield* join(nickname, code)
+    const client = yield* clientAs(session.token)
+    if (amount > 0) yield* client.me.deposit({ payload: { amount } })
+    return { ...session, client }
+  })
+
+/** Waits on the real clock, for tests where many fibers retry with delays. */
+const waitLive = <A, E, R>(self: Effect.Effect<A, E, R>, done: (a: A) => boolean) =>
+  self.pipe(Effect.repeat({ until: done, schedule: Schedule.spaced("20 millis"), times: 500 }))
+
+const settled = (status: string) => status === "fulfilled" || status === "rejected" || status === "cancelled"
+
+describe("workshop shop", () => {
+  it.live("sells the last piece to exactly one of 20 buyers and refunds the others", () =>
+    Effect.gen(function*() {
+      const buyers = yield* Effect.forEach(Array.from({ length: 20 }, (_, i) => `buyer${i}`), (name) =>
+        participant(name, 100))
+      // The cap is 25 and there is one in stock.
+      yield* Effect.forEach(buyers, ({ client }) =>
+        client.shop.order({ payload: { productId: "cappellino", quantity: 1, backorder: false } }), {
+        concurrency: "unbounded"
+      })
+
+      const store = yield* OrdersStore
+      const orders = yield* waitLive(
+        Effect.map(Ref.get(store), (map) =>
+          Array.from(map.values())),
+        (list) =>
+          list.length === 20 && list.every((order) =>
+            settled(order.status)
+          )
+      )
+      const fulfilled = orders.filter((order) => order.status === "fulfilled")
+      assert.strictEqual(fulfilled.length, 1)
+      assert.deepStrictEqual(
+        new Set(orders.filter((order) => order.status === "rejected").map((order) => order.reason)),
+        new Set([reasons.outOfStock])
+      )
+
+      const accounts = yield* Accounts
+      const balances = yield* Effect.forEach(buyers, ({ user }) =>
+        Effect.map(accounts.readModel(user.id), (state) =>
+          [user.id, state.balance] as const))
+      for (const [id, balance] of balances) {
+        assert.strictEqual(balance, id === fulfilled[0]!.customer ? 75 : 100)
+      }
+      const cap = yield* (yield* Products).readModel("cappellino")
+      assert.strictEqual(cap.available, 0)
+    }).pipe(Effect.provide(Server), quiet), 30_000)
+
+  it.live("queues backorders, serves them in order and lets the last one cancel", () =>
+    Effect.gen(function*() {
+      const presenter = yield* participant("Presenter", 0, adminCode)
+      const buyers = yield* Effect.forEach(["Anna", "Bruno", "Carla"], (name) => participant(name, 100))
+
+      // The headphones are out of stock: each order waits in the queue, in the order placed.
+      const placed = []
+      for (const { client } of buyers) {
+        const { orderId, position } = yield* client.shop.order({
+          payload: { productId: "cuffie", quantity: 1, backorder: true }
+        })
+        yield* waitLive(
+          client.me.orders({ query: { position } }),
+          (orders) => orders.some((order) => order.id === orderId && order.status === "backordered")
+        )
+        placed.push(orderId)
+      }
+      const [first, second, third] = placed as [string, string, string]
+      const queued = yield* buyers[0]!.client.shop.products({ query: {} })
+      assert.deepStrictEqual(queued.find((p) => p.id === "cuffie")?.queue.map((w) => w.orderId), placed)
+
+      const refused = yield* Effect.flip(buyers[0]!.client.admin.restock({
+        params: { productId: "cuffie" },
+        payload: { quantity: 2 }
+      }))
+      assert.strictEqual(refused._tag, "Forbidden")
+      yield* presenter.client.admin.restock({ params: { productId: "cuffie" }, payload: { quantity: 2 } })
+
+      const orders = yield* Orders
+      yield* waitLive(
+        Effect.forEach([first, second], (id) => orders.readModel(id)),
+        (states) => states.every((state) => state.status === "fulfilled")
+      )
+      assert.strictEqual((yield* orders.readModel(third)).status, "backordered")
+
+      const late = yield* Effect.flip(buyers[0]!.client.me.cancelOrder({ params: { orderId: first } }))
+      assert.strictEqual(late._tag, "OrderNotCancellable")
+      const notTheirs = yield* Effect.flip(buyers[0]!.client.me.cancelOrder({ params: { orderId: third } }))
+      assert.strictEqual(notTheirs._tag, "OrderNotFound")
+
+      yield* buyers[2]!.client.me.cancelOrder({ params: { orderId: third } })
+      const accounts = yield* Accounts
+      const carla = yield* waitLive(accounts.readModel(buyers[2]!.user.id), (state) => state.balance === 100)
+      assert.strictEqual(carla.balance, 100)
+      assert.strictEqual((yield* accounts.readModel(buyers[0]!.user.id)).balance, 40)
+    }).pipe(Effect.provide(Server), quiet), 30_000)
+
+  it.live("rejects an order the customer can't pay for", () =>
+    Effect.gen(function*() {
+      const poor = yield* participant("Poor", 0)
+      const { orderId, position } = yield* poor.client.shop.order({
+        payload: { productId: "caffe", quantity: 1, backorder: false }
+      })
+      const orders = yield* waitLive(
+        poor.client.me.orders({ query: { position } }),
+        (list) => list.some((order) => order.id === orderId && settled(order.status))
+      )
+      assert.deepStrictEqual(orders.map(({ reason, status }) => [status, reason]), [[
+        "rejected",
+        reasons.insufficientFunds
+      ]])
+    }).pipe(Effect.provide(Server), quiet), 30_000)
+
+  it.live("gives back waiting orders before paying out a closing account", () =>
+    Effect.gen(function*() {
+      const leaving = yield* participant("Leaving", 100)
+      const { orderId } = yield* leaving.client.shop.order({
+        payload: { productId: "cuffie", quantity: 1, backorder: true }
+      })
+      const orders = yield* Orders
+      yield* waitLive(orders.readModel(orderId), (state) => state.status === "backordered")
+      // The view the close reads from has to know the order is waiting.
+      yield* waitLive(leaving.client.me.orders({ query: {} }), (list) => list[0]?.status === "backordered")
+
+      yield* leaving.client.me.close()
+      const accounts = yield* Accounts
+      const history = yield* accounts.history(leaving.user.id, { payload: true })
+      assert.deepStrictEqual(history.map(({ type }) => type), [
+        "AccountOpened",
+        "MoneyDeposited",
+        "PurchasePaid",
+        "PurchaseRefunded",
+        "MoneyWithdrawn",
+        "AccountClosed"
+      ])
+      const withdrawn = history.find(({ type }) => type === "MoneyWithdrawn")
+      assert.deepStrictEqual(withdrawn?.payload, { _tag: "MoneyWithdrawn", amount: 100 })
+      assert.strictEqual((yield* orders.readModel(orderId)).status, "cancelled")
+      const cuffie = yield* (yield* Products).readModel("cuffie")
+      assert.deepStrictEqual(cuffie.queue, [])
+    }).pipe(Effect.provide(Server), quiet), 30_000)
 })
 
 /** Repeats `self` until `done` holds, moving the test clock so the saga's fibers run. */

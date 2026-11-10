@@ -9,13 +9,26 @@ import {
   Api,
   Authorization,
   CurrentUser,
+  Forbidden,
   type Me,
+  OrderNotFound,
   RecipientNotFound,
   Unauthorized,
   type User,
   WrongAdminCode
 } from "../api.ts"
 import { Accounts, ledgerOf, LedgerStore, listParticipants, ParticipantsStore } from "../domain/bank.ts"
+import {
+  CatalogStore,
+  listCatalog,
+  OrderNotCancellable,
+  Orders,
+  ordersOf,
+  OrdersStore,
+  ProductNotFound,
+  Products,
+  reasons
+} from "../domain/shop.ts"
 import { type InvalidToken, Tokens } from "./auth.ts"
 
 export class StoreKind extends Context.Service<StoreKind, "postgres" | "sqlite">()("workshop/StoreKind") {}
@@ -114,11 +127,32 @@ const AuthHandlers = HttpApiBuilder.group(Api, "auth", (handlers) =>
 const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
   Effect.gen(function*() {
     const accounts = yield* Accounts
+    const products = yield* Products
+    const orders = yield* Orders
     const catchUp = yield* makeCatchUp
     const ledgers = yield* LedgerStore
+    const orderList = yield* OrdersStore
     const forgetting = yield* Effect.context<PersonalData.Keys | EventStore.EventStore>()
 
     const balanceOf = (id: string) => Effect.map(Effect.orDie(accounts.readModel(id)), (state) => state.balance)
+
+    /**
+     * Takes an order out of its product's queue and cancels it. Fails with
+     * `OrderNotCancellable` when the goods reached it first.
+     */
+    const cancel = Effect.fnUntraced(function*(customer: string, orderId: string) {
+      const order = yield* Effect.orDie(orders.readModel(orderId))
+      if (order.status === "none" || order.customer !== customer) return yield* new OrderNotFound({ orderId })
+      if (order.status !== "backordered") {
+        return yield* new OrderNotCancellable({ orderId, status: order.status })
+      }
+      yield* products.commands.dequeue(order.productId, { orderId }).pipe(
+        expecting("NotInQueue"),
+        Effect.catchTag("NotInQueue", () => Effect.fail(new OrderNotCancellable({ orderId, status: "fulfilled" })))
+      )
+      const result = yield* orders.commands.cancel(orderId, {}).pipe(expecting("OrderNotCancellable"))
+      return { result, total: order.total }
+    })
 
     return handlers
       .handle("get", () =>
@@ -158,9 +192,42 @@ const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
           yield* catchUp(query.position)
           return yield* ledgerOf(user.id).pipe(Effect.provideService(LedgerStore, ledgers))
         }))
+      .handle("orders", ({ query }) =>
+        Effect.gen(function*() {
+          const user = yield* CurrentUser
+          yield* catchUp(query.position)
+          return yield* ordersOf(user.id).pipe(Effect.provideService(OrdersStore, orderList))
+        }))
+      .handle("cancelOrder", ({ params: { orderId } }) =>
+        Effect.gen(function*() {
+          const user = yield* CurrentUser
+          const { result } = yield* cancel(user.id, orderId)
+          // The refund follows in a saga, which `position` doesn't wait for.
+          return { position: result.position }
+        }))
       .handle("close", () =>
         Effect.gen(function*() {
           const user = yield* CurrentUser
+          // Orders still waiting give their money back first, so the payout includes it.
+          // The refund saga would pay it later, on a closed account: refunding here
+          // makes that a no-op.
+          const waiting = yield* ordersOf(user.id).pipe(
+            Effect.provideService(OrdersStore, orderList),
+            Effect.map((list) => list.filter((order) => order.status === "backordered"))
+          )
+          yield* Effect.forEach(waiting, (order) =>
+            cancel(user.id, order.id).pipe(
+              Effect.andThen(
+                accounts.commands.refundOrder(user.id, {
+                  orderId: order.id,
+                  amount: order.total,
+                  reason: reasons.cancelled
+                })
+              ),
+              // Delivered in the meantime: nothing to give back.
+              Effect.catchTag(["OrderNotCancellable", "OrderNotFound"], () => Effect.void),
+              Effect.orDie
+            ), { discard: true })
           const result = yield* accounts.commands.closeAccount(user.id, {}).pipe(expecting("AccountNotOpen"))
           // Destroys the key of the nickname: the events stay, and read `[forgotten]`.
           yield* PersonalData.forget(user.id).pipe(Effect.provideContext(forgetting), Effect.orDie)
@@ -179,7 +246,55 @@ const BankHandlers = HttpApiBuilder.group(Api, "bank", (handlers) =>
       ))
   }))
 
-/** Every group of the API, needing the bank's services and the authorization middleware. */
-export const Handlers = Layer.mergeAll(SystemHandlers, AuthHandlers, MeHandlers, BankHandlers).pipe(
+const ShopHandlers = HttpApiBuilder.group(Api, "shop", (handlers) =>
+  Effect.gen(function*() {
+    const products = yield* Products
+    const orders = yield* Orders
+    const catchUp = yield* makeCatchUp
+    const catalog = yield* CatalogStore
+    return handlers
+      .handle("products", ({ query }) =>
+        Effect.andThen(catchUp(query.position), listCatalog.pipe(Effect.provideService(CatalogStore, catalog))))
+      .handle("order", ({ payload: { backorder, productId, quantity } }) =>
+        Effect.gen(function*() {
+          const user = yield* CurrentUser
+          const product = yield* Effect.orDie(products.readModel(productId))
+          if (product.status !== "listed") {
+            return yield* new ProductNotFound({ productId })
+          }
+          const orderId = yield* Ids.next
+          // The order is only placed here: paying and taking the goods is the saga's job.
+          const result = yield* Effect.orDie(orders.commands.place(orderId, {
+            customer: user.id,
+            productId,
+            quantity,
+            total: product.price * quantity,
+            backorder
+          }))
+          return { position: result.position, orderId }
+        }))
+  }))
+
+const AdminHandlers = HttpApiBuilder.group(Api, "admin", (handlers) =>
+  Effect.gen(function*() {
+    const products = yield* Products
+    return handlers.handle("restock", ({ params: { productId }, payload: { quantity } }) =>
+      Effect.gen(function*() {
+        const user = yield* CurrentUser
+        if (user.role !== "admin") return yield* new Forbidden({ message: "Only the presenter can restock" })
+        const result = yield* products.commands.restock(productId, { quantity }).pipe(expecting("ProductNotFound"))
+        return { position: result.position }
+      }))
+  }))
+
+/** Every group of the API, needing the bank's and the shop's services and the authorization middleware. */
+export const Handlers = Layer.mergeAll(
+  SystemHandlers,
+  AuthHandlers,
+  MeHandlers,
+  BankHandlers,
+  ShopHandlers,
+  AdminHandlers
+).pipe(
   Layer.provideMerge(AuthorizationLayer)
 )

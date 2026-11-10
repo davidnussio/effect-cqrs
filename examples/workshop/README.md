@@ -2,15 +2,17 @@
 
 A bank and a multi-user shop on `effect-cqrs`, for a hands-on workshop: participants
 use it from their phones while a big screen shows what happens inside. The plan, in
-Italian, is in [PLAN.md](PLAN.md). So far it has the bank: participants join with a
-nickname, add money, send it to each other and close their account, which forgets
-their nickname.
+Italian, is in [PLAN.md](PLAN.md). So far it has the bank and the shop: participants
+join with a nickname, add money, send it to each other, buy from a shared catalog
+with real stock, wait in a queue for what is sold out, and close their account,
+which forgets their nickname.
 
 | Path | What it is |
 | --- | --- |
 | `api.ts` | The HTTP API, shared by the server and the UI's typed client |
 | `domain/account.ts` | The account aggregate |
 | `domain/bank.ts` | The account service, the transfer saga and the view models |
+| `domain/shop.ts` | The product and order aggregates, the order sagas and the shop's view models |
 | `server/auth.ts` | The tokens the server issues |
 | `server/http.ts` | The handlers of the API |
 | `server/main.ts` | The server: configuration, storage, Swagger |
@@ -53,13 +55,34 @@ server named by `VITE_API_URL`.
 | `GET /me/ledger` | The caller's movements |
 | `POST /me/close` | Pays out the balance, closes the account and forgets the nickname |
 | `GET /participants` | Everyone who joined, with their balance |
+| `GET /shop/products` | The catalog, with stock and the queue of waiting orders |
+| `POST /shop/orders` | Places an order; a saga then pays for it and takes the goods |
+| `GET /me/orders` | The caller's orders and where each one is |
+| `POST /me/orders/:orderId/cancel` | Cancels an order waiting in the queue and gives the money back |
+| `POST /admin/products/:productId/restock` | Adds stock, which goes to the queue first. Admin only |
 | `GET /docs` | Swagger UI |
 | `GET /openapi.json` | The OpenAPI document |
 
-Every route under `/me` and `/participants` needs `Authorization: Bearer <token>`. In
+Every route under `/me`, `/participants`, `/shop` and `/admin` needs `Authorization: Bearer <token>`. In
 Swagger, call `/auth/join`, copy the token and paste it under **Authorize**. The reads
 take a `position` from an earlier answer and wait until the view models have seen it,
 so a client reads its own writes.
+
+## The shop
+
+An order touches three aggregates, so a saga carries it: it takes the money from
+the account, then the goods from the product. When there are none, an order placed
+with `backorder: true` joins the product's queue; any other gets its money back and
+is rejected. Each step does nothing the second time, so the saga can run again after
+a restart.
+
+The queue lives in the product aggregate. Restocking hands the goods to waiting
+orders in the order they arrived, in the same command, so two orders never get the
+same piece. While a queue exists, new orders join it instead of taking goods ahead
+of it. A waiting order can be cancelled; one the goods already reached can't.
+
+Closing an account cancels its waiting orders and refunds them before paying out the
+balance.
 
 ## Authentication
 

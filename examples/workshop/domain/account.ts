@@ -31,6 +31,10 @@ export const AccountEvent = Schema.TaggedUnion({
   TransferSent: { transferId: Schema.String, to: Schema.String, amount: Amount },
   TransferReceived: { transferId: Schema.String, from: Schema.String, amount: Amount },
   TransferRefunded: { transferId: Schema.String, to: Schema.String, amount: Amount, reason: Schema.String },
+  /** Money taken for an order in the shop. */
+  PurchasePaid: { orderId: Schema.String, amount: Amount },
+  /** Money given back for an order the shop couldn't deliver or the customer cancelled. */
+  PurchaseRefunded: { orderId: Schema.String, amount: Amount, reason: Schema.String },
   AccountClosed: { closedAt: Schema.DateTimeUtc }
 })
 export type AccountEvent = typeof AccountEvent.Type
@@ -60,11 +64,22 @@ export interface AccountState {
   readonly received: ReadonlyArray<string>
   /** Transfers already refunded, for the same reason. */
   readonly refunded: ReadonlyArray<string>
+  /** Orders paid, and orders refunded, so a saga that runs a step again pays or refunds once. */
+  readonly purchases: ReadonlyArray<string>
+  readonly purchaseRefunds: ReadonlyArray<string>
 }
 
 export const AccountStatus = Schema.Literals(["none", "open", "closed"])
 
-export const initialAccount: AccountState = { status: "none", nickname: "", balance: 0, received: [], refunded: [] }
+export const initialAccount: AccountState = {
+  status: "none",
+  nickname: "",
+  balance: 0,
+  received: [],
+  refunded: [],
+  purchases: [],
+  purchaseRefunds: []
+}
 
 export const Account = Aggregate.make<AccountState>()({
   name: "account",
@@ -84,6 +99,16 @@ export const Account = Aggregate.make<AccountState>()({
       ...state,
       balance: state.balance + amount,
       refunded: [...state.refunded, transferId]
+    }),
+    PurchasePaid: (state, { amount, orderId }) => ({
+      ...state,
+      balance: state.balance - amount,
+      purchases: [...state.purchases, orderId]
+    }),
+    PurchaseRefunded: (state, { amount, orderId }) => ({
+      ...state,
+      balance: state.balance + amount,
+      purchaseRefunds: [...state.purchaseRefunds, orderId]
     }),
     AccountClosed: (state) => ({ ...state, status: "closed" })
   }
@@ -132,6 +157,23 @@ export const Account = Aggregate.make<AccountState>()({
       return AccountEvent.cases.TransferRefunded.make({ transferId, to, amount, reason })
     })
   })
+  .command("payOrder", {
+    payload: Schema.Struct({ orderId: Schema.NonEmptyString, amount: Amount }),
+    handler: Effect.fnUntraced(function*(state, { amount, orderId }, { aggregateId }) {
+      if (state.purchases.includes(orderId)) return []
+      if (state.status !== "open") return yield* new AccountNotOpen({ accountId: aggregateId })
+      if (state.balance < amount) return yield* new InsufficientFunds({ balance: state.balance, requested: amount })
+      return AccountEvent.cases.PurchasePaid.make({ orderId, amount })
+    })
+  })
+  .command("refundOrder", {
+    payload: Schema.Struct({ orderId: Schema.NonEmptyString, amount: Amount, reason: Schema.String }),
+    // Like a transfer's refund, it goes through on a closed account too.
+    handler: Effect.fnUntraced(function*(state, { amount, orderId, reason }) {
+      if (!state.purchases.includes(orderId) || state.purchaseRefunds.includes(orderId)) return []
+      return AccountEvent.cases.PurchaseRefunded.make({ orderId, amount, reason })
+    })
+  })
   .command("closeAccount", {
     payload: Schema.Struct({}),
     handler: Effect.fnUntraced(function*(state, _, { aggregateId }) {
@@ -147,14 +189,13 @@ export const balanceDelta = (event: AccountEvent): number => {
     case "MoneyDeposited":
     case "TransferReceived":
     case "TransferRefunded":
+    case "PurchaseRefunded":
       return event.amount
     case "MoneyWithdrawn":
     case "TransferSent":
+    case "PurchasePaid":
       return -event.amount
     default:
       return 0
   }
 }
-
-/** The errors of the account's commands, as the HTTP API answers them. */
-export const accountErrors = [AccountAlreadyOpened, AccountNotOpen, InsufficientFunds, SameAccountTransfer] as const

@@ -14,6 +14,7 @@ import {
   SameAccountTransfer
 } from "./domain/account.ts"
 import { LedgerEntry, Participant } from "./domain/bank.ts"
+import { CatalogProduct, OrderNotCancellable, OrderQuantity, ProductNotFound, ShopOrder } from "./domain/shop.ts"
 
 // ---------------------------------------------------------------------------
 // System
@@ -114,6 +115,17 @@ export const Receipt = Schema.Struct({
 })
 export type Receipt = typeof Receipt.Type
 
+export class OrderNotFound extends Schema.TaggedError<OrderNotFound>()("OrderNotFound", {
+  orderId: Schema.String
+}, { httpApiStatus: 404 }) {}
+
+export class Forbidden extends Schema.TaggedError<Forbidden>()("Forbidden", {
+  message: Schema.String
+}, { httpApiStatus: 403 }) {}
+
+/** Where a command left the log, to pass as `position` to the reads that follow. */
+export const Ack = Schema.Struct({ position: Schema.Number })
+
 export class RecipientNotFound extends Schema.TaggedError<RecipientNotFound>()("RecipientNotFound", {
   accountId: Schema.String
 }, { httpApiStatus: 404 }) {}
@@ -142,10 +154,21 @@ export const MyAccount = HttpApiGroup.make("me")
       .annotate(OpenApi.Summary, "The caller's movements, newest first")
   )
   .add(
+    HttpApiEndpoint.get("orders", "/me/orders", { query: positionQuery, success: Schema.Array(ShopOrder) })
+      .annotate(OpenApi.Summary, "The caller's orders, newest first")
+  )
+  .add(
+    HttpApiEndpoint.post("cancelOrder", "/me/orders/:orderId/cancel", {
+      params: { orderId: Schema.String },
+      success: Ack,
+      error: [OrderNotFound, OrderNotCancellable]
+    }).annotate(OpenApi.Summary, "Cancels an order waiting for goods, and gives its money back")
+  )
+  .add(
     HttpApiEndpoint.post("close", "/me/close", { success: Receipt, error: AccountNotOpen })
       .annotate(
         OpenApi.Summary,
-        "Pays out the balance, closes the account and forgets the caller's personal data"
+        "Cancels waiting orders, pays out the balance, closes the account and forgets the caller's personal data"
       )
   )
   .middleware(Authorization)
@@ -163,10 +186,55 @@ export const Bank = HttpApiGroup.make("bank")
   )
   .middleware(Authorization)
 
+// ---------------------------------------------------------------------------
+// The shop
+// ---------------------------------------------------------------------------
+
+export const Shop = HttpApiGroup.make("shop")
+  .add(
+    HttpApiEndpoint.get("products", "/shop/products", {
+      query: positionQuery,
+      success: Schema.Array(CatalogProduct)
+    }).annotate(OpenApi.Summary, "What the shop sells, with stock and the queue of waiting orders")
+  )
+  .add(
+    HttpApiEndpoint.post("order", "/shop/orders", {
+      payload: Schema.Struct({
+        productId: Schema.NonEmptyString,
+        quantity: OrderQuantity,
+        /** Wait in the queue if the product is out of stock, instead of getting the money back. */
+        backorder: Schema.Boolean
+      }),
+      success: Schema.Struct({ ...Ack.fields, orderId: Schema.String }),
+      error: ProductNotFound
+    }).annotate(
+      OpenApi.Summary,
+      "Places an order. A saga then pays for it and takes the goods: follow it in /me/orders"
+    )
+  )
+  .middleware(Authorization)
+
+// ---------------------------------------------------------------------------
+// The presenter's controls
+// ---------------------------------------------------------------------------
+
+export const Admin = HttpApiGroup.make("admin")
+  .add(
+    HttpApiEndpoint.post("restock", "/admin/products/:productId/restock", {
+      params: { productId: Schema.String },
+      payload: Schema.Struct({ quantity: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 50 })) }),
+      success: Ack,
+      error: [Forbidden, ProductNotFound]
+    }).annotate(OpenApi.Summary, "Adds stock, which goes to the waiting orders first. Admin only")
+  )
+  .middleware(Authorization)
+
 export class Api extends HttpApi.make("workshop-api")
   .add(System)
   .add(Auth)
   .add(MyAccount)
   .add(Bank)
-  .annotateMerge(OpenApi.annotations({ title: "effect-cqrs workshop", version: "0.2.0" }))
+  .add(Shop)
+  .add(Admin)
+  .annotateMerge(OpenApi.annotations({ title: "effect-cqrs workshop", version: "0.3.0" }))
 {}

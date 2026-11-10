@@ -114,6 +114,8 @@ export const ParticipantsView = ViewModel.make({
     TransferSent: moveBalance,
     TransferReceived: moveBalance,
     TransferRefunded: moveBalance,
+    PurchasePaid: moveBalance,
+    PurchaseRefunded: moveBalance,
     AccountClosed: (_, { aggregateId }) =>
       updateParticipant(aggregateId, (participant) => ({ ...participant, status: "closed" }))
   },
@@ -144,6 +146,7 @@ export const LedgerEntry = Schema.Struct({
   /** The other account of a transfer. */
   counterparty: Schema.optionalKey(Schema.String),
   transferId: Schema.optionalKey(Schema.String),
+  orderId: Schema.optionalKey(Schema.String),
   reason: Schema.optionalKey(Schema.String)
 })
 export type LedgerEntry = typeof LedgerEntry.Type
@@ -172,7 +175,9 @@ const record = (event: AccountEvent, { aggregateId, position, timestamp }: Event
       { counterparty: event.to, transferId: event.transferId } :
       {}),
     ...(event._tag === "TransferReceived" ? { counterparty: event.from, transferId: event.transferId } : {}),
-    ...(event._tag === "TransferRefunded" ? { reason: event.reason } : {})
+    ...(event._tag === "PurchasePaid" ? { orderId: event.orderId } : {}),
+    ...(event._tag === "PurchaseRefunded" ? { orderId: event.orderId } : {}),
+    ...(event._tag === "TransferRefunded" || event._tag === "PurchaseRefunded" ? { reason: event.reason } : {})
   }
   return LedgerStore.use((store) =>
     Ref.update(store, (ledgers) => {
@@ -194,7 +199,9 @@ export const LedgerView = ViewModel.make({
     MoneyWithdrawn: record,
     TransferSent: record,
     TransferReceived: record,
-    TransferRefunded: record
+    TransferRefunded: record,
+    PurchasePaid: record,
+    PurchaseRefunded: record
   }
 })
 

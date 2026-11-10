@@ -29,6 +29,8 @@ const load = async (position?: number): Promise<Outcome<Data>> => {
 const labels: Record<string, string> = {
   MoneyDeposited: "Ricarica",
   MoneyWithdrawn: "Saldo pagato alla chiusura",
+  PurchasePaid: "Acquisto nello shop",
+  PurchaseRefunded: "Rimborso di un acquisto",
   TransferSent: "Bonifico a",
   TransferReceived: "Bonifico da",
   TransferRefunded: "Rimborso del bonifico a"
