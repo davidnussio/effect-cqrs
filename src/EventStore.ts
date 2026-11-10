@@ -307,7 +307,9 @@ interface Pending {
  * other, and at most `maxEvents` events unless a single append has more. An append
  * left out waits for the next group, where it comes first, so appends to a stream
  * are written in the order they came. Groups of waiting appends are written by a
- * fiber of the `Scope`.
+ * fiber of the `Scope`. An append interrupted while it waits is not written, while
+ * one interrupted once its group is being written may be: a caller that times out
+ * should retry with a `commandId`, which finds the first result if there is one.
  */
 export const groupCommit = Effect.fnUntraced(function*(
   appendGroup: (inputs: ReadonlyArray<AppendInput>) => Effect.Effect<ReadonlyArray<AppendExit>>,
@@ -388,6 +390,14 @@ export const groupCommit = Effect.fnUntraced(function*(
   const writeGroup = (group: ReadonlyArray<Pending>) =>
     appendGroup(group.map(({ input }) => input)).pipe(Effect.onExit((exit) => complete(group, exit)))
 
+  // An append whose writer is interrupted before its group is taken is never written,
+  // so a timeout that fails a command doesn't leave its events in the store.
+  const withdraw = (pending: Pending) =>
+    Effect.sync(() => {
+      const index = waiting.indexOf(pending)
+      if (index >= 0) waiting.splice(index, 1)
+    })
+
   const lead = (input: AppendInput) => {
     if (!contended && !(gather && ++appends % probeEvery === 0)) {
       lastGroup = 1
@@ -397,8 +407,10 @@ export const groupCommit = Effect.fnUntraced(function*(
       )
     }
     const result = Deferred.makeUnsafe<ReadonlyArray<StoredEvent>, ConcurrencyConflict | EventStoreError>()
-    waiting.push({ input, result })
+    const pending = { input, result }
+    waiting.push(pending)
     return Effect.yieldNow.pipe(
+      Effect.onInterrupt(() => withdraw(pending)),
       Effect.andThen(Effect.suspend(() => {
         const group = nextGroup()
         lastGroup = group.length
@@ -425,8 +437,9 @@ export const groupCommit = Effect.fnUntraced(function*(
           return restore(lead(input)).pipe(Effect.ensuring(release))
         }
         const result = Deferred.makeUnsafe<ReadonlyArray<StoredEvent>, ConcurrencyConflict | EventStoreError>()
-        waiting.push({ input, result })
-        return restore(Deferred.await(result))
+        const pending = { input, result }
+        waiting.push(pending)
+        return restore(Deferred.await(result)).pipe(Effect.onInterrupt(() => withdraw(pending)))
       })
     )
 })

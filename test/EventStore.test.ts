@@ -336,6 +336,22 @@ describe("EventStore.groupCommit", () => {
       assert.deepStrictEqual(groups, [["a"], ["b", "c", "d"]])
     }).pipe(Effect.scoped))
 
+  it.effect("doesn't write an append interrupted while it waits", () =>
+    Effect.gen(function*() {
+      const { append, groups, latch } = yield* recording
+      const first = yield* Effect.forkChild(append(input("a")))
+      yield* Effect.yieldNow
+      const abandoned = yield* Effect.forkChild(append(input("b")))
+      const kept = yield* Effect.forkChild(append(input("c")))
+      yield* Effect.yieldNow
+      yield* Fiber.interrupt(abandoned)
+      yield* latch.open
+      yield* Fiber.join(first)
+      yield* Fiber.join(kept)
+
+      assert.deepStrictEqual(groups, [["a"], ["c"]])
+    }).pipe(Effect.scoped))
+
   it.effect("keeps a second append to a stream, or one past maxEvents, for the next group", () =>
     Effect.gen(function*() {
       const { append, groups, latch } = yield* recording
