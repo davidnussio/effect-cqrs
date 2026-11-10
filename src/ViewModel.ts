@@ -32,6 +32,7 @@ import { makeEventDecoder } from "./AggregateService.ts"
 import * as Causation from "./Causation.ts"
 import { Checkpoints } from "./Checkpoints.ts"
 import { type EventFilter, eventId, EventStore, type EventStoreError, type StoredEvent } from "./EventStore.ts"
+import { withoutAmbient } from "./internal/ambient.ts"
 import * as Leases from "./Leases.ts"
 import * as ParkedEvents from "./ParkedEvents.ts"
 import * as PersonalData from "./PersonalData.ts"
@@ -295,7 +296,7 @@ interface RunnerServices {
 const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail: Tail, services: RunnerServices) {
   const store = yield* EventStore
   const checkpoints = yield* Checkpoints
-  const context = yield* Effect.context<Context<V>>()
+  const context = withoutAmbient(yield* Effect.context<Context<V>>())
   const provide = <A, E>(effect: Effect.Effect<A, E, any>) =>
     Effect.provideContext(effect, context) as Effect.Effect<A, E>
   const semaphore = yield* Semaphore.make(1)

@@ -25,7 +25,9 @@ export class EventStore extends Context.Service<EventStore, {
   ambient values such as `Causation.CurrentCausation`. Read it with `Ref.use(f)`.
 - `Effect.provideContext(context)` merges, and `context` wins over what the caller
   provided. A service that captured its context at construction hides the caller's
-  references, so read those outside the `provideContext`.
+  references, so read those outside the `provideContext`. It also hides the caller's
+  span and log annotations: strip them from the captured context first with
+  `withoutAmbient` from `src/internal/ambient.ts`.
 
 ## Schema
 

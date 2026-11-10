@@ -84,6 +84,27 @@ describe("AggregateService", () => {
       }).pipe(Effect.provide(EventStore.layerMemory)))
   })
 
+  it.effect("runs handlers under the caller's span, not the one the service was built in", () =>
+    Effect.gen(function*() {
+      const parents: Array<string | undefined> = []
+      const Traced = Aggregate.make<number>()({
+        name: "traced",
+        events: Schema.TaggedUnion({ Ticked: {} }),
+        initial: 0,
+        projection: { Ticked: (total) => total + 1 }
+      }).command("tick", {
+        payload: Schema.Struct({}),
+        handler: () =>
+          Effect.map(Effect.currentParentSpan, (span) => {
+            parents.push(span._tag === "Span" ? span.name : undefined)
+            return { _tag: "Ticked" as const }
+          })
+      })
+      const traced = yield* AggregateService.make(Traced).pipe(Effect.withSpan("startup"))
+      yield* traced.commands.tick("a", {}).pipe(Effect.withSpan("request"))
+      assert.deepStrictEqual(parents, ["traced.tick"])
+    }).pipe(Effect.provide(EventStore.layerMemory)))
+
   describe("handlers using services and failures", () => {
     const Events = Schema.TaggedUnion({ Incremented: { by: Schema.Int } })
     class Limited extends Schema.TaggedError<Limited>()("Limited", {}) {}

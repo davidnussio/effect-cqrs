@@ -35,6 +35,7 @@ import {
 } from "./EventStore.ts"
 import * as EventVersions from "./EventVersions.ts"
 import { IdGenerator } from "./Ids.ts"
+import { withoutAmbient } from "./internal/ambient.ts"
 import { CurrentMetadata, Metadata } from "./Metadata.ts"
 import * as PersonalData from "./PersonalData.ts"
 
@@ -681,7 +682,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   options?: Options & { readonly snapshots?: SnapshotOptions<Aggregate.State<A>> | undefined }
 ) {
   const store = yield* EventStore
-  const context = yield* Effect.context<Aggregate.Context<A>>()
+  const context = withoutAmbient(yield* Effect.context<Aggregate.Context<A>>())
   // Metadata provided where the service was built, such as the software version,
   // reaches commands run where that layer isn't visible.
   const builtWith = Context.get(context as Context.Context<never>, CurrentMetadata)

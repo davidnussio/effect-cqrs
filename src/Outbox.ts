@@ -44,6 +44,7 @@ import {
 import type * as Aggregate from "./Aggregate.ts"
 import { Checkpoints } from "./Checkpoints.ts"
 import { eventId, type EventStore, EventStoreError } from "./EventStore.ts"
+import { withoutAmbient } from "./internal/ambient.ts"
 import * as ViewModel from "./ViewModel.ts"
 
 /** An integration event, what a publisher sends. */
@@ -174,7 +175,7 @@ const retrySchedule = Schedule.exponential("100 millis").pipe(
 )
 
 const makeRunner = Effect.fnUntraced(function*<O extends Any>(outbox: O) {
-  const context = yield* Effect.context<Context<O>>()
+  const context = withoutAmbient(yield* Effect.context<Context<O>>())
   const lock = yield* Semaphore.make(1)
   const pending = yield* Latch.make(false)
   const buffer: Array<Message> = []
