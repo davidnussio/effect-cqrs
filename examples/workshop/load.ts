@@ -1,6 +1,6 @@
 /**
  * A rehearsal for the workshop: many virtual participants join, open the live
- * stream and read their screen every 2 seconds as a phone would, and deposit, buy
+ * stream and read their page every 2 seconds as a phone would, and deposit, buy
  * and send money for a while, through
  * the same typed client the UI uses. At the end it asks the server whether the
  * books balance and the view models caught up, and reports how long each call took.
@@ -33,6 +33,23 @@ interface Stats {
 
 const tagOf = (error: unknown) =>
   typeof error === "object" && error !== null && "_tag" in error ? String(error._tag) : String(error)
+
+/**
+ * What went wrong, for the report. An `HttpClientError` alone says nothing: its reason
+ * tells a refused connection from a status code, with the URL, and its cause the rest.
+ */
+const describe = (error: unknown) => {
+  const tag = tagOf(error)
+  if (tag !== "HttpClientError" || typeof error !== "object" || error === null || !("reason" in error)) return tag
+  const reason = error.reason as { readonly message?: string; readonly cause?: unknown }
+  // fetch only says "fetch failed": what the socket did is a cause or two further down.
+  const causes: Array<string> = []
+  for (let cause = reason.cause; cause instanceof Error && causes.length < 3; cause = cause.cause) {
+    const code = "code" in cause ? ` ${String(cause.code)}` : ""
+    causes.push(`${cause.message}${code}`.trim())
+  }
+  return `${tag}: ${reason.message ?? "unknown"}${causes.length === 0 ? "" : ` (${causes.join(" ← ")})`}`
+}
 
 const percentile = (values: ReadonlyArray<number>, p: number) => {
   const sorted = [...values].sort((a, b) => a - b)
@@ -68,7 +85,8 @@ const program = Effect.gen(function*() {
         if (expected.has(tag)) {
           return { ...current, refusals: new Map(current.refusals).set(tag, (current.refusals.get(tag) ?? 0) + 1) }
         }
-        return { ...current, failures: [...current.failures, `${name}: ${tag}`] }
+        const detail = failure?._tag === "Fail" ? describe(failure.error) : "defect"
+        return { ...current, failures: [...current.failures, `${name}: ${detail}`] }
       })
       return exit._tag === "Success" ? exit.value : undefined
     })
@@ -102,12 +120,16 @@ const program = Effect.gen(function*() {
   const act = Effect.fnUntraced(function*(token: string, id: string) {
     const client = yield* clientFor(token)
     yield* Effect.forkScoped(listen(token))
-    // What the bank screen of a phone reads, at most every 2 seconds while the log moves.
+    // What the page of a phone reads, at most every 2 seconds while the log moves: the
+    // bank's section, then the shop's, which takes the balance from the bank's.
     // The tuple's requirements infer as `any`: they are none, as for every call of the client.
     const screen = Effect.all([
       client.me.get(),
       client.me.ledger({ query: {} }),
-      client.bank.participants({ query: {} })
+      client.bank.participants({ query: {} }),
+      client.shop.products({ query: {} }),
+      client.me.orders({ query: {} }),
+      client.shop.bot()
     ], {
       concurrency: "unbounded"
     }) as Effect.Effect<unknown, unknown>
