@@ -54,7 +54,7 @@
     }
   },
   "scripts": {
-    "check": "tsc --noEmit && tsc --noEmit -p examples/bank-ui && tsc --noEmit -p examples/shop-ui",
+    "check": "tsc --noEmit && tsc --noEmit -p examples/bank-ui && tsc --noEmit -p examples/shop-ui && tsc --noEmit -p examples/workshop/ui",
     "lint": "oxlint && dprint check",
     "lint:fix": "oxlint --fix && dprint fmt",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
@@ -62,9 +62,13 @@
     "test:watch": "vitest",
     "example": "node examples/todo/main.ts",
     "example:server": "node examples/server/main.ts",
+    "workshop": "node examples/workshop/server/main.ts",
     "tutorial": "node examples/tutorial/main.ts",
     "ui": "vite examples/bank-ui",
     "ui:shop": "vite examples/shop-ui",
+    "ui:workshop": "vite examples/workshop/ui --port 5190",
+    "build:workshop": "vite build examples/workshop/ui",
+    "build:workshop-server": "vite build --config examples/workshop/server/vite.config.ts",
     "docs": "astro dev --root docs",
     "docs:build": "vite build examples/bank-ui --base \"${DOCS_BASE:-/effect-cqrs}/demo/\" --outDir ../../docs/public/demo --emptyOutDir && vite build examples/shop-ui --base \"${DOCS_BASE:-/effect-cqrs}/shop-demo/\" --outDir ../../docs/public/shop-demo --emptyOutDir && astro build --root docs",
     "docs:preview": "astro preview --root docs",

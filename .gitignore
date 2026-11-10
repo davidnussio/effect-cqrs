@@ -19,3 +19,6 @@ docs/src/content/docs/reference/api/
 
 # Written by `pnpm qualify`
 qualification-report/
+
+# Written by `pnpm workshop` without POSTGRES_URL
+workshop.sqlite*

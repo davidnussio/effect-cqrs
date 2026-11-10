@@ -1,0 +1,38 @@
+# Render Blueprint for the workshop server, see examples/workshop/README.md.
+services:
+  - type: web
+    name: effect-cqrs-workshop
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./examples/workshop/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    buildFilter:
+      paths:
+        - examples/workshop/api.ts
+        - examples/workshop/server/**
+        - examples/workshop/domain/**
+        - examples/workshop/Dockerfile
+        - src/**
+        - package.json
+        - pnpm-lock.yaml
+    envVars:
+      # The Supabase session pooler, ending in ?sslmode=require
+      - key: POSTGRES_URL
+        sync: false
+      # The Vercel domain of the UI, for example https://effect-cqrs-workshop.vercel.app
+      - key: CORS_ORIGIN
+        sync: false
+      # Signs the tokens. Changing it logs everyone out.
+      - key: AUTH_SECRET
+        generateValue: true
+      # What the presenter types to join as admin.
+      - key: ADMIN_CODE
+        sync: false
+      # Wraps the keys of personal data: 32 bytes in base64, from `openssl rand -base64 32`.
+      # Losing it makes every nickname unreadable, so keep a copy.
+      - key: PERSONAL_DATA_MASTER_KEY
+        sync: false
+      - key: PERSONAL_DATA_MASTER_KEY_ID
+        value: workshop-1

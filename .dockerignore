@@ -1,0 +1,10 @@
+# Only examples/workshop/Dockerfile builds from here: keep what the server build needs.
+*
+!package.json
+!pnpm-lock.yaml
+!.pnpmfile.cjs
+!src
+!examples/workshop/api.ts
+!examples/workshop/server
+!examples/workshop/domain
+examples/workshop/server/dist
