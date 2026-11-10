@@ -275,7 +275,9 @@ const makeTail = (store: EventStore["Service"], viewModels: ReadonlyArray<Any>) 
       Effect.suspend(() =>
         last?.afterPosition === afterPosition && last.latest === latest
           ? Effect.succeed(last.events)
-          : Stream.runCollect(store.read({ ...filter, afterPosition })).pipe(
+          // A view model behind by `tailSize` positions finds everything it needs in that
+          // many events, and one that fell further behind meanwhile reads the rest in pages.
+          : Stream.runCollect(store.read({ ...filter, afterPosition }).pipe(Stream.take(tailSize))).pipe(
             Effect.tap((events) => Effect.sync(() => void (last = { afterPosition, latest, events })))
           )
       ),
@@ -477,7 +479,7 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
   // Failing again at the same place doubles the delay. Having moved on means that
   // stall is over, so the next one starts from the shortest delay. Under the `park`
   // policy an event that failed often enough is parked instead, and the view model
-  // goes on at once.
+  // goes on at once. Returns how long to wait before trying again.
   const onFailure = (error: ViewModelError) =>
     Effect.gen(function*() {
       const current = yield* SubscriptionRef.get(position)
@@ -486,23 +488,33 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
         return [attempts, { position: current, failedAt: error.position, attempts }] as const
       })
       if (policy._tag === "Park" && error.position > 0 && attempts >= policy.attempts) {
-        if (yield* parkFailed(error, attempts)) return
+        // The view model no longer waits on the event it parked.
+        if (yield* parkFailed(error, attempts)) {
+          yield* Ref.set(lastError, Option.none())
+          return Duration.zero
+        }
       }
       yield* Ref.set(lastError, Option.some(error))
       yield* Effect.logError(`View model ${name} failed, retrying`, error)
-      yield* Effect.sleep(retryDelay(attempts - 1))
+      return retryDelay(attempts - 1)
     })
 
-  const step = (latest: number) =>
-    catchUp(latest).pipe(
-      Effect.tapError(onFailure),
-      Effect.retry(Schedule.forever),
-      Effect.andThen(Ref.set(lastError, Option.none()))
-    )
+  const backOff = (error: ViewModelError) => Effect.flatMap(onFailure(error), Effect.sleep)
 
+  const step = (latest: number) => catchUp(latest).pipe(Effect.andThen(Ref.set(lastError, Option.none())))
+
+  // Heads that arrived while the view model was busy come together, and only the
+  // latest of them matters: one step catches up on all of them. A failure ends the
+  // subscription, so heads don't pile up while the view model waits to try again,
+  // and the new one starts from the current head.
   const run = store.changes.pipe(
-    Stream.filterEffect((latest) => Effect.map(SubscriptionRef.get(position), (current) => latest > current)),
-    Stream.runForEach(step)
+    Stream.runForEachArray((heads) => {
+      let latest = heads[0]!
+      for (const head of heads) if (head > latest) latest = head
+      return Effect.flatMap(SubscriptionRef.get(position), (current) => latest > current ? step(latest) : Effect.void)
+    }),
+    Effect.catch(backOff),
+    Effect.forever
   )
 
   // Another process may have moved the view model on while this one waited, and
@@ -540,7 +552,13 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
     Stream.runForEach((held) =>
       Effect.suspend(() => {
         if (held && running === undefined) {
-          return Effect.forkIn(resume.pipe(Effect.flatMap(step), Effect.andThen(run)), scope).pipe(
+          return Effect.forkIn(
+            resume.pipe(
+              Effect.flatMap((head) => step(head).pipe(Effect.tapError(backOff), Effect.retry(Schedule.forever))),
+              Effect.andThen(run)
+            ),
+            scope
+          ).pipe(
             Effect.map((fiber) => void (running = fiber))
           )
         }

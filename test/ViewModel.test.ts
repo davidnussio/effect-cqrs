@@ -1,6 +1,6 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime, Duration, Effect, Layer, Option, Ref, References, Schedule, Schema, Stream } from "effect"
+import { DateTime, Duration, Effect, Latch, Layer, Option, Ref, References, Schedule, Schema, Stream } from "effect"
 import { Aggregate, AggregateService, Checkpoints, EventStore, SqliteEventStore, ViewModel } from "effect-cqrs"
 import { SqlClient } from "effect/sql"
 import { TestClock } from "effect/testing"
@@ -374,6 +374,50 @@ describe("ViewModels", () => {
           assert.isAbove(status!.position, 0)
         }).pipe(Effect.provide(ViewModel.layer([Counter]).pipe(Layer.provideMerge(Storage)))))
     }
+
+    it.effect("handles a backlog that built up while it was busy in batches of one page", () =>
+      Effect.gen(function*() {
+        const store = yield* EventStore.EventStore
+        const blocked = yield* Latch.make(false)
+        const batches: Array<number> = []
+        let handled = 0
+        const Slow = ViewModel.make({
+          name: "slow",
+          aggregates: [Todo],
+          dispose: Effect.void,
+          handlers: {
+            TodoCreated: () => Effect.andThen(Effect.sync(() => void handled++), blocked.await)
+          },
+          // Counts the events of each batch, which share one checkpoint.
+          transaction: (effect) =>
+            Effect.suspend(() => {
+              const before = handled
+              return Effect.tap(effect, () => Effect.sync(() => void batches.push(handled - before)))
+            })
+        })
+        const append = (index: number) =>
+          store.append({
+            aggregateName: "todo",
+            aggregateId: `todo-${index}`,
+            expectedVersion: 0,
+            events: [{
+              type: "TodoCreated",
+              payload: { _tag: "TodoCreated", title: "Buy Milk", createdAt: "2026-01-01T00:00:00.000Z" }
+            }]
+          })
+
+        yield* Effect.gen(function*() {
+          const viewModels = yield* ViewModel.ViewModels
+          yield* append(0)
+          // The first event holds the view model while the backlog builds up.
+          yield* Effect.yieldNow.pipe(Effect.repeat({ until: () => handled === 1 }))
+          for (let index = 1; index < 3_000; index++) yield* append(index)
+          yield* blocked.open
+          yield* viewModels.caughtUp()
+          assert.strictEqual(handled, 3_000)
+          assert.isAtMost(Math.max(...batches), 500)
+        }).pipe(Effect.provide(ViewModel.layer([Slow])), Effect.scoped)
+      }).pipe(Effect.provide(Storage)))
 
     it.effect("saves checkpoints now and then, and where it got to when it stops", () =>
       Effect.gen(function*() {
