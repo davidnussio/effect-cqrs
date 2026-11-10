@@ -2,7 +2,7 @@ import { TraceView } from "../../../devtools/TraceView.tsx"
 import { useSnapshot } from "../hooks.ts"
 import { Code } from "./ui.tsx"
 
-export const Trace = () => (
+export const TraceTab = () => (
   <TraceView
     spans={useSnapshot((s) => s.spans)}
     intro={

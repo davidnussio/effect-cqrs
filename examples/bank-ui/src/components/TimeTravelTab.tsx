@@ -6,7 +6,7 @@ import { engine } from "../engine.ts"
 import { eventColor, foldAt, head, money, signed, useSnapshot } from "../hooks.ts"
 import { AnimatedNumber, Button, Code, SectionTitle } from "./ui.tsx"
 
-export const TimeTravel = (
+export const TimeTravelTab = (
   { travel, onTravel }: { travel: number | undefined; onTravel: (position: number | undefined) => void }
 ) => {
   const events = useSnapshot((s) => s.events)
@@ -107,101 +107,96 @@ export const TimeTravel = (
         </p>
       </div>
 
-      <div className="grid items-start gap-5 lg:grid-cols-2">
-        <div className="glass rounded-2xl p-4">
-          <SectionTitle>State is the sum of its events</SectionTitle>
-          <div className="mb-3 flex flex-wrap gap-1">
-            {accounts.map((id) => (
+      <div className="glass rounded-2xl p-4">
+        <SectionTitle>State is the sum of its events</SectionTitle>
+        <div className="mb-3 flex flex-wrap gap-1">
+          {accounts.map((id) => (
+            <button
+              key={id}
+              onClick={() => setSelected(id)}
+              className={`rounded-full px-2.5 py-0.5 font-mono text-[10.5px] transition ${
+                id === account ? "bg-white text-black" : "bg-white/[0.06] text-white/60 hover:bg-white/10"
+              }`}
+            >
+              {id}
+            </button>
+          ))}
+        </div>
+        {account !== undefined && <Ledger events={events} account={account} cursor={cursor} onTravel={onTravel} />}
+      </div>
+
+      <div className="glass rounded-2xl p-4">
+        <SectionTitle>Reprocess the projections</SectionTitle>
+        <p className="mb-3 text-[11px] leading-relaxed text-white/45">
+          <Code>viewModels.replay</Code>{" "}
+          disposes the chosen view models and feeds them the log again, at replay speed. With a window, events after
+          #{cursor} stay out of them while new events keep arriving on top.
+        </p>
+        <div className="mb-3 flex gap-1.5">
+          {(["accounts", "totals", "feed"] as const).map((name) => {
+            const on = targets.includes(name)
+            return (
               <button
-                key={id}
-                onClick={() => setSelected(id)}
-                className={`rounded-full px-2.5 py-0.5 font-mono text-[10.5px] transition ${
-                  id === account ? "bg-white text-black" : "bg-white/[0.06] text-white/60 hover:bg-white/10"
+                key={name}
+                onClick={() => setTargets(on ? targets.filter((t) => t !== name) : [...targets, name])}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-mono text-[10.5px] ring-1 transition ${
+                  on ? "bg-sky-400/15 text-sky-200 ring-sky-400/40" : "text-white/40 ring-white/10"
                 }`}
               >
-                {id}
+                <span className={`h-2 w-2 rounded-sm ${on ? "bg-sky-300" : "bg-white/15"}`} />
+                {name}
+                {views[name].replaying && (
+                  <motion.span animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}>
+                    ↻
+                  </motion.span>
+                )}
               </button>
-            ))}
-          </div>
-          {account !== undefined && <Ledger events={events} account={account} cursor={cursor} onTravel={onTravel} />}
+            )
+          })}
         </div>
-
-        <div className="glass rounded-2xl p-4">
-          <SectionTitle>Reprocess the projections</SectionTitle>
-          <p className="mb-3 text-[11px] leading-relaxed text-white/45">
-            <Code>viewModels.replay</Code>{" "}
-            disposes the chosen view models and feeds them the log again, at replay speed. With a window, events after
-            #{cursor} stay out of them while new events keep arriving on top.
-          </p>
-          <div className="mb-3 flex gap-1.5">
-            {(["accounts", "totals", "feed"] as const).map((name) => {
-              const on = targets.includes(name)
-              return (
-                <button
-                  key={name}
-                  onClick={() => setTargets(on ? targets.filter((t) => t !== name) : [...targets, name])}
-                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 font-mono text-[10.5px] ring-1 transition ${
-                    on ? "bg-sky-400/15 text-sky-200 ring-sky-400/40" : "text-white/40 ring-white/10"
-                  }`}
-                >
-                  <span className={`h-2 w-2 rounded-sm ${on ? "bg-sky-300" : "bg-white/15"}`} />
-                  {name}
-                  {views[name].replaying && (
-                    <motion.span
-                      animate={{ rotate: 360 }}
-                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    >
-                      ↻
-                    </motion.span>
-                  )}
-                </button>
-              )
-            })}
-          </div>
-          <div className="flex gap-2">
-            <Button
-              tone="primary"
-              disabled={targets.length === 0 || replaying || cursor === 0}
-              onClick={() => {
-                // Leave the preview so the app shows the read model being rebuilt.
-                setPlaying(false)
-                onTravel(undefined)
-                void engine.replay(targets, cursor)
-              }}
-            >
-              ⏮ Replay up to #{cursor}
-            </Button>
-            <Button
-              disabled={targets.length === 0 || replaying}
-              onClick={() => {
-                setPlaying(false)
-                onTravel(undefined)
-                void engine.replay(targets)
-              }}
-            >
-              ↻ Replay everything
-            </Button>
-          </div>
-          <AnimatePresence>
-            {targets.some((name) => views[name].lastReplay) && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="mt-3 space-y-0.5 font-mono text-[10px]"
-              >
-                {targets.map((name) => {
-                  const last = views[name].lastReplay
-                  return last && (
-                    <div key={name} className="text-sky-300/70">
-                      {name}: {last.eventCount} events replayed
-                      {last.upTo === undefined ? " (whole log)" : ` (window ends at #${last.upTo})`}
-                    </div>
-                  )
-                })}
-              </motion.div>
-            )}
-          </AnimatePresence>
+        <div className="flex gap-2">
+          <Button
+            tone="primary"
+            disabled={targets.length === 0 || replaying || cursor === 0}
+            onClick={() => {
+              // Leave the preview so the app shows the read model being rebuilt.
+              setPlaying(false)
+              onTravel(undefined)
+              void engine.replay(targets, cursor)
+            }}
+          >
+            ⏮ Replay up to #{cursor}
+          </Button>
+          <Button
+            disabled={targets.length === 0 || replaying}
+            onClick={() => {
+              setPlaying(false)
+              onTravel(undefined)
+              void engine.replay(targets)
+            }}
+          >
+            ↻ Replay everything
+          </Button>
         </div>
+        <AnimatePresence>
+          {targets.some((name) => views[name].lastReplay) && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-3 space-y-0.5 font-mono text-[10px]"
+            >
+              {targets.map((name) => {
+                const last = views[name].lastReplay
+                return last && (
+                  <div key={name} className="text-sky-300/70">
+                    {name}: {last.eventCount} events replayed
+                    {last.upTo === undefined ? " (whole log)" : ` (window ends at #${last.upTo})`}
+                  </div>
+                )
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </div>
   )

@@ -14,7 +14,7 @@ const cacheCapacity = 4
 
 const ms = (value: number) => (value < 1 ? `${Math.round(value * 1000)}µs` : `${value.toFixed(1)}ms`)
 
-export const Metrics = () => {
+export const MetricsTab = () => {
   const metrics = useSnapshot((s) => s.metrics)
   const loads = metrics.loads.memory + metrics.loads.snapshot + metrics.loads.replay
 
