@@ -9,6 +9,7 @@ import { SqliteClient } from "@effect/sql-sqlite-node"
 import { Console, Effect, Layer, Option, Schema, Stream } from "effect"
 import { SqlClient } from "effect/sql"
 import { Aggregate, AggregateService, EventStore, PersonalData, SqliteEventStore, ViewModel } from "effect-cqrs"
+import * as PersonalDataNode from "effect-cqrs/PersonalDataNode"
 import {
   Account,
   type AccountState,
@@ -396,11 +397,16 @@ const PersonalAccount = Aggregate.make<AccountState>()({
   .command("deposit", Account.commands.deposit)
   .command("depositMany", Account.commands.depositMany)
 
-const keys = PersonalData.layerMemory().pipe(Layer.provide(PersonalData.layerMasterKeyEphemeral))
+const webCryptoKeys = PersonalData.layerMemory().pipe(Layer.provide(PersonalData.layerMasterKeyEphemeral))
+const nodeKeys = webCryptoKeys.pipe(Layer.provide(PersonalDataNode.layerCipher))
 
-/** What encrypting one field per event costs, next to the same account without it. */
+/** What encrypting one field per event costs on each cipher, next to the same account without it. */
 const personalData = (backend: Backend) =>
-  Effect.forEach([["plain", Account], ["personal", PersonalAccount]] as const, ([kind, aggregate]) =>
+  Effect.forEach([
+    ["plain", Account, webCryptoKeys],
+    ["personal WebCrypto", PersonalAccount, webCryptoKeys],
+    ["personal node:crypto", PersonalAccount, nodeKeys]
+  ] as const, ([kind, aggregate, keys]) =>
     Effect.gen(function*() {
       const count = scaled(5_000)
       yield* throughput(

@@ -30,24 +30,28 @@ Docker on the same machine. Treat them as orders of magnitude, not as a promise.
 
 ## Personal data
 
-[Personal fields](../../guides/personal-data/) cost one AES-GCM operation each, through
-WebCrypto, which is asynchronous. The benchmark compares an account whose movement
-reference is personal with the same account without it:
+[Personal fields](../../guides/personal-data/) cost one AES-GCM operation each. The
+benchmark compares an account whose movement reference is personal with the same account
+without it, on WebCrypto, the default, and on `node:crypto`:
 
 | | SQLite file | PostgreSQL |
 | --- | ---: | ---: |
-| Command on a new stream, without personal fields | 7,150 commands/s | 749 commands/s |
-| Command on a new stream, with one personal field | 4,127 commands/s | 617 commands/s |
-| First load of 1,000 events, without | 4.6 ms | 4.2 ms |
-| First load of 1,000 events, with one personal field each | 16.9 ms | 19.0 ms |
+| Command on a new stream, without personal fields | 8,975 commands/s | 929 commands/s |
+| Command on a new stream, one personal field, WebCrypto | 5,143 commands/s | 850 commands/s |
+| Command on a new stream, one personal field, `node:crypto` | 7,410 commands/s | 910 commands/s |
+| First load of 1,000 events, without | 4.0 ms | 3.3 ms |
+| First load of 1,000 events, one personal field each, WebCrypto | 15.1 ms | 14.6 ms |
+| First load of 1,000 events, one personal field each, `node:crypto` | 10.1 ms | 10.7 ms |
 
 - **A new subject costs the most.** Each of these commands is the first for its subject,
   so it also creates, wraps and stores a key. Later commands reuse the key from memory.
-- **Reading costs about 12 µs per encrypted field.** Events of a stream decrypt several at
-  a time while they are replayed, still folded in order. A command on a state already in
-  memory decrypts nothing, and one it has just written isn't decrypted again.
-- **Snapshots matter more.** With personal fields the first load of a long stream is about
-  four times slower, so [snapshots](../../guides/commands/#snapshots) pay off sooner.
+- **Reading costs about 11 µs per encrypted field on WebCrypto, and 6 µs on
+  `node:crypto`.** WebCrypto is asynchronous, so events of a stream decrypt several at a
+  time while they are replayed, still folded in order. `node:crypto` is synchronous and
+  needs no such detour. A command on a state already in memory decrypts nothing, and one
+  it has just written isn't decrypted again.
+- **Snapshots matter more.** With personal fields the first load of a long stream is two
+  to four times slower, so [snapshots](../../guides/commands/#snapshots) pay off sooner.
 
 ## Nothing lost
 

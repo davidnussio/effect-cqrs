@@ -28,8 +28,26 @@
  * {@link MasterKey}, which can live in a KMS, so the master key can change without
  * touching events. {@link forget} destroys the data key, refuses keys for that
  * subject from then on and records the request in the log.
+ *
+ * Encryption is AES-256-GCM through a {@link Cipher}: WebCrypto by default, which
+ * also runs in browsers, or `node:crypto` from `PersonalDataNode`.
  */
-import { Clock, Config, Context, Duration, Effect, Layer, Option, Predicate, Redacted, Schema, type SchemaAST } from "effect"
+import {
+  Cache,
+  Cause,
+  Clock,
+  Config,
+  Context,
+  Duration,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  Predicate,
+  Redacted,
+  Schema,
+  type SchemaAST
+} from "effect"
 import { Base64 } from "effect/encoding"
 import { SqlClient } from "effect/sql"
 import { CurrentCausation } from "./Causation.ts"
@@ -203,6 +221,97 @@ export const fieldsByTag = (schema: Schema.Top, where: string): ReadonlyMap<stri
 }
 
 // ---------------------------------------------------------------------------
+// Cipher
+// ---------------------------------------------------------------------------
+
+declare const CipherKeyTypeId: unique symbol
+
+/** A key imported by a {@link Cipher}, which only that cipher can use. */
+export interface CipherKey {
+  readonly [CipherKeyTypeId]: typeof CipherKeyTypeId
+}
+
+/**
+ * AES-256-GCM, which encrypts personal fields and wraps data keys. What it
+ * produces is a random IV of {@link ivLength} bytes, the ciphertext and a tag of
+ * {@link tagLength} bytes, so data written by one implementation reads with any
+ * other.
+ *
+ * The default, {@link webCrypto}, works in Node and in browsers but is
+ * asynchronous. `PersonalDataNode.layerCipher` runs on `node:crypto`
+ * synchronously, which costs a fraction per field.
+ */
+export interface Cipher {
+  /**
+   * Whether an operation waits on something outside the fiber, as WebCrypto
+   * does. Events of a stream then decrypt several at a time.
+   */
+  readonly asynchronous: boolean
+  /** Imports a key of 32 bytes. The caller zeroes the bytes afterwards. */
+  importKey(bytes: Uint8Array<ArrayBuffer>): Effect.Effect<CipherKey, Cause.UnknownError>
+  encrypt(
+    key: CipherKey,
+    plaintext: Uint8Array<ArrayBuffer>,
+    additionalData: Uint8Array<ArrayBuffer>
+  ): Effect.Effect<Uint8Array<ArrayBuffer>, Cause.UnknownError>
+  /** Fails when the data was altered, or belongs to another key or other additional data. */
+  decrypt(
+    key: CipherKey,
+    sealed: Uint8Array<ArrayBuffer>,
+    additionalData: Uint8Array<ArrayBuffer>
+  ): Effect.Effect<Uint8Array<ArrayBuffer>, Cause.UnknownError>
+}
+
+export const ivLength = 12
+export const tagLength = 16
+export const keyLength = 32
+
+const randomBytes = (length: number): Uint8Array<ArrayBuffer> => globalThis.crypto.getRandomValues(new Uint8Array(length))
+
+const subtle = () => globalThis.crypto.subtle
+
+type WebCryptoKey = InstanceType<typeof globalThis.CryptoKey>
+
+/** AES-256-GCM on WebCrypto. */
+export const webCrypto: Cipher = {
+  asynchronous: true,
+  importKey: (bytes) =>
+    bytes.byteLength !== keyLength
+      ? Effect.fail(new Cause.UnknownError(undefined, `The key has ${bytes.byteLength} bytes instead of ${keyLength}`))
+      : Effect.tryPromise(() =>
+        subtle().importKey("raw", bytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]) as Promise<never>
+      ),
+  encrypt: (key, plaintext, additionalData) => {
+    const iv = randomBytes(ivLength)
+    return Effect.map(
+      Effect.tryPromise(() =>
+        subtle().encrypt({ name: "AES-GCM", iv, additionalData }, key as unknown as WebCryptoKey, plaintext)
+      ),
+      (ciphertext) => {
+        const sealed = new Uint8Array(ivLength + ciphertext.byteLength)
+        sealed.set(iv)
+        sealed.set(new Uint8Array(ciphertext), ivLength)
+        return sealed
+      }
+    )
+  },
+  decrypt: (key, sealed, additionalData) =>
+    Effect.map(
+      Effect.tryPromise(() =>
+        subtle().decrypt(
+          { name: "AES-GCM", iv: sealed.subarray(0, ivLength), additionalData },
+          key as unknown as WebCryptoKey,
+          sealed.subarray(ivLength)
+        )
+      ),
+      (plaintext) => new Uint8Array(plaintext)
+    )
+}
+
+/** The cipher that keys, master keys and fields use, {@link webCrypto} unless another is provided. */
+export const Cipher = Context.Reference<Cipher>("effect-cqrs/PersonalData/Cipher", { defaultValue: () => webCrypto })
+
+// ---------------------------------------------------------------------------
 // Keys
 // ---------------------------------------------------------------------------
 
@@ -251,138 +360,120 @@ export interface Backend {
   readonly forget: (subject: string, forgottenAt: number) => Effect.Effect<void, PersonalDataError>
 }
 
-/** A key from WebCrypto, which works in Node and in browsers. */
-export type AesKey = InstanceType<typeof globalThis.CryptoKey>
-
 export interface DataKey {
   readonly keyId: string
-  readonly key: AesKey
+  readonly key: CipherKey
 }
 
 /** The data keys of subjects, created on first use and cached for a while. */
 export class Keys extends Context.Service<Keys, {
+  /** What encrypts and decrypts with the keys. */
+  readonly cipher: Cipher
   /** The key to encrypt with, created when the subject has none. Fails for a forgotten subject. */
   encryptionKey(subject: string): Effect.Effect<DataKey, SubjectForgotten | PersonalDataError>
   /**
    * The key to decrypt with, `None` when the subject was forgotten. A subject
    * without any key fails: losing the key store must not pass for forgetting.
    */
-  decryptionKey(subject: string, keyId: string): Effect.Effect<Option.Option<AesKey>, PersonalDataError>
+  decryptionKey(subject: string, keyId: string): Effect.Effect<Option.Option<CipherKey>, PersonalDataError>
   isForgotten(subject: string): Effect.Effect<boolean, PersonalDataError>
   /** Destroys the key of a subject. Prefer {@link forget}, which also records it in the log. */
   forget(subject: string): Effect.Effect<void, PersonalDataError>
 }>()("effect-cqrs/PersonalData/Keys") {}
 
 export interface KeysOptions {
-  /** How many unwrapped keys to keep in memory. Defaults to 10,000. */
+  /** How many subjects to keep in memory, with their unwrapped keys. Defaults to 10,000. */
   readonly cacheSize?: number | undefined
   /**
-   * How long an unwrapped key is used before the store is asked again. It bounds
-   * how long another process keeps using the key of a subject forgotten here.
-   * Defaults to one minute.
+   * How long what the store said about a subject is used before it is asked
+   * again. It bounds how long another process keeps using the key of a subject
+   * forgotten here. Defaults to one minute.
    */
   readonly cacheTtl?: Duration.Input | undefined
 }
 
-const subtle = () => globalThis.crypto.subtle
-
+// Messages and causes say what failed, never which data: they end up in logs.
 const failure = (operation: string, subject: string, message: string) => (cause: unknown) =>
   new PersonalDataError({ operation, subject, message, cause })
 
-const importAesKey = (bytes: Uint8Array<ArrayBuffer>, operation: string, subject: string) =>
-  Effect.tryPromise({
-    try: () => subtle().importKey("raw", bytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]),
-    catch: failure(operation, subject, "The key is not a valid AES-256 key")
-  })
+const importKey = (cipher: Cipher, bytes: Uint8Array<ArrayBuffer>, operation: string, subject: string) =>
+  Effect.mapError(cipher.importKey(bytes), failure(operation, subject, "The key is not a valid AES-256 key"))
 
-const textEncoder = new TextEncoder()
-const textDecoder = new TextDecoder()
-
-const randomBytes = (length: number): Uint8Array<ArrayBuffer> => globalThis.crypto.getRandomValues(new Uint8Array(length))
-
-const ivLength = 12
-
-/** AES-GCM with a random IV, which goes in front of the ciphertext. */
 const encrypt = (
-  key: AesKey,
+  cipher: Cipher,
+  key: CipherKey,
   plaintext: Uint8Array<ArrayBuffer>,
   additionalData: Uint8Array<ArrayBuffer>,
   operation: string,
   subject: string
-) => {
-  const iv = randomBytes(ivLength)
-  return Effect.tryPromise({
-    try: () => subtle().encrypt({ name: "AES-GCM", iv, additionalData }, key, plaintext),
-    catch: failure(operation, subject, "Encryption failed")
-  }).pipe(Effect.map((ciphertext) => {
-    const sealed = new Uint8Array(ivLength + ciphertext.byteLength)
-    sealed.set(iv)
-    sealed.set(new Uint8Array(ciphertext), ivLength)
-    return sealed
-  }))
-}
+) => Effect.mapError(cipher.encrypt(key, plaintext, additionalData), failure(operation, subject, "Encryption failed"))
 
 const decrypt = (
-  key: AesKey,
+  cipher: Cipher,
+  key: CipherKey,
   sealed: Uint8Array<ArrayBuffer>,
   additionalData: Uint8Array<ArrayBuffer>,
   operation: string,
   subject: string
 ) =>
-  Effect.tryPromise({
-    try: () =>
-      subtle().decrypt(
-        { name: "AES-GCM", iv: sealed.subarray(0, ivLength), additionalData },
-        key,
-        sealed.subarray(ivLength)
-      ),
-    catch: failure(operation, subject, "The data doesn't decrypt: it was altered, or belongs to another key or place")
-  }).pipe(Effect.map((plaintext) => new Uint8Array(plaintext)))
+  Effect.mapError(
+    cipher.decrypt(key, sealed, additionalData),
+    failure(operation, subject, "The data doesn't decrypt: it was altered, or belongs to another key or place")
+  )
+
+const textEncoder = new TextEncoder()
+const textDecoder = new TextDecoder()
 
 const label = (...parts: ReadonlyArray<string | number | ReadonlyArray<string>>) =>
   textEncoder.encode(JSON.stringify(["effect-cqrs/PersonalData", ...parts]))
 
+// Without the cause: a decoding error holds its input, which can be a master key.
 const decodeBase64 = (text: string, operation: string, subject: string) => {
   const result = Base64.decode(text)
   return result._tag === "Success"
     ? Effect.succeed(new Uint8Array(result.success))
-    : Effect.fail(new PersonalDataError({ operation, subject, message: "Malformed base64", cause: result.failure }))
+    : Effect.fail(new PersonalDataError({ operation, subject, message: "Malformed base64" }))
 }
+
+const zero = (bytes: Uint8Array) => Effect.sync(() => bytes.fill(0))
 
 /**
  * A master key held by the process, given as 32 bytes. Keys wrapped by earlier
- * master keys stay readable while those are listed in `previous`.
+ * master keys stay readable while those are listed in `previous`. The bytes are
+ * copied, so the caller can zero its own.
  */
 export const makeMasterKey = Effect.fnUntraced(function*(options: {
   readonly keyId: string
   readonly key: Redacted.Redacted<Uint8Array>
   readonly previous?: ReadonlyArray<{ readonly keyId: string; readonly key: Redacted.Redacted<Uint8Array> }> | undefined
 }) {
-  const keys = new Map<string, AesKey>()
+  const cipher = yield* Cipher
+  const keys = new Map<string, CipherKey>()
   for (const { key, keyId } of [options, ...(options.previous ?? [])]) {
     const bytes = new Uint8Array(Redacted.value(key))
-    if (bytes.byteLength !== 32) {
-      return yield* new PersonalDataError({
-        operation: "masterKey",
-        subject: "",
-        message: `Master key ${keyId} has ${bytes.byteLength} bytes instead of 32`
-      })
-    }
-    keys.set(keyId, yield* importAesKey(bytes, "masterKey", ""))
-    bytes.fill(0)
+    const imported = bytes.byteLength !== keyLength
+      ? Effect.fail(
+        new PersonalDataError({
+          operation: "masterKey",
+          subject: "",
+          message: `Master key ${keyId} has ${bytes.byteLength} bytes instead of ${keyLength}`
+        })
+      )
+      : importKey(cipher, bytes, "masterKey", "")
+    keys.set(keyId, yield* Effect.ensuring(imported, zero(bytes)))
   }
+  const current = keys.get(options.keyId)!
   const context = (subject: string, keyId: string) => label("key", subject, keyId)
   return MasterKey.of({
     keyId: options.keyId,
-    wrap: (dataKey, { keyId, subject }) =>
-      encrypt(keys.get(options.keyId)!, dataKey, context(subject, keyId), "wrap", subject),
+    wrap: (dataKey, { keyId, subject }) => encrypt(cipher, current, dataKey, context(subject, keyId), "wrap", subject),
     unwrap: (wrapped, { keyId, masterKeyId, subject }) => {
       const key = keys.get(masterKeyId)
       return key === undefined
         ? Effect.fail(
           new PersonalDataError({ operation: "unwrap", subject, message: `Unknown master key ${masterKeyId}` })
         )
-        : decrypt(key, wrapped, context(subject, keyId), "unwrap", subject)
+        : decrypt(cipher, key, wrapped, context(subject, keyId), "unwrap", subject)
     }
   })
 })
@@ -404,7 +495,7 @@ export const layerMasterKeyConfig = (options?: {
       const keyId = yield* (options?.keyId ?? Config.String("PERSONAL_DATA_MASTER_KEY_ID"))
       const key = yield* (options?.key ?? Config.Redacted("PERSONAL_DATA_MASTER_KEY"))
       const bytes = yield* decodeBase64(Redacted.value(key), "masterKey", "")
-      return yield* makeMasterKey({ keyId, key: Redacted.make(bytes) })
+      return yield* Effect.ensuring(makeMasterKey({ keyId, key: Redacted.make(bytes) }), zero(bytes))
     })
   )
 
@@ -414,108 +505,136 @@ export const layerMasterKeyConfig = (options?: {
  */
 export const layerMasterKeyEphemeral: Layer.Layer<MasterKey> = Layer.effect(
   MasterKey,
-  Effect.suspend(() => Effect.orDie(makeMasterKey({ keyId: "ephemeral", key: Redacted.make(randomBytes(32)) })))
+  Effect.suspend(() => {
+    const bytes = randomBytes(keyLength)
+    return Effect.orDie(Effect.ensuring(makeMasterKey({ keyId: "ephemeral", key: Redacted.make(bytes) }), zero(bytes)))
+  })
 )
 
-interface Cached {
-  readonly keyId: string
-  readonly key: AesKey
-  readonly expiresAt: number
-}
+/** What the key store says about a subject, with its key unwrapped. */
+type Known =
+  | { readonly _tag: "Active"; readonly keyId: string; readonly key: CipherKey }
+  | { readonly _tag: "Forgotten" }
+type Lookup = Known | { readonly _tag: "Missing" }
 
-/** Builds {@link Keys} on a key store. */
+const forgotten: Known = { _tag: "Forgotten" }
+const missing: Lookup = { _tag: "Missing" }
+
+/**
+ * Builds {@link Keys} on a key store. Reads of the store are cached per subject,
+ * and concurrent misses for one subject share a single read, unwrap and, for a
+ * new subject, a single key creation.
+ */
 export const make = Effect.fnUntraced(function*(backend: Backend, options?: KeysOptions) {
   const masterKey = yield* MasterKey
+  const cipher = yield* Cipher
   const capacity = options?.cacheSize ?? 10_000
-  const ttl = Duration.toMillis(Duration.fromInputUnsafe(options?.cacheTtl ?? "1 minute"))
-  // A `Map` iterates in insertion order, which makes it a least recently used cache.
-  const cache = new Map<string, Cached>()
+  const ttl = Duration.fromInputUnsafe(options?.cacheTtl ?? "1 minute")
 
-  const cached = (subject: string, now: number): Cached | undefined => {
-    const entry = cache.get(subject)
-    if (entry === undefined) return undefined
-    cache.delete(subject)
-    if (entry.expiresAt <= now) return undefined
-    cache.set(subject, entry)
-    return entry
-  }
+  const unwrap = (subject: string, record: Extract<KeyRecord, { _tag: "Active" }>) =>
+    Effect.flatMap(
+      masterKey.unwrap(record.wrapped, { subject, ...record }),
+      (bytes) => Effect.ensuring(importKey(cipher, bytes, "unwrap", subject), zero(bytes))
+    )
 
-  const remember = (subject: string, keyId: string, key: AesKey, now: number) => {
-    cache.delete(subject)
-    cache.set(subject, { keyId, key, expiresAt: now + ttl })
-    if (cache.size > capacity) cache.delete(cache.keys().next().value!)
-  }
+  const known = (subject: string, record: KeyRecord): Effect.Effect<Known, PersonalDataError> =>
+    record._tag === "Forgotten"
+      ? Effect.succeed(forgotten)
+      : Effect.map(unwrap(subject, record), (key) => ({ _tag: "Active", keyId: record.keyId, key }))
 
-  const unwrap = Effect.fnUntraced(function*(subject: string, record: Extract<KeyRecord, { _tag: "Active" }>) {
-    const bytes = yield* masterKey.unwrap(record.wrapped, { subject, ...record })
-    const key = yield* importAesKey(bytes, "unwrap", subject)
-    bytes.fill(0)
-    return key
+  const subjects = yield* Cache.makeWith(
+    (subject: string): Effect.Effect<Lookup, PersonalDataError> =>
+      Effect.flatMap(
+        backend.get(subject),
+        Option.match({
+          onNone: () => Effect.succeed(missing),
+          onSome: (record): Effect.Effect<Lookup, PersonalDataError> => known(subject, record)
+        })
+      ),
+    {
+      capacity,
+      // A subject without a key can get one at any moment, here or in another
+      // process, so only what the store has is kept. Failures are retried.
+      timeToLive: (exit) => Exit.isSuccess(exit) && exit.value._tag !== "Missing" ? ttl : Duration.zero
+    }
+  )
+
+  const cachedKnown = (subject: string) =>
+    Effect.map(
+      Cache.getSuccess(subjects, subject),
+      Option.filter((lookup): lookup is Known => lookup._tag !== "Missing")
+    )
+
+  const create = Effect.fnUntraced(function*(subject: string) {
+    // A writer that waited for the store to answer `Missing` can arrive once
+    // another has created the key.
+    const already = yield* cachedKnown(subject)
+    if (Option.isSome(already)) return already.value
+    const keyId = crypto.randomUUID()
+    const bytes = randomBytes(keyLength)
+    const created = yield* Effect.gen(function*() {
+      const wrapped = yield* masterKey.wrap(bytes, { subject, keyId })
+      const record = yield* backend.create(subject, { _tag: "Active", keyId, masterKeyId: masterKey.keyId, wrapped })
+      // The store kept this key, which is still at hand: no need to unwrap it.
+      if (record._tag === "Active" && record.keyId === keyId) {
+        return { _tag: "Active", keyId, key: yield* importKey(cipher, bytes, "create", subject) } satisfies Known
+      }
+      return yield* known(subject, record)
+    }).pipe(Effect.ensuring(zero(bytes)))
+    // The subject was forgotten here while the key was created.
+    const now = yield* cachedKnown(subject)
+    if (Option.isSome(now) && now.value._tag === "Forgotten") return now.value
+    yield* Cache.set(subjects, subject, created)
+    return created
   })
 
-  const activate = Effect.fnUntraced(function*(subject: string, record: KeyRecord, now: number) {
-    if (record._tag === "Forgotten") return yield* new SubjectForgotten({ subject })
-    const key = yield* unwrap(subject, record)
-    remember(subject, record.keyId, key, now)
-    return { keyId: record.keyId, key }
-  })
+  // Lasts as long as a creation, so writers racing for a new subject share it.
+  const creations = yield* Cache.makeWith(create, { capacity, timeToLive: () => Duration.zero })
 
   const encryptionKey = Effect.fnUntraced(function*(subject: string) {
-    const now = yield* Clock.currentTimeMillis
-    const hit = cached(subject, now)
-    if (hit !== undefined) return { keyId: hit.keyId, key: hit.key }
-    const existing = yield* backend.get(subject)
-    if (Option.isSome(existing)) return yield* activate(subject, existing.value, now)
-    const keyId = crypto.randomUUID()
-    const bytes = randomBytes(32)
-    const wrapped = yield* masterKey.wrap(bytes, { subject, keyId })
-    bytes.fill(0)
-    const record = yield* backend.create(subject, { _tag: "Active", keyId, masterKeyId: masterKey.keyId, wrapped })
-    return yield* activate(subject, record, now)
+    const lookup = yield* Cache.get(subjects, subject)
+    const state = lookup._tag === "Missing" ? yield* Cache.get(creations, subject) : lookup
+    if (state._tag === "Forgotten") return yield* new SubjectForgotten({ subject })
+    return { keyId: state.keyId, key: state.key }
   })
 
   const decryptionKey = Effect.fnUntraced(function*(subject: string, keyId: string) {
-    const now = yield* Clock.currentTimeMillis
-    const hit = cached(subject, now)
-    if (hit !== undefined && hit.keyId === keyId) return Option.some(hit.key)
-    const record = yield* backend.get(subject)
-    if (Option.isNone(record)) {
-      return yield* new PersonalDataError({
-        operation: "decryptionKey",
-        subject,
-        message: "The subject has no key and was never forgotten: the key store is missing data"
-      })
+    let state = yield* Cache.get(subjects, subject)
+    if (state._tag === "Active" && state.keyId !== keyId) {
+      // What the cache holds may be older than the store.
+      yield* Cache.invalidate(subjects, subject)
+      state = yield* Cache.get(subjects, subject)
     }
-    if (record.value._tag === "Forgotten") return Option.none()
-    if (record.value.keyId !== keyId) {
-      return yield* new PersonalDataError({
-        operation: "decryptionKey",
-        subject,
-        message: `The data was encrypted with key ${keyId}, which the subject doesn't have`
-      })
+    switch (state._tag) {
+      case "Missing":
+        return yield* new PersonalDataError({
+          operation: "decryptionKey",
+          subject,
+          message: "The subject has no key and was never forgotten: the key store is missing data"
+        })
+      case "Forgotten":
+        return Option.none()
+      case "Active":
+        if (state.keyId !== keyId) {
+          return yield* new PersonalDataError({
+            operation: "decryptionKey",
+            subject,
+            message: `The data was encrypted with key ${keyId}, which the subject doesn't have`
+          })
+        }
+        return Option.some(state.key)
     }
-    const key = yield* unwrap(subject, record.value)
-    remember(subject, keyId, key, now)
-    return Option.some(key)
   })
 
-  const isForgotten = Effect.fnUntraced(function*(subject: string) {
-    const now = yield* Clock.currentTimeMillis
-    if (cached(subject, now) !== undefined) return false
-    const record = yield* backend.get(subject)
-    if (Option.isNone(record)) return false
-    if (record.value._tag === "Forgotten") return true
-    // Caching the key spares the store a read on every command until it expires.
-    remember(subject, record.value.keyId, yield* unwrap(subject, record.value), now)
-    return false
-  })
+  const isForgotten = (subject: string) =>
+    Effect.map(Cache.get(subjects, subject), (state) => state._tag === "Forgotten")
 
   const forget = Effect.fnUntraced(function*(subject: string) {
     yield* backend.forget(subject, yield* Clock.currentTimeMillis)
-    cache.delete(subject)
+    yield* Cache.set(subjects, subject, forgotten)
   })
 
-  return Keys.of({ encryptionKey, decryptionKey, isForgotten, forget })
+  return Keys.of({ cipher, encryptionKey, decryptionKey, isForgotten, forget })
 })
 
 /** A key store in process memory, gone after a restart along with access to everything it encrypted. */
@@ -544,6 +663,41 @@ export const layerMemory = (options?: KeysOptions): Layer.Layer<Keys, never, Mas
 export interface SqlOptions {
   /** Defaults to `cqrs_personal_data_keys`. */
   readonly table?: string | undefined
+  /**
+   * Creates the table on startup when it doesn't exist. Defaults to `true`. Turn
+   * it off to run {@link migrations} with your own tooling instead.
+   */
+  readonly migrate?: boolean | undefined
+}
+
+const defaultTable = "cqrs_personal_data_keys"
+
+const quoteIdentifier = (name: string) => `"${name.replaceAll(`"`, `""`)}"`
+
+/**
+ * The statements that create the key table of {@link makeSqlBackend}, for
+ * teams that run migrations themselves. They are safe to run again.
+ */
+export const migrations = (
+  dialect: "sqlite" | "pg",
+  options?: { readonly table?: string | undefined }
+): ReadonlyArray<string> => {
+  const table = quoteIdentifier(options?.table ?? defaultTable)
+  // The same on both, as long as the columns stay this simple.
+  switch (dialect) {
+    case "sqlite":
+    case "pg":
+      return [
+        `CREATE TABLE IF NOT EXISTS ${table} (
+  subject TEXT PRIMARY KEY,
+  key_id TEXT,
+  master_key_id TEXT,
+  wrapped TEXT,
+  forgotten_at BIGINT,
+  CHECK ((key_id IS NOT NULL AND master_key_id IS NOT NULL AND wrapped IS NOT NULL) <> (forgotten_at IS NOT NULL))
+)`
+      ]
+  }
 }
 
 const KeyRow = Schema.Struct({
@@ -556,8 +710,8 @@ const decodeKeyRows = Schema.decodeUnknownEffect(Schema.Array(KeyRow))
 
 /**
  * A key store in a SQL table, on SQLite or PostgreSQL. The table is created on
- * startup. Provide it a client of its own to keep keys in another database than
- * the events, with other permissions and backups.
+ * startup unless `migrate` is `false`. Provide it a client of its own to keep
+ * keys in another database than the events, with other permissions and backups.
  *
  * Forgetting overwrites the row. The database may keep the old bytes for a
  * while, in free pages, dead rows or its write-ahead log, and backups keep them
@@ -565,19 +719,16 @@ const decodeKeyRows = Schema.decodeUnknownEffect(Schema.Array(KeyRow))
  */
 export const makeSqlBackend = Effect.fnUntraced(function*(options?: SqlOptions) {
   const sql = yield* SqlClient.SqlClient
-  const table = sql(options?.table ?? "cqrs_personal_data_keys")
+  const tableName = options?.table ?? defaultTable
+  const table = sql(tableName)
   const sqlError = (operation: string, subject: string) => failure(operation, subject, "The key store failed")
 
-  yield* sql`
-    CREATE TABLE IF NOT EXISTS ${table} (
-      subject TEXT PRIMARY KEY,
-      key_id TEXT,
-      master_key_id TEXT,
-      wrapped TEXT,
-      forgotten_at BIGINT,
-      CHECK ((key_id IS NOT NULL AND master_key_id IS NOT NULL AND wrapped IS NOT NULL) <> (forgotten_at IS NOT NULL))
-    )
-  `.pipe(Effect.mapError(sqlError("initialize", "")))
+  if (options?.migrate !== false) {
+    const dialect = sql.onDialectOrElse({ pg: () => "pg" as const, orElse: () => "sqlite" as const })
+    for (const statement of migrations(dialect, { table: tableName })) {
+      yield* sql.unsafe(statement).pipe(Effect.mapError(sqlError("migrate", "")))
+    }
+  }
 
   const get = (subject: string) =>
     sql`
@@ -754,6 +905,7 @@ export const seal = (
       }
       const { key, keyId } = yield* keys.encryptionKey(subject)
       const sealed = yield* encrypt(
+        keys.cipher,
         key,
         textEncoder.encode(JSON.stringify(value)),
         fieldLabel(location, field.path, subject, keyId),
@@ -775,12 +927,14 @@ export interface WithSubjects {
 /**
  * Decrypts the personal fields of a stored payload, putting the replacement in
  * place of the fields of forgotten subjects. A field stored in plaintext, from
- * before it was marked personal, is left as it is.
+ * before it was marked personal, is left as it is. A field has to be encrypted
+ * for the subject it would be sealed for now: `aggregateId`, when given, or the
+ * sibling it names.
  */
 export const open = (
   keys: Keys["Service"],
   fields: ReadonlyArray<Field>,
-  location: Location,
+  location: Location & { readonly aggregateId?: string | undefined },
   payload: Schema.Json
 ): Effect.Effect<WithSubjects, PersonalDataError> =>
   Effect.gen(function*() {
@@ -801,19 +955,34 @@ export const open = (
         })
       }
       const { data, keyId, subject } = wire.value
+      // The additional data binds a field to its place in an event, but not to
+      // a stream: this keeps a copy from reading as someone else's data.
+      const expected = field.subject === undefined ? location.aggregateId : parent[field.subject]
+      if (expected !== undefined && expected !== subject) {
+        return yield* new PersonalDataError({
+          operation: "open",
+          subject,
+          message: `${location.aggregateName}.${location.type}: ${describe(field.path)} is encrypted for another subject`
+        })
+      }
       const key = yield* keys.decryptionKey(subject, keyId)
       if (Option.isNone(key)) {
         parent[name] = field.redacted
         continue
       }
       const plaintext = yield* decrypt(
+        keys.cipher,
         key.value,
         yield* decodeBase64(data, "open", subject),
         fieldLabel(location, field.path, subject, keyId),
         "open",
         subject
       )
-      parent[name] = JSON.parse(textDecoder.decode(plaintext)) as Schema.Json
+      parent[name] = yield* Effect.try({
+        try: () => JSON.parse(textDecoder.decode(plaintext)) as Schema.Json,
+        // A parse error quotes the text, which is personal data.
+        catch: () => new PersonalDataError({ operation: "open", subject, message: "The decrypted field is not JSON" })
+      })
       subjects.add(subject)
     }
     return { payload: copy, subjects: Array.from(subjects) }
@@ -837,7 +1006,7 @@ export const sealText = Effect.fnUntraced(function*(
   const used: Array<{ readonly subject: string; readonly keyId: string }> = []
   for (const subject of [...subjects].sort()) {
     const { key, keyId } = yield* keys.encryptionKey(subject)
-    data = yield* encrypt(key, data, label("text", purpose, subject, keyId), "sealText", subject)
+    data = yield* encrypt(keys.cipher, key, data, label("text", purpose, subject, keyId), "sealText", subject)
     used.push({ subject, keyId })
   }
   return { subjects: used, data: Base64.encode(data) } satisfies Sealed
@@ -849,7 +1018,7 @@ export const openText = Effect.fnUntraced(function*(keys: Keys["Service"], seale
   for (const { keyId, subject } of [...sealed.subjects].reverse()) {
     const key = yield* keys.decryptionKey(subject, keyId)
     if (Option.isNone(key)) return Option.none<string>()
-    data = yield* decrypt(key.value, data, label("text", purpose, subject, keyId), "openText", subject)
+    data = yield* decrypt(keys.cipher, key.value, data, label("text", purpose, subject, keyId), "openText", subject)
   }
   return Option.some(textDecoder.decode(data))
 })

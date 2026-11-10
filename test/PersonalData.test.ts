@@ -1,6 +1,6 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Exit, Layer, Option, Redacted, Ref, Schema, Stream } from "effect"
+import { Cause, Config, Effect, Exit, Layer, Option, Redacted, Ref, Schema, Stream } from "effect"
 import { KeyValueStore } from "effect/persistence"
 import { SqlClient } from "effect/sql"
 import { TestClock } from "effect/testing"
@@ -14,6 +14,7 @@ import {
   PersonalData,
   ViewModel
 } from "effect-cqrs"
+import * as PersonalDataNode from "effect-cqrs/PersonalDataNode"
 import { postgresClient, postgresUrl } from "../bench/common.ts"
 
 const AccountEvent = Schema.TaggedUnion({
@@ -70,6 +71,18 @@ const Storage = Layer.merge(EventStore.layerMemory, Keys)
 const storedPayloads = Effect.gen(function*() {
   const store = yield* EventStore.EventStore
   return Array.from(yield* Stream.runCollect(store.read({ aggregateNames: ["account"] }))).map(({ payload }) => payload)
+})
+
+/** The ephemeral master key, counting its calls as a KMS would bill them. */
+const countingMasterKey = Effect.gen(function*() {
+  const inner = yield* PersonalData.MasterKey
+  const calls = { wrap: 0, unwrap: 0 }
+  const masterKey = PersonalData.MasterKey.of({
+    keyId: inner.keyId,
+    wrap: (dataKey, context) => Effect.suspend(() => (calls.wrap++, inner.wrap(dataKey, context))),
+    unwrap: (wrapped, context) => Effect.suspend(() => (calls.unwrap++, inner.unwrap(wrapped, context)))
+  })
+  return { calls, masterKey }
 })
 
 const openAlice = (accounts: AggregateService.AggregateService<typeof Account>) =>
@@ -185,6 +198,19 @@ describe("PersonalData", () => {
       assert.strictEqual(error._tag, "PersonalDataError")
     }).pipe(Effect.provide(Storage)))
 
+  it.effect("fails to read a field copied into another stream", () =>
+    Effect.gen(function*() {
+      const store = yield* EventStore.EventStore
+      const accounts = yield* AggregateService.make(Account)
+      yield* accounts.commands.open("alice", { owner: "Alice Rossi" })
+      yield* accounts.commands.open("mallory", { owner: "Mallory" })
+      const [alice, mallory] = Array.from(yield* Stream.runCollect(store.read()))
+      const decode = AggregateService.makeEventDecoder(Account, yield* PersonalData.Keys)
+      const copied = { ...mallory!, payload: { ...(mallory!.payload as object), owner: (alice!.payload as any).owner } }
+      const error = yield* Effect.flip(decode(copied))
+      assert.include(error.message, "encrypted for another subject")
+    }).pipe(Effect.provide(Storage)))
+
   it.effect("fails rather than redacts when the key store has lost a key", () =>
     Effect.gen(function*() {
       const accounts = yield* AggregateService.make(Account)
@@ -259,6 +285,55 @@ describe("PersonalData", () => {
       assert.isTrue(Option.isNone(yield* there.decryptionKey("alice", keyId)))
       assert.isTrue(yield* there.isForgotten("alice"))
     }).pipe(Effect.provide(PersonalData.layerMasterKeyEphemeral)))
+
+  it.effect("create the key of a new subject once for concurrent writers", () =>
+    Effect.gen(function*() {
+      const { calls, masterKey } = yield* countingMasterKey
+      const backend = PersonalData.makeMemoryBackend()
+      const keys = yield* PersonalData.make(backend).pipe(Effect.provideService(PersonalData.MasterKey, masterKey))
+      const results = yield* Effect.forEach(
+        Array.from({ length: 20 }, () => "alice"),
+        (subject) => keys.encryptionKey(subject),
+        { concurrency: "unbounded" }
+      )
+      assert.strictEqual(new Set(results.map(({ keyId }) => keyId)).size, 1)
+      assert.deepStrictEqual(calls, { wrap: 1, unwrap: 0 })
+
+      // Another process reading the key unwraps it once, however many readers it has.
+      const other = yield* PersonalData.make(backend).pipe(Effect.provideService(PersonalData.MasterKey, masterKey))
+      yield* Effect.forEach(
+        Array.from({ length: 20 }, () => "alice"),
+        (subject) => other.decryptionKey(subject, results[0]!.keyId),
+        { concurrency: "unbounded" }
+      )
+      assert.deepStrictEqual(calls, { wrap: 1, unwrap: 1 })
+    }).pipe(Effect.provide(PersonalData.layerMasterKeyEphemeral)))
+
+  it.effect("refuse a key for a subject forgotten while it was created", () =>
+    Effect.gen(function*() {
+      const keys = yield* PersonalData.make(PersonalData.makeMemoryBackend())
+      yield* Effect.all([Effect.exit(keys.encryptionKey("alice")), keys.forget("alice")], { concurrency: "unbounded" })
+      // Either may come first, as long as nothing encrypts with the key afterwards.
+      const error = yield* Effect.flip(keys.encryptionKey("alice"))
+      assert.strictEqual(error._tag, "SubjectForgotten")
+      assert.isTrue(yield* keys.isForgotten("alice"))
+    }).pipe(Effect.provide(PersonalData.layerMasterKeyEphemeral)))
+
+  it.effect("keep a master key from configuration out of its errors", () =>
+    Effect.gen(function*() {
+      const secret = "c2VjcmV0IGtleQ"
+      const layer = PersonalData.layerMasterKeyConfig({
+        keyId: Config.succeed("m1"),
+        key: Config.succeed(Redacted.make(`${secret}!!`))
+      })
+      const exit = yield* Effect.exit(Effect.scoped(Layer.build(layer)))
+      assert.isTrue(Exit.isFailure(exit))
+      if (Exit.isFailure(exit)) {
+        // Structured loggers print the error as JSON, causes included.
+        assert.notInclude(Cause.pretty(exit.cause), secret)
+        assert.notInclude(JSON.stringify(exit.cause), secret)
+      }
+    }))
 
   it.effect("read keys wrapped by an earlier master key", () =>
     Effect.gen(function*() {
@@ -420,6 +495,65 @@ describe("PersonalData", () => {
   })
 })
 
+describe("PersonalData ciphers", () => {
+  const ciphers = [["WebCrypto", PersonalData.webCrypto], ["node:crypto", PersonalDataNode.cipher]] as const
+  const place = new TextEncoder().encode("place")
+
+  for (const [writer, encrypting] of ciphers) {
+    for (const [reader, decrypting] of ciphers) {
+      it.effect(`read with ${reader} what ${writer} wrote`, () =>
+        Effect.gen(function*() {
+          const bytes = crypto.getRandomValues(new Uint8Array(32))
+          const plaintext = new TextEncoder().encode(JSON.stringify("Alice Rossi"))
+          const sealed = yield* encrypting.encrypt(yield* encrypting.importKey(bytes), plaintext, place)
+          assert.strictEqual(sealed.byteLength, PersonalData.ivLength + plaintext.byteLength + PersonalData.tagLength)
+          const key = yield* decrypting.importKey(bytes)
+          assert.deepStrictEqual(yield* decrypting.decrypt(key, sealed, place), plaintext)
+
+          const altered = new Uint8Array(sealed)
+          altered[PersonalData.ivLength] = altered[PersonalData.ivLength]! ^ 1
+          assert.isTrue(Exit.isFailure(yield* Effect.exit(decrypting.decrypt(key, altered, place))))
+          assert.isTrue(Exit.isFailure(yield* Effect.exit(decrypting.decrypt(key, sealed, new Uint8Array([1])))))
+          assert.isTrue(Exit.isFailure(yield* Effect.exit(decrypting.decrypt(key, sealed.subarray(0, 20), place))))
+        }))
+    }
+
+    it.effect(`${writer} refuses keys that aren't 32 bytes`, () =>
+      Effect.gen(function*() {
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(encrypting.importKey(new Uint8Array(16)))))
+      }))
+  }
+
+  it.effect("read events written with node:crypto through WebCrypto, and the other way", () =>
+    Effect.gen(function*() {
+      const backend = PersonalData.makeMemoryBackend()
+      const masterKey = { keyId: "m1", key: Redacted.make(crypto.getRandomValues(new Uint8Array(32))) }
+      const keysWith = (cipher: Layer.Layer<never>) =>
+        Layer.fresh(
+          Layer.effect(PersonalData.Keys, PersonalData.make(backend)).pipe(
+            Layer.provide(PersonalData.layerMasterKey(masterKey)),
+            Layer.provide(cipher)
+          )
+        )
+      const node = keysWith(PersonalDataNode.layerCipher)
+      const web = keysWith(Layer.empty)
+
+      yield* Effect.flatMap(AggregateService.make(Account), (accounts) =>
+        accounts.commands.open("alice", { owner: "Alice Rossi" })).pipe(Effect.provide(node))
+      yield* Effect.flatMap(AggregateService.make(Account), (accounts) =>
+        accounts.commands.open("bob", { owner: "Bob Bianchi" })).pipe(Effect.provide(web))
+
+      for (const keys of [node, web]) {
+        const owners = yield* Effect.gen(function*() {
+          const accounts = yield* AggregateService.make(Account, { stateCacheSize: 0 })
+          assert.strictEqual((yield* PersonalData.Keys).cipher === PersonalDataNode.cipher, keys === node)
+          return [(yield* accounts.readModel("alice")).owner, (yield* accounts.readModel("bob")).owner]
+        }).pipe(Effect.provide(keys))
+        assert.deepStrictEqual(owners, ["Alice Rossi", "Bob Bianchi"])
+      }
+    }).pipe(Effect.provide(EventStore.layerMemory)))
+})
+
 /** A key store backend on a fresh database, dropped with the scope. */
 const backends: ReadonlyArray<readonly [string, Layer.Layer<SqlClient.SqlClient> | undefined]> = [
   ["memory", undefined],
@@ -478,18 +612,41 @@ describe.each(backends)("PersonalData key store on %s", (_, client) => {
   it.live("gives every racing writer the same key", () =>
     run((backend) =>
       Effect.gen(function*() {
-        const keys = yield* PersonalData.make(backend)
+        // Two processes, each with writers racing for a new subject.
+        const { calls, masterKey } = yield* countingMasterKey
+        const keys = yield* Effect.all([PersonalData.make(backend), PersonalData.make(backend)]).pipe(
+          Effect.provideService(PersonalData.MasterKey, masterKey)
+        )
         const results = yield* Effect.forEach(
-          Array.from({ length: 20 }, () => keys),
+          Array.from({ length: 20 }, (_, index) => keys[index % 2]!),
           (each) => each.encryptionKey("alice"),
           { concurrency: "unbounded" }
         )
         assert.strictEqual(new Set(results.map(({ keyId }) => keyId)).size, 1)
+        assert.isAtMost(calls.wrap, 2)
       })
     ))
 })
 
 describe("PersonalData on SQLite", () => {
+  it.effect("leaves the table to migrations of your own", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      const table = "keys_migrated"
+      const backend = yield* PersonalData.makeSqlBackend({ table, migrate: false })
+      assert.isTrue(Exit.isFailure(yield* Effect.exit(backend.get("alice"))))
+
+      for (const statement of PersonalData.migrations("sqlite", { table })) yield* sql.unsafe(statement)
+      const keys = yield* PersonalData.make(backend)
+      const { keyId } = yield* keys.encryptionKey("alice")
+      assert.isTrue(Option.isSome(yield* keys.decryptionKey("alice", keyId)))
+      // Running them again changes nothing.
+      for (const statement of PersonalData.migrations("sqlite", { table })) yield* sql.unsafe(statement)
+      assert.isTrue(Option.isSome(yield* backend.get("alice")))
+    }).pipe(
+      Effect.provide(Layer.merge(PersonalData.layerMasterKeyEphemeral, SqliteClient.layer({ filename: ":memory:" })))
+    ))
+
   it.effect("keeps keys across restarts", () =>
     Effect.gen(function*() {
       const masterKey = PersonalData.layerMasterKey({
