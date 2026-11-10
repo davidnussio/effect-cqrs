@@ -44,12 +44,15 @@ const Routes = Layer.mergeAll(
 | Endpoint | Does |
 | --- | --- |
 | `POST /todo/:aggregateId/<command>` | Runs the command with the body as payload, and answers with the `CommandResult` |
-| `GET /todo/:aggregateId/history` | `history`, with optional `payload`, `startTime` and `finishTime` in the query |
+| `GET /todo/:aggregateId/history` | `history`, with optional `payload`, `startTime`, `finishTime`, `afterVersion` and `limit` in the query |
 | `GET /todo/:aggregateId` | `readModel`, with an optional `finishTime`. Only with `state` |
 
 The group is an ordinary `HttpApiGroup`: `name` and `prefix` change its identifier and
 path, and middleware, OpenAPI annotations and `HttpApiClient` work as with any other.
 A request without a body runs a command whose payload has no required fields.
+`history` answers with at most 1,000 events, the `historyLimit` option of
+`CommandApi.layer`, and a client reads the next page with `afterVersion` set to the
+version of the last entry it got.
 
 Two headers reach the command. `Idempotency-Key` becomes its
 [`commandId`](../commands/#retries-and-command-ids), so a client that retries after a

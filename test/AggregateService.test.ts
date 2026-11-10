@@ -679,6 +679,35 @@ describe("AggregateService", () => {
         )
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
+    it.effect("reads a long stream in pages", () =>
+      Effect.gen(function*() {
+        const todos = yield* makeTodos
+        yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" })
+        yield* todos.commands.completeTodo("todo-1", {})
+        yield* todos.commands.deleteTodo("todo-1", { message: "Done" })
+
+        const first = yield* todos.history("todo-1", { limit: 2 })
+        const next = yield* todos.history("todo-1", { afterVersion: first.at(-1)!.version, limit: 2, payload: true })
+
+        assert.deepStrictEqual(first.map((entry) => entry.type), ["TodoCreated", "TodoCompleted"])
+        assert.deepStrictEqual(next.map((entry) => [entry.version, entry.payload?._tag]), [[3, "TodoDeleted"]])
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("lists events without decoding them when the payloads aren't asked for", () =>
+      Effect.gen(function*() {
+        const todos = yield* makeTodos
+        const store = yield* EventStore.EventStore
+        yield* store.append({
+          aggregateName: "todo",
+          aggregateId: "todo-1",
+          expectedVersion: 0,
+          events: [{ type: "TodoCreated", payload: { _tag: "TodoCreated", title: "" } }]
+        })
+
+        assert.deepStrictEqual((yield* todos.history("todo-1")).map((entry) => entry.type), ["TodoCreated"])
+        assert.isTrue(Exit.isFailure(yield* Effect.exit(todos.history("todo-1", { payload: true }))))
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
     it.effect("restricts the time window", () =>
       Effect.gen(function*() {
         const todos = yield* makeTodos

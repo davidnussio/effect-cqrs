@@ -14,7 +14,7 @@ const TodoApi = CommandApi.group(Todo, { state: TodoState, errors: [TodoAlreadyC
 
 class Api extends HttpApi.make("api").add(TodoApi) {}
 
-const Handlers = CommandApi.layer(Api, "todo", AggregateService.make(Todo))
+const Handlers = CommandApi.layer(Api, "todo", AggregateService.make(Todo), { historyLimit: 2 })
 
 const App = Layer.mergeAll(Handlers.pipe(Layer.provide(EventStore.layerMemory)), HttpServer.layerServices)
 
@@ -39,6 +39,22 @@ layer(App)("CommandApi", (it) => {
       assert.strictEqual(history[0]?.payload?._tag, "TodoCreated")
       const withoutPayload = yield* todo.history({ params: { aggregateId: "a" }, query: {} })
       assert.isUndefined(withoutPayload[0]?.payload)
+    }))
+
+  it.effect("lists history in pages no longer than the limit", () =>
+    Effect.gen(function*() {
+      const { todo } = yield* client
+      const params = { aggregateId: "paged" }
+      yield* todo.createTodo({ params, payload: { title: "Buy Milk" } })
+      yield* todo.completeTodo({ params, payload: {} })
+      yield* todo.deleteTodo({ params, payload: { message: "Done" } })
+
+      const first = yield* todo.history({ params, query: { limit: 10 } })
+      assert.deepStrictEqual(first.map((entry) => entry.version), [1, 2])
+      const next = yield* todo.history({ params, query: { afterVersion: 2 } })
+      assert.deepStrictEqual(next.map((entry) => entry.version), [3])
+      const one = yield* todo.history({ params, query: { limit: 1 } })
+      assert.deepStrictEqual(one.map((entry) => entry.version), [1])
     }))
 
   it.effect("answers a declared domain error as it is", () =>

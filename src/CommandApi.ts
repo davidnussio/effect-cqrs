@@ -18,7 +18,7 @@
  * | --- | --- |
  * | `POST /todo/:aggregateId/createTodo` | Runs `createTodo` with the body as payload |
  * | `GET /todo/:aggregateId` | `readModel`, with an optional `finishTime` |
- * | `GET /todo/:aggregateId/history` | `history`, with optional `payload`, `startTime` and `finishTime` |
+ * | `GET /todo/:aggregateId/history` | `history`, with optional `payload`, `startTime`, `finishTime`, `afterVersion` and `limit` |
  *
  * The group is an ordinary `HttpApiGroup`, so it takes middleware, a different
  * prefix and OpenAPI annotations like any other, and `HttpApiClient` calls it.
@@ -101,7 +101,11 @@ const readModelQuery = { finishTime: Schema.optionalKey(Schema.DateTimeUtc) }
 const historyQuery = {
   payload: Schema.optionalKey(Schema.Boolean),
   startTime: Schema.optionalKey(Schema.DateTimeUtc),
-  finishTime: Schema.optionalKey(Schema.DateTimeUtc)
+  finishTime: Schema.optionalKey(Schema.DateTimeUtc),
+  /** Lists the events after this version, the last of the previous page. */
+  afterVersion: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  /** Lists at most this many events, and never more than the layer's `historyLimit`. */
+  limit: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)))
 }
 
 type Params = Schema.toCodecStringTree<Schema.Struct<typeof params>>
@@ -253,6 +257,15 @@ const readBody = (request: HttpServerRequest.HttpServerRequest, aggregateName: s
     Effect.mapError(() => new InvalidCommand({ aggregateName, type, message: "The body is not JSON" }))
   )
 
+export interface LayerOptions {
+  /**
+   * The most events one `history` response lists, so that a long stream can't make
+   * one response as large as the stream. A client reads further with
+   * `afterVersion`. Defaults to 1,000.
+   */
+  readonly historyLimit?: number | undefined
+}
+
 /**
  * Implements a group built by {@link group} with an aggregate service, or an
  * effect that builds one when the layer starts.
@@ -270,7 +283,8 @@ export const layer = <
 >(
   api: HttpApi.HttpApi<ApiId, Groups>,
   name: Name,
-  service: AggregateService<A> | Effect.Effect<AggregateService<A>, E, R>
+  service: AggregateService<A> | Effect.Effect<AggregateService<A>, E, R>,
+  options?: LayerOptions
 ): Layer.Layer<HttpApiGroup.Service<ApiId, Name>, E, Exclude<R, Scope.Scope>> =>
   HttpApiBuilder.group(api, name, (handlers: any) =>
     Effect.gen(function*() {
@@ -282,8 +296,12 @@ export const layer = <
       let result = handlers
       for (const [identifier, endpoint] of Object.entries(endpoints)) {
         if (identifier === "history") {
+          const historyLimit = options?.historyLimit ?? 1_000
           result = result.handle(identifier, ({ params, query }: any) =>
-            aggregates.history(params.aggregateId, query).pipe(Effect.orDie))
+            aggregates.history(params.aggregateId, {
+              ...query,
+              limit: Math.min(query.limit ?? historyLimit, historyLimit)
+            }).pipe(Effect.orDie))
           continue
         }
         if (identifier === "readModel") {
@@ -305,9 +323,7 @@ export const layer = <
             return Effect.die(error)
           }
           if (
-            expected.some((is) =>
-              is(error)
-            )
+            expected.some((is) => is(error))
           ) return Effect.fail(error)
           return Effect.fail(
             new CommandRejected({ aggregateName, command: identifier, error: tag, message: messageOf(error) })

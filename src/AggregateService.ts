@@ -128,6 +128,16 @@ export interface HistoryEntry<Event> {
   readonly payload?: Event
 }
 
+export interface HistoryOptions {
+  readonly payload?: boolean | undefined
+  readonly startTime?: DateTime.Utc | undefined
+  readonly finishTime?: DateTime.Utc | undefined
+  /** Lists the events after this version. Defaults to `0`, the start of the stream. */
+  readonly afterVersion?: number | undefined
+  /** Lists at most this many events. */
+  readonly limit?: number | undefined
+}
+
 export interface AggregateService<A extends Aggregate.Any> {
   readonly aggregate: A
   /** One typed function per command. */
@@ -151,14 +161,14 @@ export interface AggregateService<A extends Aggregate.Any> {
     aggregateId: string,
     options?: { readonly finishTime?: DateTime.Utc | undefined }
   ) => Effect.Effect<Aggregate.State<A>, ReadError>
-  /** Lists the events of one aggregate, with their decoded payload when `payload` is set. */
+  /**
+   * Lists the events of one aggregate, with their decoded payload when `payload` is
+   * set. Without it the events aren't decoded. `afterVersion` and `limit` read a long
+   * stream in pages: pass the version of the last entry to get the next page.
+   */
   readonly history: (
     aggregateId: string,
-    options?: {
-      readonly payload?: boolean | undefined
-      readonly startTime?: DateTime.Utc | undefined
-      readonly finishTime?: DateTime.Utc | undefined
-    }
+    options?: HistoryOptions
   ) => Effect.Effect<ReadonlyArray<HistoryEntry<Aggregate.Event<A>>>, ReadError>
 }
 
@@ -1053,23 +1063,32 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       Effect.withSpan(`${aggregateName}.readModel`, { attributes: { "aggregate.id": aggregateId } })
     )
 
-  const history: AggregateService<A>["history"] = (aggregateId, options) =>
-    replay(
-      streamOf(aggregateId, { startTime: options?.startTime, finishTime: options?.finishTime }),
-      [] as Array<HistoryEntry<Aggregate.Event<A>>>,
-      (entries, { event }, stored) => {
-        entries.push({
-          version: stored.version,
-          timestamp: stored.timestamp,
-          type: stored.type,
-          correlationId: stored.correlationId,
-          causationId: stored.causationId,
-          metadata: stored.metadata,
-          ...(options?.payload === true ? { payload: event } : {})
-        })
+  const entryOf = (stored: StoredEvent): HistoryEntry<Aggregate.Event<A>> => ({
+    version: stored.version,
+    timestamp: stored.timestamp,
+    type: stored.type,
+    correlationId: stored.correlationId,
+    causationId: stored.causationId,
+    metadata: stored.metadata
+  })
+
+  const history: AggregateService<A>["history"] = (aggregateId, options) => {
+    const stream = streamOf(aggregateId, {
+      startTime: options?.startTime,
+      finishTime: options?.finishTime,
+      afterVersion: options?.afterVersion
+    })
+    const limit = options?.limit
+    const page = limit === undefined ? stream : Stream.take(stream, Math.max(0, Math.floor(limit)))
+    // Only the payloads need decoding, and decrypting.
+    const entries = options?.payload === true
+      ? replay(page, [] as Array<HistoryEntry<Aggregate.Event<A>>>, (entries, { event }, stored) => {
+        entries.push({ ...entryOf(stored), payload: event })
         return entries
-      }
-    ).pipe(Effect.withSpan(`${aggregateName}.history`, { attributes: { "aggregate.id": aggregateId } }))
+      })
+      : Effect.map(Stream.runCollect(Stream.map(page, entryOf)), (entries) => Array.from(entries))
+    return entries.pipe(Effect.withSpan(`${aggregateName}.history`, { attributes: { "aggregate.id": aggregateId } }))
+  }
 
   return {
     aggregate,
