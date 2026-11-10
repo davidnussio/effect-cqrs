@@ -1,9 +1,9 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it, layer } from "@effect/vitest"
 import { Context, DateTime, Duration, Effect, Exit, Fiber, Latch, Layer, Option, Stream } from "effect"
+import { Checkpoints, EventStore, SqliteEventStore } from "effect-cqrs"
 import { SqlClient } from "effect/sql"
 import { TestClock } from "effect/testing"
-import { Checkpoints, EventStore, SqliteEventStore } from "effect-cqrs"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -155,7 +155,10 @@ for (const [name, adapter] of Object.entries(adapters)) {
         assert.deepStrictEqual(yield* types({ startTime: second!.timestamp }), ["A2", "A3"])
         assert.deepStrictEqual(yield* types({ finishTime: second!.timestamp }), ["A1"])
         assert.deepStrictEqual(
-          yield* types({ startTime: first!.timestamp, finishTime: DateTime.addDuration(second!.timestamp, "1 millis") }),
+          yield* types({
+            startTime: first!.timestamp,
+            finishTime: DateTime.addDuration(second!.timestamp, "1 millis")
+          }),
           ["A1", "A2"]
         )
       }).pipe(Effect.provide(adapter)))

@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Exit, Layer, Ref, References, Schedule, Scope } from "effect"
-import { SqlClient } from "effect/sql"
 import { AggregateService, Checkpoints, EventStore, Leases, ViewModel } from "effect-cqrs"
+import { SqlClient } from "effect/sql"
 import { postgresClient, postgresStorage, postgresUrl } from "../bench/common.ts"
 import { Todo } from "../examples/todo/aggregate.ts"
 
@@ -44,7 +44,8 @@ describe("Leases", () => {
           const scope = yield* Scope.make()
           const context = yield* Layer.buildWithScope(makeProcess(name), scope)
           return {
-            run: <A, E>(effect: Effect.Effect<A, E, any>) => Effect.provideContext(effect, context) as Effect.Effect<A, E>,
+            run: <A, E>(effect: Effect.Effect<A, E, any>) =>
+              Effect.provideContext(effect, context) as Effect.Effect<A, E>,
             stop: Scope.close(scope, Exit.void)
           }
         })

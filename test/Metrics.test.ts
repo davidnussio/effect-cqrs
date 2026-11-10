@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Exit, Layer, Metric, References, Schema } from "effect"
-import { KeyValueStore } from "effect/persistence"
 import { Aggregate, AggregateService, EventStore } from "effect-cqrs"
+import { KeyValueStore } from "effect/persistence"
 
 const { MetricNames } = AggregateService
 
@@ -35,12 +35,16 @@ const series = (name: string, attributes: Record<string, string> = {}) =>
 
 /** The total of the counters, or the number of observations of the histograms, that match. */
 const count = (name: string, attributes?: Record<string, string>) =>
-  Effect.map(series(name, attributes), (found) =>
-    found.reduce((sum, { state }) => sum + Number((state as { readonly count: number | bigint }).count), 0))
+  Effect.map(
+    series(name, attributes),
+    (found) => found.reduce((sum, { state }) => sum + Number((state as { readonly count: number | bigint }).count), 0)
+  )
 
 const sumOf = (name: string, attributes?: Record<string, string>) =>
-  Effect.map(series(name, attributes), (found) =>
-    found.reduce((sum, { state }) => sum + (state as { readonly sum: number }).sum, 0))
+  Effect.map(
+    series(name, attributes),
+    (found) => found.reduce((sum, { state }) => sum + (state as { readonly sum: number }).sum, 0)
+  )
 
 const gauge = (name: string) =>
   Effect.map(series(name), ([found]) => (found?.state as { readonly value: number } | undefined)?.value)
@@ -159,14 +163,16 @@ describe("metrics", () => {
       }).pipe(
         isolated,
         Effect.provide(EventStore.layerMemory),
-        Effect.provide(Layer.effect(
-          KeyValueStore.KeyValueStore,
-          Effect.map(KeyValueStore.KeyValueStore, (store) =>
-            KeyValueStore.KeyValueStore.of({
-              ...store,
-              set: (key) => Effect.fail(new KeyValueStore.KeyValueStoreError({ message: "full", method: "set", key }))
-            }))
-        ).pipe(Layer.provide(KeyValueStore.layerMemory))),
+        Effect.provide(
+          Layer.effect(
+            KeyValueStore.KeyValueStore,
+            Effect.map(KeyValueStore.KeyValueStore, (store) =>
+              KeyValueStore.KeyValueStore.of({
+                ...store,
+                set: (key) => Effect.fail(new KeyValueStore.KeyValueStoreError({ message: "full", method: "set", key }))
+              }))
+          ).pipe(Layer.provide(KeyValueStore.layerMemory))
+        ),
         Effect.provideService(References.MinimumLogLevel, "None")
       ))
   })

@@ -89,7 +89,12 @@ export const Slider = (
 }
 
 export const Toggle = (
-  { on, onChange, label, color = "#7c5cff" }: { on: boolean; onChange: (on: boolean) => void; label: ReactNode; color?: string }
+  { on, onChange, label, color = "#7c5cff" }: {
+    on: boolean
+    onChange: (on: boolean) => void
+    label: ReactNode
+    color?: string
+  }
 ) => (
   <button onClick={() => onChange(!on)} className="group inline-flex items-center gap-2 text-[11px] text-white/75">
     <span

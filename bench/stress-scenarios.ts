@@ -5,7 +5,8 @@
  * size that keeps them from rotting.
  */
 import { Cause, Effect, Exit, Fiber, Layer, References, Stream } from "effect"
-import { Aggregate, AggregateService, EventStore, ViewModel } from "effect-cqrs"
+import type { Aggregate } from "effect-cqrs"
+import { AggregateService, EventStore, ViewModel } from "effect-cqrs"
 import { spawn } from "node:child_process"
 import {
   Account,
@@ -354,7 +355,10 @@ const contention = (sizes: Sizes, backends: ReadonlyArray<Backend>) =>
             check(movements === acknowledged.size, `${label}: state counts ${movements} movements`)
             const history = yield* accounts.history("hot", { payload: true })
             const stored = history.flatMap(({ payload }) => payload === undefined ? [] : [payload.reference])
-            check(stored.length === acknowledged.size, `${label}: ${stored.length} stored, ${acknowledged.size} acknowledged`)
+            check(
+              stored.length === acknowledged.size,
+              `${label}: ${stored.length} stored, ${acknowledged.size} acknowledged`
+            )
             check(stored.every((reference) => acknowledged.has(reference)), `${label}: a failed command left an event`)
 
             return {
@@ -391,7 +395,9 @@ const flakyViewModel = (sizes: Sizes, backend: Backend) =>
 
     yield* seedStream("flaky", sizes.flakyEvents, { chunk: 100 })
     const run = yield* timed(
-      ViewModel.ViewModels.use((viewModels) => viewModels.caughtUp()).pipe(
+      ViewModel.ViewModels.use((viewModels) =>
+        viewModels.caughtUp()
+      ).pipe(
         Effect.provide(ViewModel.layer([ledger.viewModel])),
         Effect.scoped,
         quiet
@@ -491,11 +497,17 @@ const crash = (sizes: Sizes, backend: DurableBackend) =>
       const store = yield* EventStore.EventStore
       const head = yield* store.head
       check(head >= last, `the last acknowledged position ${last} is past the head ${head}`)
-      check(head >= acknowledged * crashEventsPerCommand, `${acknowledged} commands acknowledged, ${head} events stored`)
+      check(
+        head >= acknowledged * crashEventsPerCommand,
+        `${acknowledged} commands acknowledged, ${head} events stored`
+      )
       check(head % crashEventsPerCommand === 0, `the log ends in the middle of a command, at ${head}`)
       const versions = yield* auditLog(head, check)
       for (const [id, version] of versions) {
-        check(version % crashEventsPerCommand === 0, `stream ${id} ends in the middle of a command, at version ${version}`)
+        check(
+          version % crashEventsPerCommand === 0,
+          `stream ${id} ends in the middle of a command, at version ${version}`
+        )
       }
       return {
         name: "crash",

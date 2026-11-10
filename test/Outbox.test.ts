@@ -40,7 +40,10 @@ describe("Outbox", () => {
         aggregates: [Todo],
         batchSize: 2,
         messages: {
-          TodoCreated: ({ title }, { aggregateId }) => ({ type: "todo.created.v1", payload: { id: aggregateId, title } }),
+          TodoCreated: ({ title }, { aggregateId }) => ({
+            type: "todo.created.v1",
+            payload: { id: aggregateId, title }
+          }),
           // Deleted todos are announced, completed ones are not.
           TodoDeleted: (_, { aggregateId }) => ({ type: "todo.deleted.v1", payload: { id: aggregateId } })
         },
@@ -63,7 +66,13 @@ describe("Outbox", () => {
         "todo.created.v1",
         "todo.deleted.v1"
       ])
-      assert.deepStrictEqual(messages.map(({ id }) => id), ["todo/t1@1", "todo/t2@1", "todo/t3@1", "todo/t4@1", "todo/t2@2"])
+      assert.deepStrictEqual(messages.map(({ id }) => id), [
+        "todo/t1@1",
+        "todo/t2@1",
+        "todo/t3@1",
+        "todo/t4@1",
+        "todo/t2@2"
+      ])
       assert.deepStrictEqual(messages[0]?.payload, { id: "t1", title: "Todo 1" })
     }).pipe(Effect.provide(Storage)))
 
@@ -93,8 +102,7 @@ describe("Outbox", () => {
       const outbox = Outbox.make({
         name: "retrying",
         aggregates: [Todo],
-        publish: (messages) =>
-          publisher.publish(messages).pipe(Effect.andThen(Deferred.succeed(done, void 0)))
+        publish: (messages) => publisher.publish(messages).pipe(Effect.andThen(Deferred.succeed(done, void 0)))
       })
       yield* Effect.gen(function*() {
         yield* createTodos(3)

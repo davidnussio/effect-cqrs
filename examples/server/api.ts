@@ -3,8 +3,8 @@
  * import it to call the server with `HttpApiClient`.
  */
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api"
 import { CommandApi } from "effect-cqrs"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api"
 import { Todo, TodoAlreadyCreated, TodoAlreadyDeleted, TodoNotFound } from "../todo/aggregate.ts"
 
 export const TodoState = Schema.Union([

@@ -4,7 +4,6 @@
  * a timeout, metadata, metrics and an event version. Run it with `pnpm tutorial`.
  */
 import { Context, Duration, Effect, Layer, Metric, Option, Ref, Schema, Stream } from "effect"
-import { DurableClock, DurableDeferred, WorkflowEngine } from "effect/workflow"
 import {
   Aggregate,
   AggregateService,
@@ -15,6 +14,7 @@ import {
   Saga,
   ViewModel
 } from "effect-cqrs"
+import { DurableClock, DurableDeferred, WorkflowEngine } from "effect/workflow"
 
 // #region events
 const Quantity = Schema.Int.check(Schema.isGreaterThan(0))

@@ -96,7 +96,9 @@ export const field = <S extends PlainSchema>(
     const value = Schema.decodeUnknownSync(Schema.toType(schema as PlainSchema))(options.redacted)
     redacted = Schema.encodeSync(Schema.toCodecJson(schema as PlainSchema))(value) as Schema.Json
   } catch (error) {
-    throw new Error(`PersonalData.field: the redacted value is not a valid value of the field: ${String(error)}`)
+    throw new Error(`PersonalData.field: the redacted value is not a valid value of the field: ${String(error)}`, {
+      cause: error
+    })
   }
   const annotation: FieldAnnotation = { redacted, subject: options.subject }
   return schema.annotate({ [annotationKey]: annotation }) as S
@@ -183,10 +185,14 @@ const collect = (ast: SchemaAST.AST, path: ReadonlyArray<string>, fields: Array<
     if (field.subject === undefined || field.path.length !== path.length + 1) continue
     const sibling = node.propertySignatures.find(({ name }) => name === field.subject)
     if (sibling === undefined) {
-      throw new Error(`${where}: ${describe(field.path)} takes its subject from "${field.subject}", which is not next to it`)
+      throw new Error(
+        `${where}: ${describe(field.path)} takes its subject from "${field.subject}", which is not next to it`
+      )
     }
     if (annotationOf(unwrapNullable(sibling.type)) !== undefined) {
-      throw new Error(`${where}: ${describe(field.path)} takes its subject from "${field.subject}", which is personal itself`)
+      throw new Error(
+        `${where}: ${describe(field.path)} takes its subject from "${field.subject}", which is personal itself`
+      )
     }
   }
 }
@@ -267,7 +273,8 @@ export const ivLength = 12
 export const tagLength = 16
 export const keyLength = 32
 
-const randomBytes = (length: number): Uint8Array<ArrayBuffer> => globalThis.crypto.getRandomValues(new Uint8Array(length))
+const randomBytes = (length: number): Uint8Array<ArrayBuffer> =>
+  globalThis.crypto.getRandomValues(new Uint8Array(length))
 
 const subtle = () => globalThis.crypto.subtle
 
@@ -479,8 +486,9 @@ export const makeMasterKey = Effect.fnUntraced(function*(options: {
   })
 })
 
-export const layerMasterKey = (options: Parameters<typeof makeMasterKey>[0]): Layer.Layer<MasterKey, PersonalDataError> =>
-  Layer.effect(MasterKey, makeMasterKey(options))
+export const layerMasterKey = (
+  options: Parameters<typeof makeMasterKey>[0]
+): Layer.Layer<MasterKey, PersonalDataError> => Layer.effect(MasterKey, makeMasterKey(options))
 
 /**
  * A master key from configuration: an id, and 32 bytes in base64. By default
@@ -952,7 +960,9 @@ export const open = (
         return yield* new PersonalDataError({
           operation: "open",
           subject: Option.match(wire, { onNone: () => "", onSome: ({ subject }) => subject }),
-          message: `${location.aggregateName}.${location.type}: ${describe(field.path)} is not encrypted data this version can read`
+          message: `${location.aggregateName}.${location.type}: ${
+            describe(field.path)
+          } is not encrypted data this version can read`
         })
       }
       const { data, keyId, subject } = wire.value
@@ -963,7 +973,9 @@ export const open = (
         return yield* new PersonalDataError({
           operation: "open",
           subject,
-          message: `${location.aggregateName}.${location.type}: ${describe(field.path)} is encrypted for another subject`
+          message: `${location.aggregateName}.${location.type}: ${
+            describe(field.path)
+          } is encrypted for another subject`
         })
       }
       const key = yield* keys.decryptionKey(subject, keyId)

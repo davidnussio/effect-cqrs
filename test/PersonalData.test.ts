@@ -1,9 +1,6 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, Config, Effect, Exit, Layer, Option, Redacted, Ref, Schema, Stream } from "effect"
-import { KeyValueStore } from "effect/persistence"
-import { SqlClient } from "effect/sql"
-import { TestClock } from "effect/testing"
 import {
   Aggregate,
   AggregateService,
@@ -15,6 +12,9 @@ import {
   ViewModel
 } from "effect-cqrs"
 import * as PersonalDataNode from "effect-cqrs/PersonalDataNode"
+import { KeyValueStore } from "effect/persistence"
+import { SqlClient } from "effect/sql"
+import { TestClock } from "effect/testing"
 import { postgresClient, postgresUrl } from "../bench/common.ts"
 
 const AccountEvent = Schema.TaggedUnion({
@@ -349,7 +349,9 @@ describe("PersonalData", () => {
       )
       assert.isTrue(Option.isSome(yield* rotated.decryptionKey("alice", keyId)))
 
-      const withoutPrevious = yield* PersonalData.make(backend).pipe(Effect.provide(PersonalData.layerMasterKey(second)))
+      const withoutPrevious = yield* PersonalData.make(backend).pipe(
+        Effect.provide(PersonalData.layerMasterKey(second))
+      )
       const error = yield* Effect.flip(withoutPrevious.decryptionKey("alice", keyId))
       assert.include(error.message, "Unknown master key 2025")
     }))
@@ -421,7 +423,8 @@ describe("PersonalData", () => {
         aggregates: [Account],
         dispose: Ref.set(owners, new Map()),
         handlers: {
-          AccountOpened: ({ owner }, { aggregateId }) => Ref.update(owners, (all) => new Map(all).set(aggregateId, owner))
+          AccountOpened: ({ owner }, { aggregateId }) =>
+            Ref.update(owners, (all) => new Map(all).set(aggregateId, owner))
         },
         onForget: (subject) =>
           Effect.andThen(
@@ -558,7 +561,9 @@ describe("PersonalData ciphers", () => {
 const backends: ReadonlyArray<readonly [string, Layer.Layer<SqlClient.SqlClient> | undefined]> = [
   ["memory", undefined],
   ["SQLite", SqliteClient.layer({ filename: ":memory:" }) as Layer.Layer<SqlClient.SqlClient>],
-  ...(postgresUrl === undefined ? [] : [["Postgres", Layer.fresh(postgresClient()) as unknown as Layer.Layer<SqlClient.SqlClient>] as const])
+  ...(postgresUrl === undefined
+    ? []
+    : [["Postgres", Layer.fresh(postgresClient()) as unknown as Layer.Layer<SqlClient.SqlClient>] as const])
 ]
 
 const makeBackend = (client: Layer.Layer<SqlClient.SqlClient> | undefined) =>
@@ -605,7 +610,10 @@ describe.each(backends)("PersonalData key store on %s", (_, client) => {
         assert.deepStrictEqual(yield* backend.create("alice", key("k2")), forgotten)
         // A subject can be forgotten before it ever had a key.
         yield* backend.forget("bob", 3000)
-        assert.deepStrictEqual(yield* backend.get("bob"), Option.some({ _tag: "Forgotten" as const, forgottenAt: 3000 }))
+        assert.deepStrictEqual(
+          yield* backend.get("bob"),
+          Option.some({ _tag: "Forgotten" as const, forgottenAt: 3000 })
+        )
       })
     ))
 

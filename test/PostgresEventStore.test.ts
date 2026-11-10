@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Context, Effect, Exit, Fiber, Latch, Layer, Option, Stream } from "effect"
-import { SqlClient } from "effect/sql"
 import { Checkpoints, EventStore, PostgresEventStore } from "effect-cqrs"
+import { SqlClient } from "effect/sql"
 import { postgresClient, postgresStorage, postgresUrl, temporaryPostgres } from "../bench/common.ts"
 
 const append = (aggregateId: string, expectedVersion: number, ...types: ReadonlyArray<string>) =>
@@ -97,7 +97,9 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
       const sql = yield* SqlClient.SqlClient
       const table = `old_${crypto.randomUUID().replaceAll("-", "")}`
       yield* Effect.addFinalizer(() =>
-        sql.unsafe(`DROP TABLE IF EXISTS ${table}_events, ${table}_events_head, ${table}_checkpoints`).pipe(Effect.ignore)
+        sql.unsafe(`DROP TABLE IF EXISTS ${table}_events, ${table}_events_head, ${table}_checkpoints`).pipe(
+          Effect.ignore
+        )
       )
       yield* sql.unsafe(`
         CREATE TABLE ${table}_events (
@@ -112,7 +114,9 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
         )
       `)
       yield* sql.unsafe(`INSERT INTO ${table}_events VALUES (1, 'test', 'a', 1, 'A1', '{}', 0)`)
-      yield* sql.unsafe(`CREATE TABLE ${table}_events_head (only_row BOOLEAN PRIMARY KEY DEFAULT TRUE, position BIGINT NOT NULL)`)
+      yield* sql.unsafe(
+        `CREATE TABLE ${table}_events_head (only_row BOOLEAN PRIMARY KEY DEFAULT TRUE, position BIGINT NOT NULL)`
+      )
       yield* sql.unsafe(`INSERT INTO ${table}_events_head (position) VALUES (1)`)
 
       yield* Effect.gen(function*() {
@@ -166,7 +170,12 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
       const lines = plan.map((row) => Object.values(row)[0]!).join("\n")
       assert.notInclude(lines, "Rows Removed by Filter")
       assert.notInclude(lines, "_pkey")
-      const tail = store.read({ aggregateNames: ["test"], aggregateIds: ["long"], afterPosition: 2000, afterVersion: 2000 })
+      const tail = store.read({
+        aggregateNames: ["test"],
+        aggregateIds: ["long"],
+        afterPosition: 2000,
+        afterVersion: 2000
+      })
       assert.strictEqual((yield* Stream.runCollect(tail)).length, 0)
     }).pipe(Effect.provide(storage)))
 
@@ -191,7 +200,12 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
       const [writer, reader] = yield* twoProcesses({ listen: false, pollInterval: "20 millis" })
 
       const fiber = yield* reader.subscribe().pipe(Stream.take(1), Stream.runCollect, Effect.forkChild)
-      yield* writer.append({ aggregateName: "test", aggregateId: "a", expectedVersion: 0, events: [{ type: "A", payload: null }] })
+      yield* writer.append({
+        aggregateName: "test",
+        aggregateId: "a",
+        expectedVersion: 0,
+        events: [{ type: "A", payload: null }]
+      })
 
       const events = yield* Fiber.join(fiber).pipe(Effect.timeout("5 seconds"))
       assert.deepStrictEqual(events.map((event) => event.type), ["A"])
@@ -222,7 +236,10 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
       const [s0, s1, s2] = yield* Fiber.join(writes)
 
       assert.isTrue(Exit.isSuccess(s0!))
-      assert.deepStrictEqual(Exit.findErrorOption(s1!).pipe(Option.map((error) => error._tag)), Option.some("ConcurrencyConflict"))
+      assert.deepStrictEqual(
+        Exit.findErrorOption(s1!).pipe(Option.map((error) => error._tag)),
+        Option.some("ConcurrencyConflict")
+      )
       assert.deepStrictEqual(Exit.isSuccess(s2!) ? s2.value.map((event) => event.position) : [], [2])
     }).pipe(Effect.provide(storage)))
 

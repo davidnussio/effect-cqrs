@@ -18,14 +18,15 @@ import {
   Stream,
   Tracer
 } from "effect"
-import { WorkflowEngine } from "effect/workflow"
 import type * as Aggregate from "effect-cqrs/Aggregate"
 import * as AggregateService from "effect-cqrs/AggregateService"
 import * as Checkpoints from "effect-cqrs/Checkpoints"
 import * as EventStore from "effect-cqrs/EventStore"
 import * as Metadata from "effect-cqrs/Metadata"
 import * as ViewModel from "effect-cqrs/ViewModel"
+import { WorkflowEngine } from "effect/workflow"
 import { version as appVersion } from "../../../package.json"
+import { makeRecordingTracer } from "../../devtools/tracing.ts"
 import {
   Fulfil,
   Fulfilment,
@@ -36,7 +37,6 @@ import {
   Stock,
   Stocks
 } from "../../tutorial/shop.ts"
-import { makeRecordingTracer } from "../../devtools/tracing.ts"
 import { type CommandTiming, devstore, type EngineStatus, type Metrics } from "./devstore.ts"
 
 export const catalog = [
@@ -63,13 +63,18 @@ const latency = Effect.suspend(() => {
     : Effect.sleep(Duration.millis(latency)).pipe(Effect.withSpan("demo.latency", { attributes: { ms: latency } }))
 })
 
-const slow = <A extends Aggregate.Any>(service: AggregateService.AggregateService<A>): AggregateService.AggregateService<A> => ({
+const slow = <A extends Aggregate.Any>(
+  service: AggregateService.AggregateService<A>
+): AggregateService.AggregateService<A> => ({
   ...service,
   commands: Object.fromEntries(
     Object.entries(service.commands).map(([name, run]) => [
       name,
       (aggregateId: string, payload: unknown) =>
-        Effect.andThen(latency, (run as (id: string, payload: unknown) => Effect.Effect<unknown, unknown>)(aggregateId, payload))
+        Effect.andThen(
+          latency,
+          (run as (id: string, payload: unknown) => Effect.Effect<unknown, unknown>)(aggregateId, payload)
+        )
     ])
   ) as AggregateService.AggregateService<A>["commands"]
 })
@@ -129,7 +134,10 @@ const OrdersView = ViewModel.make({
       ),
     OrderRejected: ({ reason }, meta) =>
       Effect.sync(() =>
-        devstore.order(meta.aggregateId, (order) => order && { ...order, status: "rejected", reason, position: meta.position })
+        devstore.order(
+          meta.aggregateId,
+          (order) => order && { ...order, status: "rejected", reason, position: meta.position }
+        )
       )
   }
 })
@@ -224,7 +232,9 @@ const CheckpointPoll = poll(
 const EnginePoll = poll(
   Effect.gen(function*() {
     const { orders, spans } = devstore.get()
-    const started = new Set(spans.flatMap((span) => span.name === "Fulfil.execute" ? [span.attributes.executionId] : []))
+    const started = new Set(
+      spans.flatMap((span) => span.name === "Fulfil.execute" ? [span.attributes.executionId] : [])
+    )
     const statuses: Record<string, EngineStatus> = {}
     for (const { executionId } of Object.values(orders)) {
       const result = yield* Fulfil.poll(executionId)
@@ -279,7 +289,10 @@ const summarize = (snapshots: ReadonlyArray<Metric.Metric.Snapshot>): Metrics =>
   }
 }
 
-const MetricsPoll = poll(Effect.map(Metric.snapshot, (snapshots) => devstore.metrics(summarize(snapshots))), "250 millis")
+const MetricsPoll = poll(
+  Effect.map(Metric.snapshot, (snapshots) => devstore.metrics(summarize(snapshots))),
+  "250 millis"
+)
 
 // ---------------------------------------------------------------------------
 // Wiring, as in the tutorial, plus the devtools' feeds.

@@ -7,7 +7,9 @@ import { scenarios, smokeSizes } from "../bench/stress-scenarios.ts"
 for (const database of ["sqlite", ...(postgresUrl === undefined ? [] : ["postgres" as const])] as const) {
   describe(`stress scenarios on ${database}`, () => {
     for (const { name, run } of scenarios(smokeSizes, database)) {
-      it.live(name, () => Effect.map(run, ({ violations }) => assert.deepStrictEqual(violations, [])), { timeout: 30_000 })
+      it.live(name, () => Effect.map(run, ({ violations }) => assert.deepStrictEqual(violations, [])), {
+        timeout: 30_000
+      })
     }
   })
 }

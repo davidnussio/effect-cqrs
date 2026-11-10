@@ -13,17 +13,7 @@
  * it. Personal fields, see `PersonalData`, are described in plaintext: in the store
  * they are encrypted.
  */
-import {
-  DateTime,
-  Effect,
-  FileSystem,
-  JsonSchema,
-  Predicate,
-  Result,
-  Schema,
-  type SchemaAST,
-  Stream
-} from "effect"
+import { DateTime, Effect, FileSystem, JsonSchema, Predicate, Result, Schema, type SchemaAST, Stream } from "effect"
 import type * as Aggregate from "./Aggregate.ts"
 import { makeEventDecoder } from "./AggregateService.ts"
 import { EventStore, type EventStoreError, type StoredEvent } from "./EventStore.ts"
@@ -139,12 +129,14 @@ const definitionsPrefix = "#/definitions/"
 const toComponents = <A>(value: A): A => {
   if (Array.isArray(value)) return value.map(toComponents) as A
   if (!isRecord(value)) return value
-  return Object.fromEntries(Object.entries(value).map(([key, each]) => [
-    key,
-    key === "$ref" && Predicate.isString(each) && each.startsWith(definitionsPrefix)
-      ? `#/components/schemas/${each.slice(definitionsPrefix.length)}`
-      : toComponents(each)
-  ])) as A
+  return Object.fromEntries(
+    Object.entries(value).map(([key, each]) => [
+      key,
+      key === "$ref" && Predicate.isString(each) && each.startsWith(definitionsPrefix)
+        ? `#/components/schemas/${each.slice(definitionsPrefix.length)}`
+        : toComponents(each)
+    ])
+  ) as A
 }
 
 /**

@@ -25,14 +25,7 @@
  */
 import { Effect, type Layer, Predicate, Schema, SchemaAST, type Scope } from "effect"
 import type { HttpServerRequest } from "effect/http"
-import {
-  type HttpApi,
-  HttpApiBuilder,
-  HttpApiEndpoint,
-  HttpApiGroup,
-  HttpApiSchema,
-  OpenApi
-} from "effect/http-api"
+import { type HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/http-api"
 import type * as Aggregate from "./Aggregate.ts"
 import { type AggregateService, type CommandResult, InvalidCommand, WrongExpectedVersion } from "./AggregateService.ts"
 import { ConcurrencyConflict } from "./EventStore.ts"
@@ -111,23 +104,24 @@ const historyQuery = {
 
 type Params = Schema.toCodecStringTree<Schema.Struct<typeof params>>
 
-type CommandEndpoint<A extends Aggregate.Any, K extends string, Errors extends Schema.Top> = HttpApiEndpoint.HttpApiEndpoint<
-  K,
-  "POST",
-  string,
-  Params,
-  never,
-  Schema.toCodecJson<A["commands"][K]["payload"]>,
-  never,
-  Schema.toCodecJson<ReturnType<typeof commandResult<A["events"]>>>,
-  Schema.toCodecJson<
-    | typeof InvalidCommandError
-    | typeof ConcurrencyConflictError
-    | typeof WrongExpectedVersionError
-    | typeof CommandRejected
-    | Errors
+type CommandEndpoint<A extends Aggregate.Any, K extends string, Errors extends Schema.Top> =
+  HttpApiEndpoint.HttpApiEndpoint<
+    K,
+    "POST",
+    string,
+    Params,
+    never,
+    Schema.toCodecJson<A["commands"][K]["payload"]>,
+    never,
+    Schema.toCodecJson<ReturnType<typeof commandResult<A["events"]>>>,
+    Schema.toCodecJson<
+      | typeof InvalidCommandError
+      | typeof ConcurrencyConflictError
+      | typeof WrongExpectedVersionError
+      | typeof CommandRejected
+      | Errors
+    >
   >
->
 
 type HistoryEndpoint<A extends Aggregate.Any> = HttpApiEndpoint.HttpApiEndpoint<
   "history",
@@ -179,7 +173,8 @@ export interface Options<
 const reserved = ["history", "readModel"]
 
 const hasStatus = (schema: Schema.Top): boolean =>
-  SchemaAST.resolve(schema.ast)?.httpApiStatus !== undefined || schema.ast.context?.annotations?.httpApiStatus !== undefined
+  SchemaAST.resolve(schema.ast)?.httpApiStatus !== undefined ||
+  schema.ast.context?.annotations?.httpApiStatus !== undefined
 
 /**
  * Builds the endpoints of an aggregate. Add the group to an `HttpApi` and
@@ -249,7 +244,9 @@ const serverErrors = ["EventStoreError", "EventDecodeError", "PersonalDataError"
 const readBody = (request: HttpServerRequest.HttpServerRequest, aggregateName: string, type: string) =>
   request.text.pipe(
     Effect.flatMap((text) =>
-      text.trim() === "" ? Effect.succeed({}) : Effect.try({ try: () => JSON.parse(text) as unknown, catch: (cause) => cause })
+      text.trim() === ""
+        ? Effect.succeed({})
+        : Effect.try({ try: () => JSON.parse(text) as unknown, catch: (cause) => cause })
     ),
     Effect.mapError(() => new InvalidCommand({ aggregateName, type, message: "The body is not JSON" }))
   )
@@ -292,15 +289,24 @@ export const layer = <
             aggregates.readModel(params.aggregateId, query).pipe(Effect.orDie))
           continue
         }
-        if (!Object.hasOwn(aggregate.commands, identifier)) continue
-        const expected = Array.from(endpoint.error, (schema) => Schema.is(Schema.toType(schema)))
+        if (!Object.hasOwn(aggregate.commands, identifier)) {
+          continue
+        }
+        const expected = Array.from(endpoint.error, (schema) =>
+          Schema.is(Schema.toType(schema)))
         const reject = (error: unknown) => {
           const tag = tagOf(error)
           if (tag === "InvalidCommand" || tag === "ConcurrencyConflict" || tag === "WrongExpectedVersion") {
             return Effect.fail(error)
           }
-          if (serverErrors.includes(tag)) return Effect.die(error)
-          if (expected.some((is) => is(error))) return Effect.fail(error)
+          if (serverErrors.includes(tag)) {
+            return Effect.die(error)
+          }
+          if (
+            expected.some((is) =>
+              is(error)
+            )
+          ) return Effect.fail(error)
           return Effect.fail(
             new CommandRejected({ aggregateName, command: identifier, error: tag, message: messageOf(error) })
           )
@@ -319,5 +325,4 @@ export const layer = <
           ))
       }
       return result
-    })
-  ) as any
+    })) as any

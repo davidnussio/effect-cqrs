@@ -1,8 +1,8 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, DateTime, Duration, Effect, Exit, Fiber, Layer, Ref, Schema, Stream } from "effect"
-import { TestClock } from "effect/testing"
 import { Aggregate, AggregateService, EventStore, Ids, SqliteEventStore } from "effect-cqrs"
+import { TestClock } from "effect/testing"
 import { postgresUrl, storage } from "../bench/common.ts"
 import { Todo, TodoEvent } from "../examples/todo/aggregate.ts"
 
@@ -473,7 +473,9 @@ describe("AggregateService", () => {
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     // Two services on one store stand in for two processes retrying the same request.
-    for (const backend of ["memory", "sqlite-memory", ...(postgresUrl === undefined ? [] : ["postgres" as const])] as const) {
+    for (
+      const backend of ["memory", "sqlite-memory", ...(postgresUrl === undefined ? [] : ["postgres" as const])] as const
+    ) {
       it.live(`let only one of two processes run the same command on ${backend}`, () =>
         Effect.gen(function*() {
           const first = yield* AggregateService.make(Account)

@@ -27,11 +27,12 @@ const activity = (spans: ReadonlyArray<SpanEntry>, executionId: string, name: st
 const stateOf = (span: SpanEntry | undefined): StepState =>
   span === undefined ? "pending" : span.status === "running" ? "running" : span.status === "ok" ? "ok" : "failed"
 
-const duration = (span: SpanEntry | undefined) =>
-  span?.end === undefined ? undefined : ms(span.end - span.start)
+const duration = (span: SpanEntry | undefined) => span?.end === undefined ? undefined : ms(span.end - span.start)
 
 const stepsOf = (order: OrderRow, spans: ReadonlyArray<SpanEntry>): ReadonlyArray<Step> => {
-  const started = spans.find((span) => span.name === "Fulfil.execute" && span.attributes.executionId === order.executionId)
+  const started = spans.find((span) =>
+    span.name === "Fulfil.execute" && span.attributes.executionId === order.executionId
+  )
   const span = (name: string) => activity(spans, order.executionId, name)
   const reserve = span("reserve")
   const reserveState = stateOf(reserve)
@@ -91,11 +92,12 @@ export const SagaTab = () => {
   return (
     <div className="space-y-3">
       <p className="text-xs leading-relaxed text-white/50">
-        Each <Code>OrderPlaced</Code> starts a <Code>Fulfil</Code> workflow. Its steps are activities: the engine keeps
-        each result, so a replay after a crash skips the steps that finished. The payment step races a{" "}
-        <Code>DurableDeferred</Code>, which <Code>OrderPaid</Code> completes, against a 15-second{" "}
-        <Code>DurableClock</Code>. Step states come from the activities'
-        spans, the execution's from <Code>Fulfil.poll</Code>.
+        Each <Code>OrderPlaced</Code> starts a <Code>Fulfil</Code>{" "}
+        workflow. Its steps are activities: the engine keeps each result, so a replay after a crash skips the steps that
+        finished. The payment step races a <Code>DurableDeferred</Code>, which <Code>OrderPaid</Code>{" "}
+        completes, against a 15-second{" "}
+        <Code>DurableClock</Code>. Step states come from the activities' spans, the execution's from{" "}
+        <Code>Fulfil.poll</Code>.
       </p>
       {list.length === 0 && <div className="py-6 text-center text-xs text-white/25">no sagas yet</div>}
       <AnimatePresence initial={false}>
@@ -108,7 +110,11 @@ export const SagaTab = () => {
 }
 
 const SagaCard = (
-  { order, status, steps }: { order: OrderRow; steps: ReadonlyArray<Step>; status: keyof typeof engineColor | undefined }
+  { order, status, steps }: {
+    order: OrderRow
+    steps: ReadonlyArray<Step>
+    status: keyof typeof engineColor | undefined
+  }
 ) => (
   <motion.div
     layout

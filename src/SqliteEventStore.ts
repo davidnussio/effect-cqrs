@@ -170,7 +170,10 @@ const decodeRows = Schema.decodeUnknownEffect(Schema.Array(EventRow))
 
 const isUniqueViolation = (error: SqlError.SqlError) => error.reason._tag === "UniqueViolation"
 
-type AppendExit = Exit.Exit<ReadonlyArray<EventStore.StoredEvent>, EventStore.ConcurrencyConflict | EventStore.EventStoreError>
+type AppendExit = Exit.Exit<
+  ReadonlyArray<EventStore.StoredEvent>,
+  EventStore.ConcurrencyConflict | EventStore.EventStoreError
+>
 
 export const make = Effect.fnUntraced(function*(options?: Options) {
   const sql = yield* SqlClient.SqlClient
@@ -247,7 +250,10 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
     }).pipe(
       // The version check can't see a writer racing it on a driver that opens
       // deferred transactions, but the UNIQUE constraint can.
-      Effect.catchTag("SqlError", (error) => Effect.fail(isUniqueViolation(error) ? conflict : storeError("append")(error)))
+      Effect.catchTag(
+        "SqlError",
+        (error) => Effect.fail(isUniqueViolation(error) ? conflict : storeError("append")(error))
+      )
     )
   }
 
@@ -263,10 +269,11 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
   // Grouping pays where a commit costs an fsync, so not for a database in memory.
   // `node:sqlite` is synchronous, so writers only wait for each other if each lets
   // the others run first.
-  const inMemory = yield* sql<{ readonly file: string }>`SELECT file FROM pragma_database_list WHERE name = 'main'`.pipe(
-    Effect.map(([row]) => row?.file === ""),
-    Effect.orElseSucceed(() => false)
-  )
+  const inMemory = yield* sql<{ readonly file: string }>`SELECT file FROM pragma_database_list WHERE name = 'main'`
+    .pipe(
+      Effect.map(([row]) => row?.file === ""),
+      Effect.orElseSucceed(() => false)
+    )
   const grouped = inMemory ? writeOne : yield* EventStore.groupCommit(appendGroup, { gather: true })
 
   // An append in the caller's transaction is written there and then.
@@ -303,11 +310,15 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
   return yield* EventStore.make({ append, readBatch, head }, { pollInterval: options?.pollInterval })
 })
 
-export const layer = (options?: Options): Layer.Layer<EventStore.EventStore, EventStore.EventStoreError, SqlClient.SqlClient> =>
+export const layer = (
+  options?: Options
+): Layer.Layer<EventStore.EventStore, EventStore.EventStoreError, SqlClient.SqlClient> =>
   Layer.effect(EventStore.EventStore, make(options))
 
 /** Keeps checkpoints in the same database, for view models that are durable too. */
-export const layerCheckpoints = (options?: Options): Layer.Layer<Checkpoints, EventStore.EventStoreError, SqlClient.SqlClient> =>
+export const layerCheckpoints = (
+  options?: Options
+): Layer.Layer<Checkpoints, EventStore.EventStoreError, SqlClient.SqlClient> =>
   Layer.effect(
     Checkpoints,
     Effect.gen(function*() {

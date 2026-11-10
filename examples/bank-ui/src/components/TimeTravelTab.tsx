@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "motion/react"
 import { useEffect, useMemo, useState } from "react"
-import type { ViewName } from "../devstore.ts"
+import type { Snapshot, ViewName } from "../devstore.ts"
 import { balanceDelta, initialAccount } from "../domain/account.ts"
 import { engine } from "../engine.ts"
 import { eventColor, foldAt, head, money, signed, useSnapshot } from "../hooks.ts"
@@ -90,7 +90,10 @@ export const TimeTravelTab = (
             min={0}
             max={storeHead}
             value={cursor}
-            style={{ "--pct": `${storeHead === 0 ? 0 : (cursor / storeHead) * 100}%`, "--fill": "#38bdf8" } as React.CSSProperties}
+            style={{
+              "--pct": `${storeHead === 0 ? 0 : (cursor / storeHead) * 100}%`,
+              "--fill": "#38bdf8"
+            } as React.CSSProperties}
             onChange={(event) => {
               setPlaying(false)
               const value = Number(event.target.value)
@@ -125,8 +128,9 @@ export const TimeTravelTab = (
       <div className="glass rounded-2xl p-4">
         <SectionTitle>Reprocess the projections</SectionTitle>
         <p className="mb-3 text-[11px] leading-relaxed text-white/45">
-          <Code>viewModels.replay</Code> disposes the chosen view models and feeds them the log again, at replay speed.
-          With a window, events after #{cursor} stay out of them while new events keep arriving on top.
+          <Code>viewModels.replay</Code>{" "}
+          disposes the chosen view models and feeds them the log again, at replay speed. With a window, events after
+          #{cursor} stay out of them while new events keep arriving on top.
         </p>
         <div className="mb-3 flex gap-1.5">
           {(["accounts", "totals", "feed"] as const).map((name) => {
@@ -176,7 +180,11 @@ export const TimeTravelTab = (
         </div>
         <AnimatePresence>
           {targets.some((name) => views[name].lastReplay) && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="mt-3 space-y-0.5 font-mono text-[10px]">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-3 space-y-0.5 font-mono text-[10px]"
+            >
               {targets.map((name) => {
                 const last = views[name].lastReplay
                 return last && (
@@ -196,7 +204,7 @@ export const TimeTravelTab = (
 
 const Ledger = (
   { events, account, cursor, onTravel }: {
-    events: ReturnType<typeof useSnapshot<import("../devstore.ts").Snapshot["events"]>>
+    events: ReturnType<typeof useSnapshot<Snapshot["events"]>>
     account: string
     cursor: number
     onTravel: (position: number | undefined) => void
@@ -209,7 +217,7 @@ const Ledger = (
   return (
     <div>
       <div className="mb-2 rounded-lg bg-black/30 px-3 py-2 font-mono text-[10.5px]">
-        <span className="text-white/40">state(#{cursor}) = </span>
+        <span className="text-white/40">state(#{cursor}) =</span>
         <span className="text-white/85">
           {"{ "}status: <span className="text-violet-300">"{state.status}"</span>, balance:{" "}
           <span className="text-emerald-300">
@@ -269,7 +277,11 @@ const Row = (
       <span className="h-1.5 w-1.5 rounded-full" style={{ background: color }} />
       {label}
     </span>
-    <span className={`w-16 text-right ${delta.startsWith("+") ? "text-emerald-300" : delta.startsWith("−") ? "text-rose-300" : "text-white/30"}`}>
+    <span
+      className={`w-16 text-right ${
+        delta.startsWith("+") ? "text-emerald-300" : delta.startsWith("−") ? "text-rose-300" : "text-white/30"
+      }`}
+    >
       {delta}
     </span>
     <span className={`w-20 text-right ${dim ? "line-through" : "text-white"}`}>{money(balance)}</span>

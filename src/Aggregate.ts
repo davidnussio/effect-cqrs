@@ -45,7 +45,11 @@ export interface CommandContext {
 
 /** Exhaustive by event tag, so adding an event to the schema without folding it does not compile. */
 export type Projection<State, Event extends Tagged> = {
-  readonly [Tag in Event["_tag"]]: (state: State, event: Extract<Event, { readonly _tag: Tag }>, meta: EventMeta) => State
+  readonly [Tag in Event["_tag"]]: (
+    state: State,
+    event: Extract<Event, { readonly _tag: Tag }>,
+    meta: EventMeta
+  ) => State
 }
 
 /**
@@ -137,20 +141,23 @@ const build = <
  * The state is given explicitly, `Aggregate.make<State>()({ ... })`, so that the
  * projection's return values are checked against it rather than widened.
  */
-export const make = <State>() =>
-<const Name extends string, Events extends EventSchema<any>, const V extends Versions<Events["Type"]> = {}>(options: {
-  readonly name: Name
-  readonly events: Events
-  readonly initial: State
-  readonly projection: Projection<State, Events["Type"]>
-  /** Older shapes of events already in the store, see `EventVersions`. */
-  readonly versions?: V | undefined
-}): Aggregate<Name, State, Events, {}, V> =>
-  build({ ...options, versions: options.versions ?? ({} as V), commands: {} })
+export const make =
+  <State>() =>
+  <const Name extends string, Events extends EventSchema<any>, const V extends Versions<Events["Type"]> = {}>(options: {
+    readonly name: Name
+    readonly events: Events
+    readonly initial: State
+    readonly projection: Projection<State, Events["Type"]>
+    /** Older shapes of events already in the store, see `EventVersions`. */
+    readonly versions?: V | undefined
+  }): Aggregate<Name, State, Events, {}, V> =>
+    build({ ...options, versions: options.versions ?? ({} as V), commands: {} })
 
 /** Folds one event into the state. */
 export const evolve = <A extends Any>(aggregate: A, state: State<A>, event: Event<A>, meta: EventMeta): State<A> =>
-  (aggregate.projection as Record<string, (state: State<A>, event: Event<A>, meta: EventMeta) => State<A>>)[event._tag]!(
+  (aggregate.projection as Record<string, (state: State<A>, event: Event<A>, meta: EventMeta) => State<A>>)[
+    event._tag
+  ]!(
     state,
     event,
     meta

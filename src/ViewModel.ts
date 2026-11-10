@@ -264,7 +264,9 @@ const tailSize = 500
 const makeTail = (store: EventStore["Service"], viewModels: ReadonlyArray<Any>) => {
   const filter = filterOf(viewModels)
   const decoded = new WeakMap<StoredEvent, unknown>()
-  let last: { readonly afterPosition: number; readonly latest: number; readonly events: ReadonlyArray<StoredEvent> } | undefined
+  let last:
+    | { readonly afterPosition: number; readonly latest: number; readonly events: ReadonlyArray<StoredEvent> }
+    | undefined
 
   return {
     read: (afterPosition: number, latest: number) =>
@@ -290,7 +292,8 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
   const store = yield* EventStore
   const checkpoints = yield* Checkpoints
   const context = yield* Effect.context<Context<V>>()
-  const provide = <A, E>(effect: Effect.Effect<A, E, any>) => Effect.provideContext(effect, context) as Effect.Effect<A, E>
+  const provide = <A, E>(effect: Effect.Effect<A, E, any>) =>
+    Effect.provideContext(effect, context) as Effect.Effect<A, E>
   const semaphore = yield* Semaphore.make(1)
   const name = viewModel.name
   const policy = viewModel.onFailure ?? stall
@@ -450,7 +453,10 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
       failed = undefined
       yield* Ref.set(stalled, noStall)
       yield* Metric.update(parkedCounter, 1)
-      yield* Effect.logWarning(`View model ${name} parked the event at ${stored.position} after ${attempts} attempts`, error)
+      yield* Effect.logWarning(
+        `View model ${name} parked the event at ${stored.position} after ${attempts} attempts`,
+        error
+      )
       return true
     }).pipe(
       Effect.catch((parkError) =>
@@ -518,7 +524,9 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
   // the lease is lost. A lease held from the start runs at once, with what was just
   // loaded: during a burst of commands every extra step waits behind all of them.
   const scope = yield* Effect.scope
-  let running: Fiber.Fiber<unknown, unknown> | undefined = (yield* lease.held) ? yield* Effect.forkIn(run, scope) : undefined
+  let running: Fiber.Fiber<unknown, unknown> | undefined = (yield* lease.held)
+    ? yield* Effect.forkIn(run, scope)
+    : undefined
   yield* lease.changes.pipe(
     Stream.changes,
     Stream.runForEach((held) =>

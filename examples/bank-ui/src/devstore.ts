@@ -270,7 +270,10 @@ export const devstore = {
     const id = nextId++
     set((s) => ({
       ...s,
-      commands: [{ ...command, id, stage: "queued" as const, enqueuedAt: Date.now() }, ...s.commands].slice(0, maxCommands)
+      commands: [{ ...command, id, stage: "queued" as const, enqueuedAt: Date.now() }, ...s.commands].slice(
+        0,
+        maxCommands
+      )
     }))
     pulse("command")
     return id

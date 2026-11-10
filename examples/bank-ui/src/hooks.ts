@@ -1,5 +1,5 @@
-import { useSyncExternalStore } from "react"
 import { evolve } from "effect-cqrs/Aggregate"
+import { useSyncExternalStore } from "react"
 import { devstore, type EventEntry, type Snapshot } from "./devstore.ts"
 import { Account, type AccountState, initialAccount } from "./domain/account.ts"
 

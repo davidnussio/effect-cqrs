@@ -31,16 +31,22 @@ export const App = () => {
         </div>
         <div className="ml-auto flex items-center gap-5 font-mono text-[11px] text-white/50">
           {docsUrl !== undefined && (
-            <a href={docsUrl} className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white">
+            <a
+              href={docsUrl}
+              className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
+            >
               Docs ↗
             </a>
           )}
           <Stat label="events" value={head(events)} />
           <Stat label="streams" value={new Set(events.map((e) => e.aggregateId)).size} />
-          <Button tone="ghost" onClick={() => {
-            setTravel(undefined)
-            void engine.reset()
-          }}>
+          <Button
+            tone="ghost"
+            onClick={() => {
+              setTravel(undefined)
+              void engine.reset()
+            }}
+          >
             ↺ Reset store
           </Button>
         </div>

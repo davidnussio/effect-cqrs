@@ -77,7 +77,11 @@ describe("EventCatalog", () => {
     const opened = entries.find(({ type }) => type === "AccountOpened")!
     assert.strictEqual(opened.schemaVersion, 2)
     assert.deepStrictEqual(opened.versions.map(({ schemaVersion }) => schemaVersion), [1, 2])
-    assert.deepStrictEqual(Object.keys(opened.versions[1]!.schema.properties ?? {}).sort(), ["_tag", "currency", "owner"])
+    assert.deepStrictEqual(Object.keys(opened.versions[1]!.schema.properties ?? {}).sort(), [
+      "_tag",
+      "currency",
+      "owner"
+    ])
     assert.deepStrictEqual(opened.personalFields, ["owner"])
     const deposited = entries.find(({ type }) => type === "MoneyDeposited")!
     assert.strictEqual(deposited.versions.length, 1)
@@ -123,7 +127,9 @@ describe("EventCatalog", () => {
         AccountOpened: { owner, currency: Currency },
         MoneyDeposited: { amount: Schema.Int, reference: Schema.String }
       })
-      const error = yield* Effect.flip(EventCatalog.checkCompatibility(define(Changed as unknown as typeof AccountEvent), samples))
+      const error = yield* Effect.flip(
+        EventCatalog.checkCompatibility(define(Changed as unknown as typeof AccountEvent), samples)
+      )
       assert.strictEqual(error._tag, "IncompatibleSamples")
       assert.deepStrictEqual(error.failures.map(({ type }) => type), ["MoneyDeposited"])
     }).pipe(Effect.provide(Storage)))
@@ -140,7 +146,12 @@ describe("EventCatalog", () => {
     Effect.gen(function*() {
       const path = join(mkdtempSync(join(tmpdir(), "catalog-")), "samples.json")
       const first = yield* EventCatalog.saveSamples(path, [
-        { aggregateName: "account", type: "MoneyDeposited", schemaVersion: 1, payload: { _tag: "MoneyDeposited", amount: 1 } }
+        {
+          aggregateName: "account",
+          type: "MoneyDeposited",
+          schemaVersion: 1,
+          payload: { _tag: "MoneyDeposited", amount: 1 }
+        }
       ])
       assert.strictEqual(first.length, 1)
       yield* EventCatalog.saveSamples(path, yield* capture)

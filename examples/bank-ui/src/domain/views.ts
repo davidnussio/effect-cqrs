@@ -56,41 +56,44 @@ export const AccountsView = ViewModel.make({
   name: "accounts",
   aggregates: [Account],
   dispose: Effect.sync(() => devstore.dispose("accounts")),
-  handlers: everyEvent("accounts", (event, { aggregateId, position }) =>
-    Effect.sync(() =>
-      devstore.apply("accounts", position, (accounts) => {
-        const current = accounts[aggregateId]
-        if (event._tag === "AccountOpened") {
+  handlers: everyEvent(
+    "accounts",
+    (event, { aggregateId, position }) =>
+      Effect.sync(() =>
+        devstore.apply("accounts", position, (accounts) => {
+          const current = accounts[aggregateId]
+          if (event._tag === "AccountOpened") {
+            return {
+              ...accounts,
+              [aggregateId]: {
+                id: aggregateId,
+                owner: event.owner,
+                color: event.color,
+                balance: 0,
+                status: "open",
+                txCount: 0,
+                lastPosition: position,
+                lastDelta: 0
+              }
+            }
+          }
+          // Idempotent: an event seen again leaves the row as it is.
+          if (current === undefined || current.lastPosition >= position) return accounts
+          const delta = balanceDelta(event)
           return {
             ...accounts,
             [aggregateId]: {
-              id: aggregateId,
-              owner: event.owner,
-              color: event.color,
-              balance: 0,
-              status: "open",
-              txCount: 0,
+              ...current,
+              balance: current.balance + delta,
+              status: event._tag === "AccountClosed" ? "closed" : current.status,
+              txCount: current.txCount + (delta === 0 ? 0 : 1),
               lastPosition: position,
-              lastDelta: 0
+              lastDelta: delta
             }
           }
-        }
-        // Idempotent: an event seen again leaves the row as it is.
-        if (current === undefined || current.lastPosition >= position) return accounts
-        const delta = balanceDelta(event)
-        return {
-          ...accounts,
-          [aggregateId]: {
-            ...current,
-            balance: current.balance + delta,
-            status: event._tag === "AccountClosed" ? "closed" : current.status,
-            txCount: current.txCount + (delta === 0 ? 0 : 1),
-            lastPosition: position,
-            lastDelta: delta
-          }
-        }
-      })
-    )),
+        })
+      )
+  ),
   // The owner's name is personal data: once they are forgotten, the row keeps the
   // balance and loses the name.
   onForget: (subject, { position }) =>
@@ -156,23 +159,36 @@ export const FeedView = ViewModel.make({
   name: "activity-feed",
   aggregates: [Account],
   dispose: Effect.sync(() => devstore.dispose("feed")),
-  handlers: everyEvent("feed", (event, { aggregateId, position }) =>
-    Effect.sync(() =>
-      devstore.apply("feed", position, (feed) => {
-        if (feed.some((item) => item.position === position)) return feed
-        const item: FeedItem = { position, aggregateId, type: event._tag, text: describe(event), delta: balanceDelta(event) }
-        return [item, ...feed].slice(0, feedSize)
-      })
-    )),
+  handlers: everyEvent(
+    "feed",
+    (event, { aggregateId, position }) =>
+      Effect.sync(() =>
+        devstore.apply("feed", position, (feed) => {
+          if (feed.some((item) => item.position === position)) return feed
+          const item: FeedItem = {
+            position,
+            aggregateId,
+            type: event._tag,
+            text: describe(event),
+            delta: balanceDelta(event)
+          }
+          return [item, ...feed].slice(0, feedSize)
+        })
+      )
+  ),
   // Only the opening line names the owner.
   onForget: (subject, { position }) =>
     Effect.sync(() =>
-      devstore.apply("feed", position, (feed) =>
-        feed.map((item) =>
-          item.aggregateId === subject && item.type === "AccountOpened"
-            ? { ...item, text: `${forgotten} opened an account` }
-            : item
-        ))
+      devstore.apply(
+        "feed",
+        position,
+        (feed) =>
+          feed.map((item) =>
+            item.aggregateId === subject && item.type === "AccountOpened"
+              ? { ...item, text: `${forgotten} opened an account` }
+              : item
+          )
+      )
     )
 })
 

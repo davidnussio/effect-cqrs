@@ -1,8 +1,8 @@
 import { assert, describe, it, layer } from "@effect/vitest"
 import { Effect, Layer, References, Schema } from "effect"
+import { AggregateService, CommandApi, EventStore } from "effect-cqrs"
 import { HttpRouter, HttpServer } from "effect/http"
 import { HttpApi, HttpApiBuilder, HttpApiTest, OpenApi } from "effect/http-api"
-import { AggregateService, CommandApi, EventStore } from "effect-cqrs"
 import { Todo, TodoAlreadyCreated, TodoAlreadyDeleted } from "../examples/todo/aggregate.ts"
 
 const TodoState = Schema.Union([

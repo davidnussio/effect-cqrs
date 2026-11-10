@@ -1,6 +1,6 @@
 import { AnimatePresence, motion, useAnimate } from "motion/react"
 import { useMemo, useState } from "react"
-import type { AccountRow, CommandEntry, EventEntry, Outcome } from "../devstore.ts"
+import type { AccountRow, CommandEntry, EventEntry, Outcome, Totals, ViewData } from "../devstore.ts"
 import { balanceDelta } from "../domain/account.ts"
 import { engine, newTransferId, palette } from "../engine.ts"
 import { eventColor, foldAt, head, money, signed, useSnapshot } from "../hooks.ts"
@@ -58,8 +58,8 @@ export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; 
               ⏪
             </motion.span>
             <div>
-              <b>Time travel preview at #{travel}.</b> These cards are a pure fold of events 1…{travel} with the
-              aggregate's projection. Nothing was replayed and no read model changed.
+              <b>Time travel preview at #{travel}.</b> These cards are a pure fold of events 1…{travel}{" "}
+              with the aggregate's projection. Nothing was replayed and no read model changed.
             </div>
             <Button tone="primary" onClick={onExitTravel}>Back to live</Button>
           </motion.div>
@@ -72,11 +72,23 @@ export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; 
           <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
           <p className="mt-1 max-w-md text-xs text-white/45">
             {live
-              ? <>Rendered from the <Code>accounts</Code> view model, never from the aggregate. Buttons send commands; drag a card onto another to transfer.</>
+              ? (
+                <>
+                  Rendered from the <Code>accounts</Code>{" "}
+                  view model, never from the aggregate. Buttons send commands; drag a card onto another to transfer.
+                </>
+              )
               : "Read only while time travelling."}
           </p>
         </div>
-        {live && <Freshness label="accounts" position={accountsView.position} head={storeHead} replaying={accountsView.replaying} />}
+        {live && (
+          <Freshness
+            label="accounts"
+            position={accountsView.position}
+            head={storeHead}
+            replaying={accountsView.replaying}
+          />
+        )}
       </div>
 
       {live && <Vault totals={totalsView.data} position={totalsView.position} head={storeHead} />}
@@ -120,14 +132,19 @@ export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; 
   )
 }
 
-const Freshness = ({ label, position, head, replaying }: { label: string; position: number; head: number; replaying?: boolean }) => {
+const Freshness = (
+  { label, position, head, replaying }: { label: string; position: number; head: number; replaying?: boolean }
+) => {
   const behind = Math.max(0, head - position)
   const color = replaying ? "#38bdf8" : behind === 0 ? "#34d399" : "#fbbf24"
   return (
     <div className="flex items-center gap-2 rounded-full bg-white/[0.04] py-1 pr-3 pl-1.5 font-mono text-[10px] ring-1 ring-white/[0.06]">
       <span className="relative flex h-2 w-2">
         {behind > 0 && (
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" style={{ background: color }} />
+          <span
+            className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75"
+            style={{ background: color }}
+          />
         )}
         <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: color }} />
       </span>
@@ -139,30 +156,32 @@ const Freshness = ({ label, position, head, replaying }: { label: string; positi
   )
 }
 
-const Vault = ({ totals, position, head }: { totals: import("../devstore.ts").Totals; position: number; head: number }) => (
+const Vault = (
+  { totals, position, head }: { totals: Totals; position: number; head: number }
+) => (
   <div className="mb-5">
-  <div className="mb-2 flex items-center justify-between">
-    <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">Bank vault</div>
-    <Freshness label="bank-totals" position={position} head={head} />
-  </div>
-  <motion.div
-    layout
-    className="glass relative grid grid-cols-4 gap-px overflow-hidden rounded-2xl"
-  >
-    {[
-      { label: "Money in bank", value: totals.moneyInBank, color: "#e9e7ff" },
-      { label: "In flight", value: totals.inFlight, color: "#f472b6" },
-      { label: "Deposited", value: totals.deposited, color: "#34d399" },
-      { label: "Withdrawn", value: totals.withdrawn, color: "#fbbf24" }
-    ].map((item) => (
-      <div key={item.label} className="bg-panel/40 px-4 py-3">
-        <div className="text-[10px] uppercase tracking-wider text-white/40">{item.label}</div>
-        <div className="mt-0.5 text-xl font-semibold" style={{ color: item.color }}>
-          <AnimatedNumber value={item.value} format={money} />
+    <div className="mb-2 flex items-center justify-between">
+      <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">Bank vault</div>
+      <Freshness label="bank-totals" position={position} head={head} />
+    </div>
+    <motion.div
+      layout
+      className="glass relative grid grid-cols-4 gap-px overflow-hidden rounded-2xl"
+    >
+      {[
+        { label: "Money in bank", value: totals.moneyInBank, color: "#e9e7ff" },
+        { label: "In flight", value: totals.inFlight, color: "#f472b6" },
+        { label: "Deposited", value: totals.deposited, color: "#34d399" },
+        { label: "Withdrawn", value: totals.withdrawn, color: "#fbbf24" }
+      ].map((item) => (
+        <div key={item.label} className="bg-panel/40 px-4 py-3">
+          <div className="text-[10px] uppercase tracking-wider text-white/40">{item.label}</div>
+          <div className="mt-0.5 text-xl font-semibold" style={{ color: item.color }}>
+            <AnimatedNumber value={item.value} format={money} />
+          </div>
         </div>
-      </div>
-    ))}
-  </motion.div>
+      ))}
+    </motion.div>
   </div>
 )
 
@@ -236,7 +255,9 @@ const AccountCard = (
             .find((id) => id !== undefined && id !== row.id)
           onDrop(target)
         }}
-        animate={isTarget ? { scale: 1.03, boxShadow: `0 0 0 2px ${row.color}, 0 20px 60px -10px ${row.color}` } : { scale: 1, boxShadow: `0 18px 50px -24px ${row.color}` }}
+        animate={isTarget
+          ? { scale: 1.03, boxShadow: `0 0 0 2px ${row.color}, 0 20px 60px -10px ${row.color}` }
+          : { scale: 1, boxShadow: `0 18px 50px -24px ${row.color}` }}
         className={`relative overflow-hidden rounded-2xl p-4 ${live && !closed ? "cursor-grab" : ""}`}
         style={{
           background: `linear-gradient(135deg, ${row.color} 0%, ${row.color}cc 35%, #15121f 100%)`,
@@ -306,7 +327,11 @@ const AccountCard = (
                 </Button>
               ))}
               <Button onClick={onTransfer} title="Or drag the card onto another one">⇄</Button>
-              <Button tone="ghost" onClick={() => void send("closeAccount", {})} title="Only an empty account can close">
+              <Button
+                tone="ghost"
+                onClick={() => void send("closeAccount", {})}
+                title="Only an empty account can close"
+              >
                 ✕
               </Button>
             </>
@@ -353,7 +378,9 @@ const Sparkline = ({ points }: { points: ReadonlyArray<number> }) => {
   const min = Math.min(0, ...points)
   const step = points.length > 1 ? width / (points.length - 1) : width
   const d = points
-    .map((p, i) => `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - ((p - min) / (max - min)) * height).toFixed(1)}`)
+    .map((p, i) =>
+      `${i === 0 ? "M" : "L"}${(i * step).toFixed(1)},${(height - ((p - min) / (max - min)) * height).toFixed(1)}`
+    )
     .join(" ")
   return (
     <svg width={width} height={height} className="overflow-visible">
@@ -431,7 +458,10 @@ const OpenAccountCard = ({ existing }: { existing: ReadonlyArray<AccountRow> }) 
                   whileHover={{ scale: 1.15 }}
                   onClick={() => setColor(swatch)}
                   className="h-5 w-5 rounded-full"
-                  style={{ background: swatch, boxShadow: swatch === color ? `0 0 0 2px #07070d, 0 0 0 4px ${swatch}` : undefined }}
+                  style={{
+                    background: swatch,
+                    boxShadow: swatch === color ? `0 0 0 2px #07070d, 0 0 0 4px ${swatch}` : undefined
+                  }}
                 />
               ))}
             </div>
@@ -518,7 +548,9 @@ const TransferDialog = (
   )
 }
 
-const Activity = ({ feed, position, head }: { feed: import("../devstore.ts").ViewData["feed"]; position: number; head: number }) => (
+const Activity = (
+  { feed, position, head }: { feed: ViewData["feed"]; position: number; head: number }
+) => (
   <div className="mt-7">
     <div className="mb-2 flex items-center justify-between">
       <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">Recent activity</div>

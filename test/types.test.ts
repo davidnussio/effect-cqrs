@@ -1,7 +1,12 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
 import { Aggregate, type AggregateService, type EventStore, EventVersions, Fixture, ViewModel } from "effect-cqrs"
-import { Todo, type TodoAlreadyCreated, type TodoAlreadyDeleted, type TodoNotFound } from "../examples/todo/aggregate.ts"
+import {
+  Todo,
+  type TodoAlreadyCreated,
+  type TodoAlreadyDeleted,
+  type TodoNotFound
+} from "../examples/todo/aggregate.ts"
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
 
@@ -105,8 +110,12 @@ describe("types", () => {
     // @ts-expect-error not a tag of Todo
     fixture.when("completeTodo", {}).expectEvent("Other")
 
-    const scenario = fixture.when("createTodo", { title: "Buy Milk" }).expectEvent("TodoCreated")
-    const error: Equals<Effect.Error<typeof scenario>, TodoAlreadyCreated | AggregateService.CommandFailure> = true
+    // Only its type is checked.
+    const _scenario = fixture.when("createTodo", { title: "Buy Milk" }).expectEvent("TodoCreated")
+    const error: Equals<
+      Effect.Error<typeof _scenario>,
+      TodoAlreadyCreated | AggregateService.CommandFailure
+    > = true
 
     assert.isTrue(error)
   })

@@ -13,8 +13,8 @@ export const ProjectionsTab = () => {
   return (
     <div className="space-y-4">
       <p className="text-xs leading-relaxed text-white/50">
-        Three view models read the same events, each from its own checkpoint, and fold them into the shape a
-        screen needs. They are disposable: a replay wipes one and rebuilds it from the log.
+        Three view models read the same events, each from its own checkpoint, and fold them into the shape a screen
+        needs. They are disposable: a replay wipes one and rebuilds it from the log.
       </p>
 
       <ViewCard name="accounts" view={views.accounts}>

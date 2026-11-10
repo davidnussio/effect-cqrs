@@ -16,7 +16,19 @@
  * after the events table. A store on a `PgClient` listens to it, so view models in
  * every process wake up on every append.
  */
-import { Clock, DateTime, type Duration, Effect, Exit, Layer, Predicate, type Queue, Schema, type Scope, Stream } from "effect"
+import {
+  Clock,
+  DateTime,
+  type Duration,
+  Effect,
+  Exit,
+  Layer,
+  Predicate,
+  type Queue,
+  Schema,
+  type Scope,
+  Stream
+} from "effect"
 import { SqlClient, type SqlError } from "effect/sql"
 import { Checkpoints } from "./Checkpoints.ts"
 import * as EventStore from "./EventStore.ts"
@@ -162,7 +174,10 @@ interface Listener {
 const isListener = (sql: SqlClient.SqlClient): sql is SqlClient.SqlClient & Listener =>
   Predicate.hasProperty(sql, "listen") && Predicate.isFunction(sql.listen)
 
-type AppendExit = Exit.Exit<ReadonlyArray<EventStore.StoredEvent>, EventStore.ConcurrencyConflict | EventStore.EventStoreError>
+type AppendExit = Exit.Exit<
+  ReadonlyArray<EventStore.StoredEvent>,
+  EventStore.ConcurrencyConflict | EventStore.EventStoreError
+>
 
 export const make = Effect.fnUntraced(function*(options?: Options) {
   const sql = yield* SqlClient.SqlClient
@@ -347,11 +362,15 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
   return yield* EventStore.make({ append, readBatch, head, changes }, { pollInterval: options?.pollInterval })
 })
 
-export const layer = (options?: Options): Layer.Layer<EventStore.EventStore, EventStore.EventStoreError, SqlClient.SqlClient> =>
+export const layer = (
+  options?: Options
+): Layer.Layer<EventStore.EventStore, EventStore.EventStoreError, SqlClient.SqlClient> =>
   Layer.effect(EventStore.EventStore, make(options))
 
 /** Keeps checkpoints in the same database, for view models that are durable too. */
-export const layerCheckpoints = (options?: Options): Layer.Layer<Checkpoints, EventStore.EventStoreError, SqlClient.SqlClient> =>
+export const layerCheckpoints = (
+  options?: Options
+): Layer.Layer<Checkpoints, EventStore.EventStoreError, SqlClient.SqlClient> =>
   Layer.effect(
     Checkpoints,
     Effect.gen(function*() {

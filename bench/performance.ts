@@ -7,9 +7,9 @@
 import { NodeRuntime } from "@effect/platform-node"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { Console, Effect, Layer, Option, Schema, Stream } from "effect"
-import { SqlClient } from "effect/sql"
 import { Aggregate, AggregateService, EventStore, PersonalData, SqliteEventStore, ViewModel } from "effect-cqrs"
 import * as PersonalDataNode from "effect-cqrs/PersonalDataNode"
+import { SqlClient } from "effect/sql"
 import {
   Account,
   type AccountState,
@@ -323,7 +323,9 @@ const readYourWrites = (backend: Backend) =>
     yield* sample(scaled(1_000), warmUp)
     const { latency, ms } = yield* sample(count, (index) =>
       accounts.commands.deposit(`a-${index}`, { amount: 1, reference: "r" }).pipe(
-        Effect.flatMap(({ position }) => viewModels.caughtUp(position))
+        Effect.flatMap(({ position }) =>
+          viewModels.caughtUp(position)
+        )
       ))
     yield* record({
       scenario: "read your writes",
@@ -402,43 +404,47 @@ const nodeKeys = webCryptoKeys.pipe(Layer.provide(PersonalDataNode.layerCipher))
 
 /** What encrypting one field per event costs on each cipher, next to the same account without it. */
 const personalData = (backend: Backend) =>
-  Effect.forEach([
-    ["plain", Account, webCryptoKeys],
-    ["personal WebCrypto", PersonalAccount, webCryptoKeys],
-    ["personal node:crypto", PersonalAccount, nodeKeys]
-  ] as const, ([kind, aggregate, keys]) =>
-    Effect.gen(function*() {
-      const count = scaled(5_000)
-      yield* throughput(
-        { scenario: "personal data", backend, label: `${kind}, new stream each`, count, unit: "commands/s" },
-        Effect.gen(function*() {
+  Effect.forEach(
+    [
+      ["plain", Account, webCryptoKeys],
+      ["personal WebCrypto", PersonalAccount, webCryptoKeys],
+      ["personal node:crypto", PersonalAccount, nodeKeys]
+    ] as const,
+    ([kind, aggregate, keys]) =>
+      Effect.gen(function*() {
+        const count = scaled(5_000)
+        yield* throughput(
+          { scenario: "personal data", backend, label: `${kind}, new stream each`, count, unit: "commands/s" },
+          Effect.gen(function*() {
+            const accounts = yield* AggregateService.make(aggregate as typeof Account)
+            for (let index = 0; index < count; index++) {
+              yield* accounts.commands.deposit(`a-${index}`, { amount: 1, reference: "r" })
+            }
+          }).pipe(Effect.provide(keys))
+        )
+        yield* Effect.gen(function*() {
           const accounts = yield* AggregateService.make(aggregate as typeof Account)
-          for (let index = 0; index < count; index++) {
-            yield* accounts.commands.deposit(`a-${index}`, { amount: 1, reference: "r" })
+          const cold = yield* AggregateService.make(aggregate as typeof Account, { stateCacheSize: 0 })
+          const streams = scaled(20)
+          for (let stream = 0; stream < streams; stream++) {
+            yield* accounts.commands.depositMany(`long-${stream}`, { amount: 1, reference: "r", count: 1_000 })
           }
-        }).pipe(Effect.provide(keys))
-      )
-      yield* Effect.gen(function*() {
-        const accounts = yield* AggregateService.make(aggregate as typeof Account)
-        const cold = yield* AggregateService.make(aggregate as typeof Account, { stateCacheSize: 0 })
-        const streams = scaled(20)
-        for (let stream = 0; stream < streams; stream++) {
-          yield* accounts.commands.depositMany(`long-${stream}`, { amount: 1, reference: "r", count: 1_000 })
-        }
-        yield* cold.readModel("long-0")
-        const samples = scaled(100)
-        const reads = yield* sample(samples, (index) => cold.readModel(`long-${index % streams}`))
-        yield* record({
-          scenario: "personal data",
-          backend,
-          label: `${kind}, cold load of 1000`,
-          count: samples,
-          rate: Math.round((samples / reads.ms) * 1000),
-          unit: "reads/s",
-          latencyMs: reads.latency
-        })
-      }).pipe(Effect.provide(Layer.merge(storage(backend), keys)))
-    }), { discard: true })
+          yield* cold.readModel("long-0")
+          const samples = scaled(100)
+          const reads = yield* sample(samples, (index) => cold.readModel(`long-${index % streams}`))
+          yield* record({
+            scenario: "personal data",
+            backend,
+            label: `${kind}, cold load of 1000`,
+            count: samples,
+            rate: Math.round((samples / reads.ms) * 1000),
+            unit: "reads/s",
+            latencyMs: reads.latency
+          })
+        }).pipe(Effect.provide(Layer.merge(storage(backend), keys)))
+      }),
+    { discard: true }
+  )
 
 /** The plans behind the reads that matter, on a store with no `ANALYZE` statistics. */
 const queryPlans = Effect.gen(function*() {

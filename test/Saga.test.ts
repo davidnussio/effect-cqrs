@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, Context, Effect, Exit, Layer, Ref, Schema, Stream } from "effect"
-import { WorkflowEngine } from "effect/workflow"
 import { AggregateService, Checkpoints, EventStore, Ids, PersonalData, Saga, ViewModel } from "effect-cqrs"
+import { WorkflowEngine } from "effect/workflow"
 import { Account, AccountNotOpen } from "../examples/bank-ui/src/domain/account.ts"
 
 class Bank extends Context.Service<Bank, AggregateService.AggregateService<typeof Account>>()("test/Bank") {}

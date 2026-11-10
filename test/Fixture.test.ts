@@ -251,7 +251,10 @@ describe("Fixture", () => {
         name: "wallet",
         events: WalletEvent,
         initial: 0,
-        projection: { Deposited: (balance, { amount }) => balance + amount, Withdrawn: (balance, { amount }) => balance - amount }
+        projection: {
+          Deposited: (balance, { amount }) => balance + amount,
+          Withdrawn: (balance, { amount }) => balance - amount
+        }
       })
         .command("deposit", {
           payload: Schema.Struct({ amount: Amount }),

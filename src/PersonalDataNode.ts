@@ -13,8 +13,8 @@
  *
  * It lives in a module of its own so that code for browsers never imports `node:crypto`.
  */
-import { createCipheriv, createDecipheriv, createSecretKey, type KeyObject, randomFillSync } from "node:crypto"
 import { Cause, Effect, Layer } from "effect"
+import { createCipheriv, createDecipheriv, createSecretKey, type KeyObject, randomFillSync } from "node:crypto"
 import { Cipher, type CipherKey, ivLength, keyLength, tagLength } from "./PersonalData.ts"
 
 const algorithm = "aes-256-gcm"

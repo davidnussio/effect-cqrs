@@ -1,15 +1,8 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
 import { DateTime, Effect, Layer, Metric, Option, Ref, References, Schedule } from "effect"
+import { AggregateService, Checkpoints, EventStore, ParkedEvents, SqliteEventStore, ViewModel } from "effect-cqrs"
 import { SqlClient } from "effect/sql"
-import {
-  AggregateService,
-  Checkpoints,
-  EventStore,
-  ParkedEvents,
-  SqliteEventStore,
-  ViewModel
-} from "effect-cqrs"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -158,7 +151,10 @@ describe("parking", () => {
         const viewModels = yield* ViewModel.ViewModels
         yield* todos.commands.createTodo("a", { title: "first" })
         yield* viewModels.status.pipe(
-          Effect.repeat({ until: ([status]) => Option.isSome(status!.lastError), schedule: Schedule.spaced("5 millis") }),
+          Effect.repeat({
+            until: ([status]) => Option.isSome(status!.lastError),
+            schedule: Schedule.spaced("5 millis")
+          }),
           Effect.timeout("2 seconds")
         )
         // Long enough for more than two attempts.
@@ -238,7 +234,9 @@ describe("ParkedEvents", () => {
     return Effect.gen(function*() {
       const sql = yield* SqlClient.SqlClient
       yield* Effect.addFinalizer(() => sql.unsafe(`DROP TABLE IF EXISTS ${table}`).pipe(Effect.ignore))
-      yield* behavesAsAStore(ParkedEvents.layerSql({ table }).pipe(Layer.provide(Layer.succeed(SqlClient.SqlClient, sql))))
+      yield* behavesAsAStore(
+        ParkedEvents.layerSql({ table }).pipe(Layer.provide(Layer.succeed(SqlClient.SqlClient, sql)))
+      )
     }).pipe(Effect.scoped, Effect.provide(Layer.fresh(postgresClient())))
   })
 })

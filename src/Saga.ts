@@ -25,9 +25,9 @@ import type { WorkflowEngine } from "effect/workflow"
 import type * as Aggregate from "./Aggregate.ts"
 import type { CommandResult } from "./AggregateService.ts"
 import * as Causation from "./Causation.ts"
-import * as Ids from "./Ids.ts"
 import type { Checkpoints } from "./Checkpoints.ts"
 import type { EventStore, EventStoreError } from "./EventStore.ts"
+import * as Ids from "./Ids.ts"
 import * as ViewModel from "./ViewModel.ts"
 
 /**
@@ -99,7 +99,12 @@ export const toLayer = <
  * Inside a trigger the event being handled becomes the saga's cause; elsewhere
  * the current causation does, or a new correlation when there is none.
  */
-export const start = <Tag extends string, Fields extends Schema.Struct.Fields, Success extends Schema.Top, Error extends Schema.Top>(
+export const start = <
+  Tag extends string,
+  Fields extends Schema.Struct.Fields,
+  Success extends Schema.Top,
+  Error extends Schema.Top
+>(
   self: SagaWorkflow<Tag, Fields, Success, Error>,
   payload: Schema.Struct.MakeIn<Fields>
 ): Effect.Effect<string, never, WorkflowEngine.WorkflowEngine> =>

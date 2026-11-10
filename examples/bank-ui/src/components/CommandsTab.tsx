@@ -10,7 +10,11 @@ const templates: ReadonlyArray<{ label: string; command: unknown }> = [
   { label: "withdraw", command: { aggregateId: "bob", type: "withdraw", payload: { amount: 30 } } },
   {
     label: "sendTransfer",
-    command: { aggregateId: "alice", type: "sendTransfer", payload: { transferId: "tx-console", to: "carol", amount: 20 } }
+    command: {
+      aggregateId: "alice",
+      type: "sendTransfer",
+      payload: { transferId: "tx-console", to: "carol", amount: 20 }
+    }
   },
   { label: "closeAccount", command: { aggregateId: "carol", type: "closeAccount", payload: {} } },
   { label: "✗ bad payload", command: { aggregateId: "alice", type: "deposit", payload: { amount: -5 } } },
@@ -75,7 +79,11 @@ export const CommandsTab = () => {
             <Toggle
               on={settings.autopilot}
               onChange={(autopilot) => devstore.settings({ autopilot })}
-              label={<span>Autopilot <span className="text-white/35">random customers</span></span>}
+              label={
+                <span>
+                  Autopilot <span className="text-white/35">random customers</span>
+                </span>
+              }
               color="#fbbf24"
             />
             <Slider
@@ -113,7 +121,11 @@ const CommandRow = ({ command }: { command: CommandEntry }) => {
   const { outcome } = command
   const index = stages.indexOf(command.stage)
   const done = outcome !== undefined
-  const border = outcome === undefined ? "rgba(167,139,250,0.35)" : outcome.ok ? "rgba(52,211,153,0.18)" : "rgba(251,113,133,0.35)"
+  const border = outcome === undefined
+    ? "rgba(167,139,250,0.35)"
+    : outcome.ok
+    ? "rgba(52,211,153,0.18)"
+    : "rgba(251,113,133,0.35)"
   return (
     <motion.div
       layout
@@ -142,13 +154,25 @@ const CommandRow = ({ command }: { command: CommandEntry }) => {
                   initial={false}
                   animate={{
                     width: reached ? "100%" : "0%",
-                    background: outcome === undefined ? "#a78bfa" : outcome.ok ? "#34d399" : i === stages.length - 1 ? "#fb7185" : "#5b5b77"
+                    background: outcome === undefined
+                      ? "#a78bfa"
+                      : outcome.ok
+                      ? "#34d399"
+                      : i === stages.length - 1
+                      ? "#fb7185"
+                      : "#5b5b77"
                   }}
                   transition={{ duration: 0.3 }}
                 />
               </div>
               <div className={`mt-1 font-mono text-[8.5px] ${current ? "text-violet-300" : "text-white/25"}`}>
-                {current ? <motion.span animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 0.8, repeat: Infinity }}>{stage}</motion.span> : stage}
+                {current
+                  ? (
+                    <motion.span animate={{ opacity: [1, 0.4, 1] }} transition={{ duration: 0.8, repeat: Infinity }}>
+                      {stage}
+                    </motion.span>
+                  )
+                  : stage}
               </div>
             </div>
           )
@@ -169,7 +193,11 @@ const OutcomeLine = ({ outcome }: { outcome: Outcome }) => (
       ? outcome.events.length === 0
         ? "✓ accepted, no event (idempotent)"
         : `✓ ${outcome.events.join(", ")} · stream v${outcome.version} · store #${outcome.position}`
-      : <>✗ {outcome.tag} <span className="text-rose-300/60">{outcome.message}</span></>}
+      : (
+        <>
+          ✗ {outcome.tag} <span className="text-rose-300/60">{outcome.message}</span>
+        </>
+      )}
   </motion.div>
 )
 
@@ -188,14 +216,16 @@ const Console = () => {
     }
     setBusy(true)
     const { aggregateId, type, payload } = (input ?? {}) as Record<string, unknown>
-    setResult(await engine.send({ aggregateId: String(aggregateId ?? ""), type: String(type ?? ""), payload }, "console"))
+    setResult(
+      await engine.send({ aggregateId: String(aggregateId ?? ""), type: String(type ?? ""), payload }, "console")
+    )
     setBusy(false)
   }
 
   return (
     <div className="glass rounded-2xl p-4">
       <SectionTitle>
-        Console · <span className="normal-case tracking-normal">raw JSON through </span>
+        Console · <span className="normal-case tracking-normal">raw JSON through</span>
         <Code>dispatch</Code>
       </SectionTitle>
       <div className="mb-2 flex flex-wrap gap-1">

@@ -14,10 +14,10 @@ export const ShopApp = () => {
       <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-sky-300/70">Customer app</div>
       <h1 className="text-2xl font-semibold tracking-tight">Fruit shop</h1>
       <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-white/50">
-        Shelves and orders are read from the <Code>inventory</Code> and <Code>orders</Code> view models. Placing an
-        order records <Code>OrderPlaced</Code>, and the <Code>Fulfil</Code> saga reserves the stock and asks for the
-        payment. Pay within 15 seconds and the saga confirms the order. Otherwise it rejects the order and releases the
-        stock.
+        Shelves and orders are read from the <Code>inventory</Code> and <Code>orders</Code>{" "}
+        view models. Placing an order records <Code>OrderPlaced</Code>, and the <Code>Fulfil</Code>{" "}
+        saga reserves the stock and asks for the payment. Pay within 15 seconds and the saga confirms the order.
+        Otherwise it rejects the order and releases the stock.
       </p>
 
       <Customer />
@@ -125,9 +125,7 @@ const Legacy = () => (
       Import an order the shop's first version stored, as <Code>{"{ sku }"}</Code> with no quantity.{" "}
       <Code>EventVersions</Code> upcasts it to one item.
     </div>
-    {catalog.map(({ sku }) => (
-      <Button key={sku} onClick={() => void engine.importLegacy(sku)}>{sku}</Button>
-    ))}
+    {catalog.map(({ sku }) => <Button key={sku} onClick={() => void engine.importLegacy(sku)}>{sku}</Button>)}
   </div>
 )
 
@@ -201,7 +199,9 @@ const Countdown = ({ deadline }: { deadline: number }) => {
   const left = Math.max(0, Math.ceil((deadline - now) / 1000))
   return (
     <span
-      className={`whitespace-nowrap font-mono text-[10.5px] tabular-nums ${left <= 10 ? "text-rose-300" : "text-sky-300/80"}`}
+      className={`whitespace-nowrap font-mono text-[10.5px] tabular-nums ${
+        left <= 10 ? "text-rose-300" : "text-sky-300/80"
+      }`}
       title="DurableClock.sleep in the Fulfil saga"
     >
       {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")} to pay

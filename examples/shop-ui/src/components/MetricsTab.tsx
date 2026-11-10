@@ -70,7 +70,11 @@ export const MetricsTab = () => {
               </thead>
               <tbody>
                 {metrics.commands.map((timing) => (
-                  <CommandRow key={`${timing.aggregate}.${timing.command}/${timing.outcome}`} timing={timing} max={maxMean} />
+                  <CommandRow
+                    key={`${timing.aggregate}.${timing.command}/${timing.outcome}`}
+                    timing={timing}
+                    max={maxMean}
+                  />
                 ))}
               </tbody>
             </table>

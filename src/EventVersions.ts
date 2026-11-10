@@ -35,8 +35,8 @@ export type VersionSchema = Schema.Top & {
 /** What an upcast returns: the next version, without the `_tag` the event's name already gives. */
 export type Untagged<T> = T extends { readonly _tag: string } ? Omit<T, "_tag"> : T
 
-type Last<Schemas extends ReadonlyArray<VersionSchema>> = Schemas extends readonly [...any, infer L extends VersionSchema]
-  ? L
+type Last<Schemas extends ReadonlyArray<VersionSchema>> = Schemas extends
+  readonly [...any, infer L extends VersionSchema] ? L
   : VersionSchema
 
 export interface EventVersions<Schemas extends ReadonlyArray<VersionSchema>, Latest> {

@@ -34,7 +34,11 @@ const Account = Aggregate.make<State>()({
   events: AccountEvent,
   initial: { name: "", currency: "", balance: 0 },
   projection: {
-    AccountOpened: (state, { currency, firstName, lastName }) => ({ ...state, name: `${firstName} ${lastName}`, currency }),
+    AccountOpened: (state, { currency, firstName, lastName }) => ({
+      ...state,
+      name: `${firstName} ${lastName}`,
+      currency
+    }),
     MoneyDeposited: (state, { amount }) => ({ ...state, balance: state.balance + amount })
   },
   versions: {

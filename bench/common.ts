@@ -5,8 +5,8 @@
 import { PgClient } from "@effect/sql-pg"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { DateTime, Effect, Layer, Redacted, Schema } from "effect"
-import { SqlClient } from "effect/sql"
 import { Aggregate, Checkpoints, EventStore, PostgresEventStore, SqliteEventStore } from "effect-cqrs"
+import { SqlClient } from "effect/sql"
 import { execSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { cpus, platform, release, tmpdir, totalmem } from "node:os"
@@ -50,8 +50,10 @@ export const Account = Aggregate.make<AccountState>()({
     payload: Schema.Struct({ ...Movement.fields, count: Schema.Int }),
     handler: Effect.fnUntraced(function*(_, { amount, count, reference }) {
       const at = yield* DateTime.now
-      return Array.from({ length: count }, (_, index) =>
-        AccountEvent.cases.Deposited.make({ amount, reference: `${reference}-${index}`, at }))
+      return Array.from(
+        { length: count },
+        (_, index) => AccountEvent.cases.Deposited.make({ amount, reference: `${reference}-${index}`, at })
+      )
     })
   })
 
@@ -92,12 +94,13 @@ export type Backend = "memory" | "sqlite-memory" | "sqlite-file" | "postgres"
 export const postgresUrl = process.env.POSTGRES_URL
 
 /** The backends to run, as in `BENCH_BACKENDS=postgres pnpm bench`. */
-export const backends: ReadonlyArray<Backend> = (process.env.BENCH_BACKENDS?.split(",") as Array<Backend> | undefined) ?? [
-  "memory",
-  "sqlite-memory",
-  "sqlite-file",
-  ...(postgresUrl === undefined ? [] : ["postgres" as const])
-]
+export const backends: ReadonlyArray<Backend> =
+  (process.env.BENCH_BACKENDS?.split(",") as Array<Backend> | undefined) ?? [
+    "memory",
+    "sqlite-memory",
+    "sqlite-file",
+    ...(postgresUrl === undefined ? [] : ["postgres" as const])
+  ]
 
 /** A temporary directory that is removed with the scope, for database files. */
 export const temporaryFile = (name: string) =>
@@ -226,7 +229,8 @@ export const sample = Effect.fnUntraced(function*<E, R>(
   return { ms: performance.now() - started, latency: summarize(latencies) }
 })
 
-export const median = (values: ReadonlyArray<number>) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!
+export const median = (values: ReadonlyArray<number>) =>
+  [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!
 
 export const megabytes = (bytes: number) => Math.round(bytes / 1024 / 1024)
 

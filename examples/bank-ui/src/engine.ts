@@ -18,8 +18,6 @@ import {
   Stream,
   Tracer
 } from "effect"
-import { KeyValueStore } from "effect/persistence"
-import { WorkflowEngine } from "effect/workflow"
 import * as AggregateService from "effect-cqrs/AggregateService"
 import * as Checkpoints from "effect-cqrs/Checkpoints"
 import * as EventStore from "effect-cqrs/EventStore"
@@ -27,6 +25,8 @@ import * as Metadata from "effect-cqrs/Metadata"
 import * as PersonalData from "effect-cqrs/PersonalData"
 import * as Saga from "effect-cqrs/Saga"
 import * as ViewModel from "effect-cqrs/ViewModel"
+import { KeyValueStore } from "effect/persistence"
+import { WorkflowEngine } from "effect/workflow"
 import { version as appVersion } from "../../../package.json"
 import { makeRecordingTracer } from "../../devtools/tracing.ts"
 import {
@@ -65,7 +65,11 @@ const describeError = (error: unknown): Outcome => {
     .filter(([key]) => key !== "stack" && key !== "name" && key !== "cause")
     .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
     .join(", ")
-  return { ok: false, tag: _tag ?? "Error", message: (typeof message === "string" && message !== "" ? message : details) || "" }
+  return {
+    ok: false,
+    tag: _tag ?? "Error",
+    message: (typeof message === "string" && message !== "" ? message : details) || ""
+  }
 }
 
 type Dispatched = ReturnType<Bank["Service"]["dispatch"]>
@@ -308,7 +312,9 @@ const nextRandomCommand = (): CommandInput | undefined => {
   }
   const account = pick(open)
   if (roll < 0.4) return { aggregateId: account.id, type: "deposit", payload: { amount: amount(200) } }
-  if (roll < 0.65) return { aggregateId: account.id, type: "withdraw", payload: { amount: amount(account.balance + 60) } }
+  if (roll < 0.65) {
+    return { aggregateId: account.id, type: "withdraw", payload: { amount: amount(account.balance + 60) } }
+  }
   const target = pick(accounts.filter((other) => other.id !== account.id))
   return {
     aggregateId: account.id,
@@ -379,10 +385,11 @@ const seed: ReadonlyArray<CommandInput> = [
 
 let runtime = ManagedRuntime.make(Main)
 
-const start = () => runtime.runPromise(Effect.gen(function*() {
-  const bus = yield* Bus
-  for (const command of seed) yield* bus.submit(command, "seed")
-}))
+const start = () =>
+  runtime.runPromise(Effect.gen(function*() {
+    const bus = yield* Bus
+    for (const command of seed) yield* bus.submit(command, "seed")
+  }))
 
 void start()
 
@@ -403,10 +410,14 @@ export const engine = {
     try {
       const result = await runtime.runPromise(Effect.gen(function*() {
         const viewModels = yield* ViewModel.ViewModels
-        return yield* Effect.forEach(views, (view) =>
-          viewModels.replay({ viewModels: [viewModelNames[view]], finishTime }).pipe(
-            Effect.map(({ eventCount }) => [view, eventCount] as const)
-          ), { concurrency: "unbounded" })
+        return yield* Effect.forEach(
+          views,
+          (view) =>
+            viewModels.replay({ viewModels: [viewModelNames[view]], finishTime }).pipe(
+              Effect.map(({ eventCount }) => [view, eventCount] as const)
+            ),
+          { concurrency: "unbounded" }
+        )
       }))
       // Events in the same millisecond as `upTo` fall inside the window too.
       const reached = last === undefined

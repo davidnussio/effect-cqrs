@@ -1,9 +1,9 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
 import { DateTime, Duration, Effect, Layer, Option, Ref, References, Schedule, Schema, Stream } from "effect"
+import { Aggregate, AggregateService, Checkpoints, EventStore, SqliteEventStore, ViewModel } from "effect-cqrs"
 import { SqlClient } from "effect/sql"
 import { TestClock } from "effect/testing"
-import { Aggregate, AggregateService, Checkpoints, EventStore, SqliteEventStore, ViewModel } from "effect-cqrs"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -247,10 +247,12 @@ describe("ViewModels", () => {
     const lastErrorOf = (viewModels: ViewModel.ViewModels["Service"]) =>
       Effect.map(viewModels.status, (statuses) => statuses[0]!.lastError)
 
-    for (const [kind, failure] of [
-      ["an error", Effect.fail("broken")],
-      ["a defect", Effect.die("broken")]
-    ] as const) {
+    for (
+      const [kind, failure] of [
+        ["an error", Effect.fail("broken")],
+        ["a defect", Effect.die("broken")]
+      ] as const
+    ) {
       it.live(`stalls on ${kind} and retries without skipping the event`, () =>
         Effect.gen(function*() {
           const attempts = yield* Ref.make(0)
@@ -445,7 +447,10 @@ describe("ViewModels", () => {
         yield* session(Effect.gen(function*() {
           const viewModels = yield* ViewModel.ViewModels
           yield* viewModels.status.pipe(
-            Effect.repeat({ until: ([status]) => Option.isSome(status!.lastError), schedule: Schedule.spaced("5 millis") }),
+            Effect.repeat({
+              until: ([status]) => Option.isSome(status!.lastError),
+              schedule: Schedule.spaced("5 millis")
+            }),
             Effect.timeout("2 seconds")
           )
           assert.deepStrictEqual(yield* inspect, { rows: [], checkpoint: 0 })

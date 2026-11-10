@@ -21,8 +21,9 @@ export const MetricsTab = () => {
   return (
     <div className="space-y-4">
       <p className="text-xs leading-relaxed text-white/50">
-        <Code>AggregateService</Code> records these through Effect's <Code>Metric</Code>, and the devtools read them
-        with <Code>Metric.snapshot</Code>. In production an exporter sends the same series on. Only {cacheCapacity}{" "}
+        <Code>AggregateService</Code> records these through Effect's{" "}
+        <Code>Metric</Code>, and the devtools read them with{" "}
+        <Code>Metric.snapshot</Code>. In production an exporter sends the same series on. Only {cacheCapacity}{" "}
         accounts stay in memory here, so with more of them open a command has to start from a snapshot or a replay.
       </p>
 
@@ -101,7 +102,9 @@ export const MetricsTab = () => {
                 </tr>
               </thead>
               <tbody>
-                {metrics.commands.map((timing) => <CommandRow key={`${timing.command}/${timing.outcome}`} timing={timing} />)}
+                {metrics.commands.map((timing) => (
+                  <CommandRow key={`${timing.command}/${timing.outcome}`} timing={timing} />
+                ))}
               </tbody>
             </table>
           )}

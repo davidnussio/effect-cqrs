@@ -58,9 +58,11 @@ export interface InvariantOptions<A extends Aggregate.Any> {
    * How to generate each command's payload. By default it comes from the payload
    * schema. `false` leaves a command out.
    */
-  readonly commands?: {
-    readonly [K in Aggregate.CommandName<A>]?: Arbitrary.Arbitrary<Aggregate.Payload<A, K>> | false
-  } | undefined
+  readonly commands?:
+    | {
+      readonly [K in Aggregate.CommandName<A>]?: Arbitrary.Arbitrary<Aggregate.Payload<A, K>> | false
+    }
+    | undefined
   /** The longest sequence of commands to try. Defaults to 20. */
   readonly maxCommands?: number | undefined
   /** Passed on to `Arbitrary.checkEffect`, for the number of runs or a seed. */
@@ -157,16 +159,19 @@ class ScenarioImpl<A extends Aggregate.Any, E, R> extends Effectable.Class<Outco
 
     return new ScenarioImpl(
       this.aggregate,
-      Effect.tap(this.run, ({ events }) =>
-        events.length === expected.length && expected.every((want, index) => matches(want, events[index]))
-          ? Effect.void
-          : Effect.die(
-            new ExpectationFailed({
-              message: "The command did not emit the expected events",
-              expected,
-              actual: events
-            })
-          ))
+      Effect.tap(
+        this.run,
+        ({ events }) =>
+          events.length === expected.length && expected.every((want, index) => matches(want, events[index]))
+            ? Effect.void
+            : Effect.die(
+              new ExpectationFailed({
+                message: "The command did not emit the expected events",
+                expected,
+                actual: events
+              })
+            )
+      )
     )
   }
 
@@ -254,7 +259,10 @@ export const make = <A extends Aggregate.Any>(
       }
       const byName = new Map(commands)
       const steps = Arbitrary.array(
-        Arbitrary.flatMap(Arbitrary.schema(Schema.Literals(commands.map(([name]) => name))), (name) => byName.get(name)!),
+        Arbitrary.flatMap(
+          Arbitrary.schema(Schema.Literals(commands.map(([name]) => name))),
+          (name) => byName.get(name)!
+        ),
         { maxLength: options.maxCommands ?? 20 }
       ) as Arbitrary.Arbitrary<ReadonlyArray<Step<A>>>
 

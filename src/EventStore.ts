@@ -246,8 +246,10 @@ const assemble = Effect.fnUntraced(function*(backend: Backend, options?: MakeOpt
         Stream.filterEffect((position) => Effect.map(Ref.get(cursor), (seen) => position > seen.position)),
         Stream.flatMap((position) =>
           Stream.unwrap(
-            Effect.map(Ref.get(cursor), (seen) =>
-              read({ ...filter, afterPosition: seen.position, afterVersion: seen.version }))
+            Effect.map(
+              Ref.get(cursor),
+              (seen) => read({ ...filter, afterPosition: seen.position, afterVersion: seen.version })
+            )
           ).pipe(
             Stream.tap((event) => Ref.set(cursor, { position: event.position, version: event.version })),
             // Events the filter skipped must not trigger another read.

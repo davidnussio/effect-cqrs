@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Latch, Layer, References, Schema } from "effect"
-import { KeyValueStore } from "effect/persistence"
 import { Aggregate, AggregateService, EventStore, PersonalData } from "effect-cqrs"
+import { KeyValueStore } from "effect/persistence"
 
 const Events = Schema.TaggedUnion({ Incremented: {} })
 const Counter = Aggregate.make<{ readonly total: number }>()({
@@ -44,8 +44,7 @@ const increment = (counters: AggregateService.AggregateService<typeof Counter>, 
 const Storage = Layer.merge(EventStore.layerMemory, KeyValueStore.layerMemory)
 
 /** Runs a first process to its end, which waits for the snapshots it is still saving. */
-const runFirst = (times: number) =>
-  Effect.scoped(Effect.flatMap(start(), ({ counters }) => increment(counters, times)))
+const runFirst = (times: number) => Effect.scoped(Effect.flatMap(start(), ({ counters }) => increment(counters, times)))
 
 describe("snapshots", () => {
   it.effect("let a new process replay only what came after the last one", () =>

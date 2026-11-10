@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Fiber, Metric, Ref, References } from "effect"
 import { TestClock } from "effect/testing"
-import { Orders, OrderList, program, reached, settled, Shop, Stocks } from "../examples/tutorial/shop.ts"
+import { OrderList, Orders, program, reached, settled, Shop, Stocks } from "../examples/tutorial/shop.ts"
 
 describe("tutorial", () => {
   it.effect("runs the shop as the tutorial describes it", () =>

@@ -39,7 +39,10 @@ export const DatabaseTab = () => {
             }`}
           >
             {table === name && (
-              <motion.span layoutId="table" className="absolute inset-0 rounded-lg bg-white/[0.07] ring-1 ring-white/10" />
+              <motion.span
+                layoutId="table"
+                className="absolute inset-0 rounded-lg bg-white/[0.07] ring-1 ring-white/10"
+              />
             )}
             <span className="relative">
               {name} <span className="text-white/30">{counts[name]}</span>
@@ -79,7 +82,9 @@ const Row = ({ children, onClick }: { children: ReactNode; onClick?: () => void 
     animate={{ backgroundColor: "rgba(124,92,255,0)" }}
     transition={{ duration: 1.4 }}
     onClick={onClick}
-    className={`border-t border-white/[0.04] align-top ${onClick === undefined ? "" : "cursor-pointer hover:bg-white/[0.03]"}`}
+    className={`border-t border-white/[0.04] align-top ${
+      onClick === undefined ? "" : "cursor-pointer hover:bg-white/[0.03]"
+    }`}
   >
     {children}
   </motion.tr>
@@ -167,8 +172,8 @@ const CheckpointsTable = () => {
   return (
     <>
       <Note>
-        How far each view model has read, from <Code>ViewModels.status</Code>. <Code>fulfilment</Code> is the saga's
-        trigger: it starts a workflow for each order it reads.
+        How far each view model has read, from <Code>ViewModels.status</Code>. <Code>fulfilment</Code>{" "}
+        is the saga's trigger: it starts a workflow for each order it reads.
       </Note>
       <Grid head={["view_model", "position", "behind", "error"]}>
         {checkpoints.map((checkpoint) => (

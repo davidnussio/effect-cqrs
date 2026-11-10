@@ -7,9 +7,10 @@ export const TraceTab = () => (
     spans={useSnapshot((s) => s.spans)}
     intro={
       <>
-        Every span Effect opens, from <Code>Tracer.make</Code>: the commands' own spans, <Code>EventStore.append</Code>,
-        the workflow's <Code>Fulfil.execute</Code> and one span per activity. In production an OTLP exporter sends the
-        same spans on. Grey bars are the demo's latency.
+        Every span Effect opens, from <Code>Tracer.make</Code>: the commands' own spans,{" "}
+        <Code>EventStore.append</Code>, the workflow's <Code>Fulfil.execute</Code>{" "}
+        and one span per activity. In production an OTLP exporter sends the same spans on. Grey bars are the demo's
+        latency.
       </>
     }
   />
