@@ -116,13 +116,18 @@ describe("Leases", () => {
         assert.isTrue(yield* held.held)
         assert.isFalse(yield* waiting.held)
 
-        // Ends the session that holds the lock, as if its process died. The test has a
-        // database of its own, where only the holder holds advisory locks.
+        // Ends the session that holds this lease's lock, as if its process died. Only
+        // that lock: other tests running at the same time hold advisory locks too. A
+        // bigint advisory lock is stored as its high and low halves.
         yield* SqlClient.SqlClient.use((sql) =>
           sql`
-            SELECT pg_terminate_backend(pid) FROM pg_locks
+            WITH lock AS (SELECT hashtextextended(${`effect-cqrs/${table}`}, 0) AS key)
+            SELECT pg_terminate_backend(pid) FROM pg_locks, lock
             WHERE locktype = 'advisory' AND granted AND pid <> pg_backend_pid()
               AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+              AND classid = ((key >> 32) & 4294967295)::oid
+              AND objid = (key & 4294967295)::oid
+              AND objsubid = 1
           `
         ).pipe(Effect.provideContext(standby))
 
