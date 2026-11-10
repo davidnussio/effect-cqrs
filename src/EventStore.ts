@@ -6,7 +6,21 @@
  * that orders it across the whole store. Writers use the version for optimistic
  * concurrency, readers use the position as a durable cursor.
  */
-import { Context, DateTime, Effect, Layer, Option, Ref, Schema, Stream, SubscriptionRef } from "effect"
+import {
+  Cause,
+  Context,
+  DateTime,
+  Deferred,
+  type Duration,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  Ref,
+  Schema,
+  Stream,
+  SubscriptionRef
+} from "effect"
 
 export class EventStoreError extends Schema.TaggedError<EventStoreError>()("EventStoreError", {
   operation: Schema.String,
@@ -119,9 +133,10 @@ export class EventStore extends Context.Service<EventStore, {
   /** The position of the latest event, `0` when the store is empty. */
   readonly head: Effect.Effect<number, EventStoreError>
   /**
-   * Emits the current latest position, then each newly appended one. Consumers
-   * can treat an element as "there may be something new": appends from other
-   * processes are not observed.
+   * Emits the current latest position, then each newer one. Consumers can treat an
+   * element as "there may be something new". Appends from this process are always
+   * observed, appends from other processes when the backend announces them or the
+   * store polls for them: see `MakeOptions`.
    */
   readonly changes: Stream.Stream<number>
 }>()("effect-cqrs/EventStore") {}
@@ -135,9 +150,63 @@ export interface Backend {
     limit: number
   ) => Effect.Effect<ReadonlyArray<StoredEvent>, EventStoreError>
   readonly head: Effect.Effect<number, EventStoreError>
+  /**
+   * Head positions written by other processes, as the database announces them. It
+   * should start with the head once it listens, so nothing between two runs is
+   * missed. When it fails or ends, the store logs it and runs it again a second later.
+   */
+  readonly changes?: Stream.Stream<number, EventStoreError> | undefined
 }
 
-export const make = Effect.fnUntraced(function*(backend: Backend, options?: { readonly batchSize?: number }) {
+export interface MakeOptions {
+  /** Events per read. Defaults to 500. */
+  readonly batchSize?: number | undefined
+  /**
+   * Reads the head this often, to notice appends from other processes when the
+   * backend doesn't announce them, or as a safety net when it does. Off by default.
+   */
+  readonly pollInterval?: Duration.Input | undefined
+}
+
+/** How long a backend's `changes` rests after it failed, before it runs again. */
+const restartDelay = "1 second"
+
+const logUnlessInterrupted = (message: string) => <E>(cause: Cause.Cause<E>) =>
+  Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.logWarning(message, cause)
+
+/**
+ * Builds a store on a backend. Watching for appends from other processes takes
+ * fibers that live as long as the `Scope`, which `Layer.effect` provides.
+ */
+export const make = Effect.fnUntraced(function*(backend: Backend, options?: MakeOptions) {
+  const { latest, service } = yield* assemble(backend, options)
+
+  const advance = (position: number) =>
+    SubscriptionRef.updateSome(latest, (current) => position > current ? Option.some(position) : Option.none())
+
+  if (backend.changes !== undefined) {
+    yield* Stream.runForEach(backend.changes, advance).pipe(
+      Effect.catchCause(logUnlessInterrupted("Event store notifications stopped, listening again")),
+      Effect.andThen(Effect.sleep(restartDelay)),
+      Effect.forever,
+      Effect.forkScoped
+    )
+  }
+  if (options?.pollInterval !== undefined) {
+    const interval = options.pollInterval
+    yield* backend.head.pipe(
+      Effect.flatMap(advance),
+      Effect.catchCause(logUnlessInterrupted("Event store could not poll its head")),
+      Effect.andThen(Effect.sleep(interval)),
+      Effect.forever,
+      Effect.forkScoped
+    )
+  }
+  return service
+})
+
+/** The store without fibers of its own, which only sees appends made through it. */
+const assemble = Effect.fnUntraced(function*(backend: Backend, options?: MakeOptions) {
   const batchSize = options?.batchSize ?? 500
   const latest = yield* SubscriptionRef.make(yield* backend.head)
 
@@ -147,7 +216,8 @@ export const make = Effect.fnUntraced(function*(backend: Backend, options?: { re
         const last = stored.at(-1)
         return last === undefined
           ? Effect.void
-          : SubscriptionRef.update(latest, (position) => Math.max(position, last.position))
+          : SubscriptionRef.updateSome(latest, (position) =>
+            last.position > position ? Option.some(last.position) : Option.none())
       })
     )
   )
@@ -189,13 +259,161 @@ export const make = Effect.fnUntraced(function*(backend: Backend, options?: { re
       )
     }))
 
-  return EventStore.of({
-    append,
-    read,
-    subscribe,
-    head: backend.head,
-    changes: SubscriptionRef.changes(latest)
+  return {
+    latest,
+    service: EventStore.of({
+      append,
+      read,
+      subscribe,
+      head: backend.head,
+      changes: SubscriptionRef.changes(latest)
+    })
+  }
+})
+
+type AppendExit = Exit.Exit<ReadonlyArray<StoredEvent>, ConcurrencyConflict | EventStoreError>
+
+/** How often a lone writer with `gather` looks for others to share a commit with. */
+const probeEvery = 16
+
+interface Pending {
+  readonly input: AppendInput
+  readonly result: Deferred.Deferred<ReadonlyArray<StoredEvent>, ConcurrencyConflict | EventStoreError>
+}
+
+/**
+ * Group commit for a backend. An append that finds nothing being written goes
+ * straight through `appendGroup`, in its own fiber. Appends that arrive meanwhile
+ * wait, then go together into the next call, which writes them in one transaction
+ * and returns an exit for each, in order: however many wait, they pay for one
+ * commit.
+ *
+ * A group holds at most one append per stream, so they can't conflict with each
+ * other, and at most `maxEvents` events unless a single append has more. An append
+ * left out waits for the next group, where it comes first, so appends to a stream
+ * are written in the order they came. Groups of waiting appends are written by a
+ * fiber of the `Scope`.
+ */
+export const groupCommit = Effect.fnUntraced(function*(
+  appendGroup: (inputs: ReadonlyArray<AppendInput>) => Effect.Effect<ReadonlyArray<AppendExit>>,
+  options?: {
+    /** Closes a group once it holds this many events. Defaults to 10,000. */
+    readonly maxEvents?: number | undefined
+    /**
+     * Lets other fibers run before writing now and then, and before every write
+     * while that brings company, so appends that become ready together share a
+     * commit even on a synchronous driver, where nobody would otherwise wait. Worth
+     * it where a commit costs more than a turn of the scheduler, such as an fsync.
+     * Without it, a writer only yields after a write that had others waiting.
+     */
+    readonly gather?: boolean | undefined
+  }
+) {
+  const maxEvents = options?.maxEvents ?? 10_000
+  const gather = options?.gather ?? false
+  const scope = yield* Effect.scope
+  let writing = false
+  let waiting: Array<Pending> = []
+
+  const nextGroup = () => {
+    const group: Array<Pending> = []
+    const rest: Array<Pending> = []
+    const streams = new Set<string>()
+    let events = 0
+    for (const item of waiting) {
+      const key = streamKey(item.input.aggregateName, item.input.aggregateId)
+      if (streams.has(key) || (group.length > 0 && events + item.input.events.length > maxEvents)) {
+        rest.push(item)
+      } else {
+        group.push(item)
+        streams.add(key)
+        events += item.input.events.length
+      }
+    }
+    waiting = rest
+    return group
+  }
+
+  const complete = (group: ReadonlyArray<Pending>, exit: Exit.Exit<ReadonlyArray<AppendExit>>) =>
+    Effect.forEach(group, ({ result }, index) =>
+      Deferred.done(
+        result,
+        Exit.isSuccess(exit)
+          ? exit.value[index] ?? Exit.die(new Error("A group commit lost an append"))
+          : Exit.failCause(exit.cause)
+      ), { discard: true })
+
+  const drain = Effect.gen(function*() {
+    while (true) {
+      const group = nextGroup()
+      if (group.length === 0) {
+        writing = false
+        return
+      }
+      yield* Effect.exit(writeGroup(group))
+    }
   })
+
+  // A synchronous driver writes before other fibers get to run, so they never wait
+  // and never share a commit. Once others did wait, or joined a writer that let them
+  // run first, the next writer lets them run first too. With `gather`, a writer
+  // that finds no company does so on every `probeEvery`th append, to notice when
+  // others start writing without slowing down one that writes alone.
+  let contended = false
+  let lastGroup = 0
+  let appends = 0
+
+  const release = Effect.suspend(() => {
+    contended = waiting.length > 0 || lastGroup > 1
+    if (waiting.length > 0) return Effect.asVoid(Effect.forkIn(drain, scope))
+    writing = false
+    return Effect.void
+  })
+
+  const writeGroup = (group: ReadonlyArray<Pending>) =>
+    appendGroup(group.map(({ input }) => input)).pipe(Effect.onExit((exit) => complete(group, exit)))
+
+  const lead = (input: AppendInput) => {
+    if (!contended && !(gather && ++appends % probeEvery === 0)) {
+      lastGroup = 1
+      return Effect.flatMap(
+        appendGroup([input]),
+        ([exit]) => exit ?? Effect.die(new Error("A group commit lost an append"))
+      )
+    }
+    const result = Deferred.makeUnsafe<ReadonlyArray<StoredEvent>, ConcurrencyConflict | EventStoreError>()
+    waiting.push({ input, result })
+    return Effect.yieldNow.pipe(
+      Effect.andThen(Effect.suspend(() => {
+        const group = nextGroup()
+        lastGroup = group.length
+        return writeGroup(group)
+      })),
+      Effect.andThen(Deferred.await(result))
+    )
+  }
+
+  // Writers still waiting when the store closes don't hang.
+  yield* Effect.addFinalizer(() =>
+    Effect.suspend(() => {
+      const left = waiting
+      waiting = []
+      return Effect.forEach(left, ({ result }) => Deferred.interrupt(result), { discard: true })
+    })
+  )
+
+  return (input: AppendInput): Effect.Effect<ReadonlyArray<StoredEvent>, ConcurrencyConflict | EventStoreError> =>
+    Effect.uninterruptibleMask((restore) =>
+      Effect.suspend(() => {
+        if (!writing) {
+          writing = true
+          return restore(lead(input)).pipe(Effect.ensuring(release))
+        }
+        const result = Deferred.makeUnsafe<ReadonlyArray<StoredEvent>, ConcurrencyConflict | EventStoreError>()
+        waiting.push({ input, result })
+        return restore(Deferred.await(result))
+      })
+    )
 })
 
 const matches = (filter: EventFilter, event: StoredEvent): boolean =>
@@ -229,7 +447,7 @@ export const makeMemory: Effect.Effect<EventStore["Service"], EventStoreError> =
       ? streams.get(streamKey(filter.aggregateNames![0]!, filter.aggregateIds![0]!)) ?? []
       : events
 
-  return yield* make({
+  const { service } = yield* assemble({
     append: Effect.fnUntraced(function*(input) {
       const timestamp = yield* DateTime.now
       const key = streamKey(input.aggregateName, input.aggregateId)
@@ -264,6 +482,7 @@ export const makeMemory: Effect.Effect<EventStore["Service"], EventStoreError> =
       }),
     head: Effect.sync(() => events.length)
   })
+  return service
 })
 
 /** Keeps events in process memory. They do not survive a restart. */

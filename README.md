@@ -250,7 +250,8 @@ const Storage = Layer.merge(SqliteEventStore.layer(), SqliteEventStore.layerChec
 )
 ```
 
-Tables are created on startup. Use durable checkpoints only with a durable view
+Tables are created on startup, unless `migrate: false` leaves that to your own tooling
+with the SQL of `migrations()`. Use durable checkpoints only with a durable view
 model: an in-memory view model paired with `Checkpoints.layerMemory` rebuilds itself
 on every start, which is usually what you want.
 
@@ -266,9 +267,10 @@ const Storage = Layer.merge(PostgresEventStore.layer(), PostgresEventStore.layer
 ```
 
 Writers wait for each other at one step of each commit, which keeps positions in commit
-order. Several processes can write to one database, but a view model only wakes on
-appends from its own process. After a bulk load, run `ANALYZE`, or reads for view models
-are slow until autovacuum gets to the table.
+order, so concurrent appends are written in groups that share a commit. Several processes
+can write to one database, and each append notifies the others, so view models everywhere
+wake up. After a bulk load, run `ANALYZE`, or reads for view models are slow until
+autovacuum gets to the table.
 
 To run the tests on Postgres, `docker compose up -d --wait` starts one, and setting
 `POSTGRES_URL=postgres://postgres:postgres@localhost:5432/cqrs` includes it in
@@ -315,9 +317,9 @@ store, so `replay` is for rebuilding, not for recovery.
 
 ## Limitations
 
-- **New events stay in their process.** They wake subscribers in the same process only.
-  There is no transport equivalent to the Moleculer broker, so `dispatch` is the entry
-  point to wire into your own HTTP or RPC layer.
+- **No broker.** New events wake subscribers in every process, through PostgreSQL
+  notifications or by polling, but there is no transport equivalent to the Moleculer
+  broker, so `dispatch` is the entry point to wire into your own HTTP or RPC layer.
 - **SQLite, PostgreSQL and memory only.** There are no adapters for MongoDB or MySQL.
 - **No code generator.** There is no equivalent of `cqrs generate`.
 - **Snapshots are opt-in.** Without `snapshots`, recent state is only kept in memory, so
