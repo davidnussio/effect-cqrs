@@ -467,9 +467,19 @@ const queryPlans = Effect.gen(function*() {
       `SELECT * FROM cqrs_events WHERE position > 0 AND aggregate_name IN ('account') AND type IN ('Withdrawn')
        ORDER BY position LIMIT 500`
     ),
-    "version check": yield* plan(
-      `SELECT COALESCE(MAX(version), 0) AS version FROM cqrs_events
-       WHERE aggregate_name = 'account' AND aggregate_id = 'a'`
+    // The append as the store runs it: the version check is a subquery of the insert.
+    "append with version check": yield* plan(
+      `INSERT INTO cqrs_events (
+         aggregate_name, aggregate_id, version, type, schema_version, payload, timestamp, correlation_id,
+         causation_id, metadata
+       )
+       SELECT 'account', 'a', 1000 + event.key + 1, json_extract(event.value, '$[0]'),
+         json_extract(event.value, '$[1]'), json_extract(event.value, '$[2]'), 0, NULL, NULL, '{}'
+       FROM json_each('[["Deposited",1,"{}"]]') AS event
+       WHERE (SELECT COALESCE(MAX(version), 0) FROM cqrs_events
+              WHERE aggregate_name = 'account' AND aggregate_id = 'a') = 1000
+       ORDER BY event.key
+       RETURNING position`
     )
   }
 }).pipe(

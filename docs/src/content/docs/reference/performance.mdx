@@ -7,43 +7,47 @@ import { LinkCard } from "@astrojs/starlight/components"
 import { sourceUrl } from "../../../source.ts"
 
 These numbers come from one laptop, an Apple M4 Pro on Node 26, with PostgreSQL 18 in
-Docker on the same machine. Treat them as orders of magnitude, not as a promise.
+Docker on the same machine, measured on 10 November 2026. Treat them as orders of
+magnitude, not as a promise.
 
 | | SQLite file | PostgreSQL |
 | --- | ---: | ---: |
-| Command on an aggregate, p50 | 0.10 ms | 0.83 ms |
-| Command on an aggregate with 100,000 events, p50 | 0.14 ms | about 1 ms |
-| First load of an aggregate with 100,000 events, after a restart | 284 ms | 552 ms |
-| Append, 1 event per transaction | 13,567 events/s | 803 events/s |
-| Append, 100 events per transaction | 117,367 events/s | 31,423 events/s |
-| Ingest a million events with a view model following | 35 s | 118 s |
-| Replay a million events | 4.6 s | 12.4 s |
-| Space for a million events | 196 MB | 312 MB |
+| Command on an aggregate, p50 | 0.10 ms | 0.73 ms |
+| Command on an aggregate with 100,000 events, p50 | 0.17 ms | about 1 ms |
+| First load of an aggregate with 100,000 events, after a restart | 368 ms | 312 ms |
+| Append, 1 event per transaction | 13,461 events/s | 1,650 events/s |
+| Append, 100 events per transaction | 252,768 events/s | 71,316 events/s |
+| Ingest a million events with a view model following¹ | 35 s | 118 s |
+| Replay a million events¹ | 4.6 s | 12.4 s |
+| Space for a million events¹ | 196 MB | 312 MB |
+
+¹ From the stress tests of 31 October 2026, before group commit.
 
 - **A command costs the same whatever the store holds.** The service remembers recent
   state and reads only new events.
 - **Commits are what cost.** Batching events into fewer commands helps more than anything
   else. Concurrent writers help too, because appends that wait for each other share a
   commit, as the next table shows.
-- **The first use of a long aggregate after a restart replays it**, at about 3 µs per
+- **The first use of a long aggregate after a restart replays it**, at about 4 µs per
   event on SQLite, unless [snapshots](../../guides/commands/#snapshots) are on.
 
 ## Concurrent writers
 
-Commands on new streams, run by a number of workers at once, measured with
-`BENCH_SCALE=0.2`:
+Commands on new streams, run by a number of workers at once:
 
 | Workers | SQLite file | PostgreSQL |
 | ---: | ---: | ---: |
-| 1 | 8,967 commands/s | 1,261 commands/s |
-| 16 | 13,463 commands/s | 6,910 commands/s |
-| 256 | 15,784 commands/s | 14,460 commands/s |
+| 1 | 9,319 commands/s | 1,307 commands/s |
+| 16 | 14,592 commands/s | 4,000 to 8,000 commands/s |
+| 256 | 15,895 commands/s | 16,958 commands/s |
 
 Before [group commit](../../guides/storage/#postgresql), every worker count gave about the
-same: 7,400 to 8,300 commands/s on a SQLite file and 1,000 to 1,400 on PostgreSQL, where an append
-took five round trips and held the counter until it committed. Now an append is one
-statement, and the appends that queue behind it are written together in the next one. A database in memory has no commit to
-share, so its throughput stays where it was.
+same: 8,400 to 8,900 commands/s on a SQLite file and 700 to 1,100 on PostgreSQL, where an
+append took five round trips and held the counter until it committed. Now an append is one
+statement, and the appends that queue behind it are written together in the next one. With
+16 workers on PostgreSQL the result varies from run to run, depending on how many appends
+happen to queue. A database in memory has no commit to share, so its throughput stays where
+it was.
 
 ## Personal data
 
@@ -53,22 +57,22 @@ without it, on WebCrypto, the default, and on `node:crypto`:
 
 | | SQLite file | PostgreSQL |
 | --- | ---: | ---: |
-| Command on a new stream, without personal fields | 8,975 commands/s | 929 commands/s |
-| Command on a new stream, one personal field, WebCrypto | 5,143 commands/s | 850 commands/s |
-| Command on a new stream, one personal field, `node:crypto` | 7,410 commands/s | 910 commands/s |
-| First load of 1,000 events, without | 4.0 ms | 3.3 ms |
-| First load of 1,000 events, one personal field each, WebCrypto | 15.1 ms | 14.6 ms |
-| First load of 1,000 events, one personal field each, `node:crypto` | 10.1 ms | 10.7 ms |
+| Command on a new stream, without personal fields | 9,091 commands/s | 1,348 commands/s |
+| Command on a new stream, one personal field, WebCrypto | 6,764 commands/s | 1,230 commands/s |
+| Command on a new stream, one personal field, `node:crypto` | 7,681 commands/s | 1,168 commands/s |
+| First load of 1,000 events, without | 4.0 ms | 3.5 ms |
+| First load of 1,000 events, one personal field each, WebCrypto | 12.4 ms | 12.7 ms |
+| First load of 1,000 events, one personal field each, `node:crypto` | 9.8 ms | 10.0 ms |
 
 - **A new subject costs the most.** Each of these commands is the first for its subject,
   so it also creates, wraps and stores a key. Later commands reuse the key from memory.
-- **Reading costs about 11 µs per encrypted field on WebCrypto, and 6 µs on
-  `node:crypto`.** WebCrypto is asynchronous, so events of a stream decrypt several at a
-  time while they are replayed, still folded in order. `node:crypto` is synchronous and
-  needs no such detour. A command on a state already in memory decrypts nothing, and one
-  it has just written isn't decrypted again.
+- **Reading costs about 8 µs per encrypted field on WebCrypto, and 6 µs on
+  `node:crypto`.** WebCrypto is asynchronous, so the events of a page decrypt together
+  while a stream is replayed, still folded in order. `node:crypto` is synchronous and needs
+  no such detour. A command on a state already in memory decrypts nothing, and one it has
+  just written isn't decrypted again.
 - **Snapshots matter more.** With personal fields the first load of a long stream is two
-  to four times slower, so [snapshots](../../guides/commands/#snapshots) pay off sooner.
+  to three times slower, so [snapshots](../../guides/commands/#snapshots) pay off sooner.
 
 ## Nothing lost
 

@@ -224,7 +224,10 @@ Running on it found three things, all handled or described here.
 
 ## Performance
 
-Current numbers for what the fixes above don't already show.
+Measured again on 10 November 2026, after group commit, cross-process notifications and
+the other changes since. The laptop ran about 20% slower that day than on 31 October:
+the commit before those changes, measured beside the new code, gave the same numbers
+within noise, so compare rows within these tables rather than with the summary above.
 
 ### Writes
 
@@ -233,13 +236,14 @@ path: validate, load, decide, encode, append.
 
 | | memory | sqlite-memory | sqlite-file | postgres |
 | --- | ---: | ---: | ---: | ---: |
-| Append, 1 event per transaction | 260,336 | 32,140 | 13,567 | 803 |
-| Append, 100 events per transaction | 1,070,055 | 134,874 | 117,367 | 31,423 |
-| Command on a new stream | 60,165 | 16,044 | 8,858 | 793 |
+| Append, 1 event per transaction | 266,505 | 34,342 | 13,461 | 1,650 |
+| Append, 100 events per transaction | 1,110,570 | 358,366 | 252,768 | 71,316 |
+| Command on a new stream | 46,347 | 16,917 | 9,396 | 1,097 |
 
 Batching matters more than anything else on disk: 100 events per transaction is almost
-9 times faster than one on a file and 39 times on Postgres, because the commit is what
-costs.
+19 times faster than one on a file and 43 times on Postgres, because the commit is what
+costs. Appends now check the version and insert in one statement, which is why the
+batched rows doubled.
 
 ### Store size
 
@@ -247,30 +251,30 @@ p50 of a command on a new stream, with unrelated events already stored.
 
 | Events stored | memory | sqlite-memory | sqlite-file | postgres |
 | ---: | ---: | ---: | ---: | ---: |
-| 1,000 | 0.01 ms | 0.06 ms | 0.11 ms | 1.58 ms |
-| 10,000 | 0.01 ms | 0.06 ms | 0.12 ms | 0.84 ms |
-| 100,000 | 0.02 ms | 0.06 ms | 0.11 ms | 1.24 ms |
-| 1,000,000 | 0.02 ms | 0.06 ms | 0.11 ms | 1.22 ms |
+| 1,000 | 0.02 ms | 0.06 ms | 0.12 ms | 0.75 ms |
+| 10,000 | 0.02 ms | 0.06 ms | 0.12 ms | 0.67 ms |
+| 100,000 | 0.02 ms | 0.06 ms | 0.11 ms | 0.77 ms |
+| 1,000,000 | 0.02 ms | 0.06 ms | 0.11 ms | 0.76 ms |
 
 ### Reads and view models
 
 | Events per second | memory | sqlite-memory | sqlite-file | postgres |
 | --- | ---: | ---: | ---: | ---: |
-| Read the whole log, 1,000,000 events | 112,858,856 | 492,788 | 476,466 | 237,233 |
-| View model catching up, 204,000 events | 553,386 | 221,822 | 220,351 | 22,079 |
-| Replay, 204,000 events | 583,620 | 239,374 | 235,703 | 83,789 |
+| Read the whole log, 1,000,000 events | 113,342,279 | 364,785 | 353,050 | 428,931 |
+| View model catching up, 204,000 events | 479,333 | 183,602 | 185,079 | 22,595 |
+| Replay, 204,000 events | 482,035 | 186,520 | 185,843 | 160,712 |
 
 The memory read does no decoding, so it says little about the framework. The Postgres
 catch-up ran on a table just filled, and the replay after `ANALYZE`. A view model that
 wants 2% of the events skipped the rest through the type index, finishing a 204,000-event
-log in 18 ms on a file and 46 ms on Postgres.
+log in about 20 ms on a file and 27 ms on Postgres.
 
 | Read your own write, command + `caughtUp` | p50 | p99 | per second |
 | --- | ---: | ---: | ---: |
-| memory | 0.04 ms | 0.13 ms | 20,971 |
-| sqlite-memory | 0.11 ms | 0.27 ms | 8,162 |
-| sqlite-file | 0.16 ms | 0.50 ms | 5,731 |
-| postgres | 1.49 ms | 2.31 ms | 646 |
+| memory | 0.04 ms | 0.07 ms | 21,068 |
+| sqlite-memory | 0.11 ms | 0.21 ms | 8,591 |
+| sqlite-file | 0.17 ms | 0.83 ms | 5,191 |
+| postgres | 0.84 ms | 1.21 ms | 1,153 |
 
 ### Concurrency
 
@@ -278,13 +282,15 @@ Commands per second on separate streams, by number of concurrent workers:
 
 | Workers | memory | sqlite-memory | sqlite-file | postgres |
 | ---: | ---: | ---: | ---: | ---: |
-| 1 | 61,257 | 16,396 | 8,582 | 726 |
-| 16 | 67,608 | 16,796 | 8,892 | 1,122 |
-| 256 | 63,272 | 16,479 | 8,381 | 1,109 |
+| 1 | 50,046 | 16,396 | 9,319 | 1,307 |
+| 16 | 54,954 | 16,054 | 14,592 | 4,108 |
+| 256 | 54,834 | 16,659 | 15,895 | 16,958 |
 
-Concurrency adds almost no throughput. Everything runs on one thread and `node:sqlite` is
-synchronous, so workers take turns there, and on Postgres they queue for the counter.
-It adds no meaningful overhead either.
+On disk, concurrency now pays: appends that queue behind one being written go together
+into the next transaction, so a SQLite file nearly doubles and Postgres grows thirteen
+times with 256 workers. With 16 workers on Postgres the result varies from run to run,
+from about 4,000 to 8,000, depending on how many appends happen to queue. In memory
+there is no commit to share, and everything still runs on one thread.
 
 ## Stress
 
@@ -336,26 +342,27 @@ replay in 4.6 s and 12.4 s.
 
 ## Remaining limits
 
-- **Restarts cost a replay.** The state cache is only in memory, so the first use of a
-  stream after a restart replays it, at about 2.8 µs per event. Persistent snapshots
-  would remove that, and would need a schema for the state.
+- **Restarts cost a replay without snapshots.** The state cache is only in memory, so
+  the first use of a stream after a restart replays it, at about 3 to 4 µs per event,
+  unless snapshots are on.
 - **Rival processes on one stream are slow.** With a rival on every command, conflicts
   hit one command in three and throughput falls to about 250 per second, or 116 on
   Postgres, because each conflict backs off for at least 8 ms. Few commands gave up in
   these runs, but 5 retries can still run out.
-- **A view model only wakes on appends from its own process.** Several processes can
-  write to one database, and the crash scenario shows that is safe, but a view model
-  won't see another process's events until an append of its own wakes it. Postgres could
-  fix this with `LISTEN`/`NOTIFY`, which isn't implemented.
-- **Writes to one Postgres store are serial**, at about 1,100 commits per second here.
+- **Notifications across processes need Postgres or polling.** Postgres stores notify
+  every process on each append. Processes sharing a SQLite file only see each other's
+  events with `pollInterval`.
+- **One commit at a time per Postgres store.** Appends wait for the counter, which group
+  commit offsets by writing the appends that queue up together: about 1,300 commits per
+  second for a single writer here, and 17,000 commands per second with 256 workers.
 - **The stream lock isn't first come, first served.** A fiber that arrives just as the
   lock is released can take it ahead of those waiting, which `Semaphore` allows. Under
   a synchronous burst of 128 workers p50 was 0.1 ms and p99 was 144 ms.
 - **Slow handlers fall behind without slowing writers.** There is no backpressure: a
   handler taking 1 ms per event left the view model 19,057 events behind before it
   drained. Memory stays low, but `caughtUp` waits.
-- **One thread.** Throughput doesn't grow with concurrency, and synchronous SQLite calls
-  block the event loop while they run.
+- **One thread.** In memory, throughput doesn't grow with concurrency, and synchronous
+  SQLite calls block the event loop while they run.
 
 ## Not covered
 
