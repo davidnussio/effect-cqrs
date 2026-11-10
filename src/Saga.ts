@@ -125,6 +125,8 @@ export const make = <
   readonly name: Name
   readonly aggregates: Aggregates
   readonly handlers: H
+  /** What to do with an event that keeps failing, see `ViewModel.park`. */
+  readonly onFailure?: ViewModel.FailurePolicy | undefined
 }) => ViewModel.make({ ...options, dispose: Effect.void })
 
 /**

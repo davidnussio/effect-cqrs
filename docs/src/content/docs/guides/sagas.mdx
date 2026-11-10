@@ -102,8 +102,9 @@ is part of the normal flow, like the refund above, reads more plainly as a `catc
 
 <Aside type="caution">
   An activity that is cut off before its outcome is saved runs again, and a trigger can
-  start a saga again after a crash. Make the commands a saga runs idempotent, for instance
-  by recording the transfer ids an account has already credited.
+  start a saga again after a crash. Make the commands a saga runs idempotent: give each a
+  [`commandId`](../commands/#retries-and-command-ids) built from the execution id and the
+  step, or record the transfer ids an account has already credited.
 </Aside>
 
 A second start joins the first run only while the engine remembers it. Pair the engine with

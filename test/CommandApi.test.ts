@@ -82,12 +82,17 @@ const webHandler = (store: Layer.Layer<EventStore.EventStore, EventStore.EventSt
     { disableLogger: true }
   )
 
-const post = (handler: (request: Request) => Promise<Response>, path: string, body?: string) =>
+const post = (
+  handler: (request: Request) => Promise<Response>,
+  path: string,
+  body?: string,
+  headers?: Record<string, string>
+) =>
   Effect.promise(async () => {
     const response = await handler(
       new Request(`http://localhost${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...headers },
         ...(body === undefined ? {} : { body })
       })
     )
@@ -118,6 +123,31 @@ describe("CommandApi over HTTP", () => {
       const again = yield* post(handler, "/todo/a/createTodo", JSON.stringify({ title: "Again" }))
       assert.strictEqual(again.status, 422)
       assert.strictEqual(JSON.parse(again.body)._tag, "TodoAlreadyCreated")
+    }))
+
+  it.effect("passes Idempotency-Key and If-Match to the command", () =>
+    Effect.gen(function*() {
+      const { dispose, handler } = webHandler(EventStore.layerMemory)
+      yield* Effect.addFinalizer(() => Effect.promise(dispose))
+      const create = JSON.stringify({ title: "Buy Milk" })
+
+      const first = yield* post(handler, "/todo/a/createTodo", create, { "idempotency-key": "c-1" })
+      const retried = yield* post(handler, "/todo/a/createTodo", create, { "idempotency-key": "c-1" })
+      assert.strictEqual(first.status, 200)
+      assert.strictEqual(retried.status, 200)
+      assert.strictEqual(JSON.parse(retried.body).position, JSON.parse(first.body).position)
+
+      const stale = yield* post(handler, "/todo/a/completeTodo", undefined, { "if-match": "\"0\"" })
+      assert.strictEqual(stale.status, 409)
+      assert.strictEqual(JSON.parse(stale.body)._tag, "WrongExpectedVersion")
+
+      const current = yield* post(handler, "/todo/a/completeTodo", undefined, { "if-match": "1" })
+      assert.strictEqual(current.status, 200)
+
+      const malformed = yield* post(handler, "/todo/a/deleteTodo", JSON.stringify({ message: "x" }), {
+        "if-match": "abc"
+      })
+      assert.strictEqual(malformed.status, 400)
     }))
 
   it.live("answers a lost race with 409", () =>

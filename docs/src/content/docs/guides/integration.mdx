@@ -51,12 +51,19 @@ The group is an ordinary `HttpApiGroup`: `name` and `prefix` change its identifi
 path, and middleware, OpenAPI annotations and `HttpApiClient` work as with any other.
 A request without a body runs a command whose payload has no required fields.
 
+Two headers reach the command. `Idempotency-Key` becomes its
+[`commandId`](../commands/#retries-and-command-ids), so a client that retries after a
+timeout gets the first result back instead of a second change. `If-Match` is the version
+the client based the command on, as `3` or `"3"`, and a stream that has moved on answers
+`409`.
+
 Failures map to status codes:
 
 | Status | When | Body |
 | --- | --- | --- |
 | `400` | The body isn't JSON or doesn't match the payload schema | `InvalidCommand` |
 | `409` | Another writer kept winning the race for the stream | `ConcurrencyConflict` |
+| `409` | The stream is no longer at the version in `If-Match` | `WrongExpectedVersion` |
 | `422` | The handler failed with an error in `errors` | The error, with its fields |
 | `422` | The handler failed with another error | `CommandRejected`, with the error's tag and message |
 | `500` | The store, decoding or the keys failed | Empty |

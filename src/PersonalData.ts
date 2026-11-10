@@ -52,6 +52,7 @@ import { Base64 } from "effect/encoding"
 import { SqlClient } from "effect/sql"
 import { CurrentCausation } from "./Causation.ts"
 import { EventStore, type EventStoreError } from "./EventStore.ts"
+import * as Ids from "./Ids.ts"
 import { CurrentMetadata } from "./Metadata.ts"
 
 export class SubjectForgotten extends Schema.TaggedError<SubjectForgotten>()("SubjectForgotten", {
@@ -570,7 +571,7 @@ export const make = Effect.fnUntraced(function*(backend: Backend, options?: Keys
     // another has created the key.
     const already = yield* cachedKnown(subject)
     if (Option.isSome(already)) return already.value
-    const keyId = crypto.randomUUID()
+    const keyId = yield* Ids.next
     const bytes = randomBytes(keyLength)
     const created = yield* Effect.gen(function*() {
       const wrapped = yield* masterKey.wrap(bytes, { subject, keyId })
@@ -812,7 +813,7 @@ export const forget = Effect.fn("PersonalData.forget")(
     yield* keys.forget(subject)
     const causation = yield* CurrentCausation
     const metadata = yield* CurrentMetadata
-    const id = causation?.correlationId ?? crypto.randomUUID()
+    const id = causation?.correlationId ?? (yield* Ids.next)
     yield* store.append({
       aggregateName: streamName,
       aggregateId: subject,

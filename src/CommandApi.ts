@@ -34,9 +34,23 @@ import {
   OpenApi
 } from "effect/http-api"
 import type * as Aggregate from "./Aggregate.ts"
-import { type AggregateService, type CommandResult, InvalidCommand } from "./AggregateService.ts"
+import { type AggregateService, type CommandResult, InvalidCommand, WrongExpectedVersion } from "./AggregateService.ts"
 import { ConcurrencyConflict } from "./EventStore.ts"
 import { Metadata } from "./Metadata.ts"
+
+/**
+ * `Idempotency-Key` becomes the command id, so a client retrying after a timeout
+ * gets the first result back, and `If-Match` the version the client based its
+ * command on, as `3` or `"3"`. A malformed `If-Match` fails as an invalid command.
+ */
+const retryHeaders = (headers: Readonly<Record<string, string | undefined>>) => {
+  const commandId = headers["idempotency-key"]
+  const ifMatch = headers["if-match"]?.replace(/^W\//, "").replaceAll("\"", "").trim()
+  return {
+    ...(commandId === undefined || commandId === "" ? {} : { commandId }),
+    ...(ifMatch === undefined || ifMatch === "" ? {} : { expectedVersion: Number(ifMatch) })
+  }
+}
 
 /**
  * A command whose payload doesn't match its schema, or a body that isn't JSON.
@@ -46,6 +60,9 @@ export const InvalidCommandError = InvalidCommand.pipe(HttpApiSchema.status(400)
 
 /** The stream moved on while the command was decided, and retries ran out. Answered with `409`. */
 export const ConcurrencyConflictError = ConcurrencyConflict.pipe(HttpApiSchema.status(409))
+
+/** The stream is no longer at the version `If-Match` named. Answered with `409`. */
+export const WrongExpectedVersionError = WrongExpectedVersion.pipe(HttpApiSchema.status(409))
 
 /**
  * A command handler failed with an error that `errors` doesn't declare. Its tag
@@ -103,7 +120,13 @@ type CommandEndpoint<A extends Aggregate.Any, K extends string, Errors extends S
   Schema.toCodecJson<A["commands"][K]["payload"]>,
   never,
   Schema.toCodecJson<ReturnType<typeof commandResult<A["events"]>>>,
-  Schema.toCodecJson<typeof InvalidCommandError | typeof ConcurrencyConflictError | typeof CommandRejected | Errors>
+  Schema.toCodecJson<
+    | typeof InvalidCommandError
+    | typeof ConcurrencyConflictError
+    | typeof WrongExpectedVersionError
+    | typeof CommandRejected
+    | Errors
+  >
 >
 
 type HistoryEndpoint<A extends Aggregate.Any> = HttpApiEndpoint.HttpApiEndpoint<
@@ -174,6 +197,7 @@ export const group = <
   const errors = [
     InvalidCommandError,
     ConcurrencyConflictError,
+    WrongExpectedVersionError,
     CommandRejected,
     ...(options?.errors ?? []).map((error) => hasStatus(error) ? error : error.pipe(HttpApiSchema.status(422)))
   ]
@@ -272,7 +296,9 @@ export const layer = <
         const expected = Array.from(endpoint.error, (schema) => Schema.is(Schema.toType(schema)))
         const reject = (error: unknown) => {
           const tag = tagOf(error)
-          if (tag === "InvalidCommand" || tag === "ConcurrencyConflict") return Effect.fail(error)
+          if (tag === "InvalidCommand" || tag === "ConcurrencyConflict" || tag === "WrongExpectedVersion") {
+            return Effect.fail(error)
+          }
           if (serverErrors.includes(tag)) return Effect.die(error)
           if (expected.some((is) => is(error))) return Effect.fail(error)
           return Effect.fail(
@@ -282,7 +308,12 @@ export const layer = <
         result = result.handleRaw(identifier, ({ params, request }: any) =>
           readBody(request, aggregateName, identifier).pipe(
             Effect.flatMap((payload): Effect.Effect<CommandResult<unknown>, unknown> =>
-              aggregates.dispatch({ aggregateId: params.aggregateId, type: identifier, payload })
+              aggregates.dispatch({
+                aggregateId: params.aggregateId,
+                type: identifier,
+                payload,
+                ...retryHeaders(request.headers)
+              })
             ),
             Effect.catch(reject)
           ))
