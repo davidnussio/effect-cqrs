@@ -86,10 +86,37 @@ Projects events into read models. <a href={sourceUrl("src/ViewModel.ts")}>Source
 
 | Export | What it is |
 | --- | --- |
-| `make({ name, aggregates, handlers, dispose, onForget })` | Defines a view model. `onForget` erases what it stored about a [forgotten subject](../../guides/personal-data/#view-models) |
+| `make({ name, aggregates, handlers, dispose, onForget, onFailure, transaction })` | Defines a view model. `onForget` erases what it stored about a [forgotten subject](../../guides/personal-data/#view-models) |
 | `layer([...])` | Runs view models in the background and provides `ViewModels` |
-| `ViewModels` | The service: `replay`, `caughtUp`, `status` |
+| `ViewModels` | The service: `replay`, `caughtUp`, `status`, `parked`, `retryParked` |
+| `stall`, `park({ attempts })`, `FailurePolicy` | What a view model does about an event that keeps failing, see [parking events](../../guides/view-models/#parking-events) |
+| `sqlTransaction`, `Transaction` | Runs each batch with its checkpoint in one transaction, see [checkpoints in a transaction](../../guides/view-models/#checkpoints-in-a-transaction) |
+| `Status`, `RetryParkedOptions`, `RetryParkedResult` | What `status` and `retryParked` give and take |
+| `MetricNames` | The names of the metrics view models record |
 | `ViewModelError`, `UnknownViewModel` | A handler's failure, and a replay of an unknown name |
+
+## ParkedEvents
+
+Events view models gave up on, see [parking events](../../guides/view-models/#parking-events). <a href={sourceUrl("src/ParkedEvents.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `ParkedEvents` | The service: `park`, `list`, `remove` |
+| `layerMemory`, `makeMemory` | Parked events in memory |
+| `layerSql({ table, migrate })`, `makeSql` | Parked events in a table, on SQLite or PostgreSQL |
+| `ddl({ table })` | The statements that create the table |
+| `ParkedEvent` | What it records, and its schema |
+
+## Leases
+
+Which process runs each view model, see [several processes](../../guides/view-models/#several-processes). <a href={sourceUrl("src/Leases.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `Leases` | The service: `acquire(name)` |
+| `layerMemory`, `memory` | Leases that are always held, the default |
+| `layerPostgres({ interval, prefix })`, `makePostgres` | Leases on PostgreSQL advisory locks |
+| `Lease` | A lease: `held` and `changes` |
 
 ## EventStore
 
