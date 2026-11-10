@@ -58,6 +58,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "example": "node examples/todo/main.ts",
+    "example:server": "node examples/server/main.ts",
     "tutorial": "node examples/tutorial/main.ts",
     "ui": "vite examples/bank-ui",
     "ui:shop": "vite examples/shop-ui",

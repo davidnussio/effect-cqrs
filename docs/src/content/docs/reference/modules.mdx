@@ -91,6 +91,42 @@ Projects events into read models. <a href={sourceUrl("src/ViewModel.ts")}>Source
 | `ViewModels` | The service: `replay`, `caughtUp`, `status` |
 | `ViewModelError`, `UnknownViewModel` | A handler's failure, and a replay of an unknown name |
 
+## CommandApi
+
+Serves an aggregate over HTTP, see [integration](../../guides/integration/#http). <a href={sourceUrl("src/CommandApi.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `group(aggregate, { name, prefix, state, errors })` | An `HttpApiGroup` with a `POST` endpoint per command, `history` and, with `state`, `readModel` |
+| `layer(api, name, service)` | Implements the group with an aggregate service, or an effect that makes one |
+| `InvalidCommandError`, `ConcurrencyConflictError`, `CommandRejected` | The errors it answers with `400`, `409` and `422` |
+| `commandResult(events)`, `historyEntry(events)` | Schemas of what a command and `history` answer |
+
+## EventCatalog
+
+JSON Schema of events and commands, and a compatibility guard, see [integration](../../guides/integration/#event-catalog). <a href={sourceUrl("src/EventCatalog.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `events(aggregate)`, `commands(aggregate)` | JSON Schema of every event version and command payload |
+| `document(aggregates, { title, version, description })` | An AsyncAPI 3.0 document of them |
+| `captureSamples(aggregates, { perVersion })` | Stored payloads of each event type and version, without personal data |
+| `saveSamples(path, samples)`, `readSamples(path)` | Keep samples in a JSON file |
+| `checkCompatibility(aggregate, samples)` | Fails with `IncompatibleSamples` when a sample no longer decodes |
+| `Sample`, `IncompatibleSamples` | A sample, and the guard's error |
+
+## Outbox
+
+Publishes events to other systems, see [integration](../../guides/integration/#outbox). <a href={sourceUrl("src/Outbox.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `make({ name, aggregates, messages, publish, batchSize, linger })` | Defines an outbox |
+| `layer([...])` | Runs outboxes in the background and provides `Outboxes` |
+| `Outboxes` | The service: `published` and `status` |
+| `Message`, `Mapped`, `Mappings` | What is published, and what a mapping returns |
+| `OutboxError` | A failure to publish |
+
 ## EventStore
 
 The append-only log. <a href={sourceUrl("src/EventStore.ts")}>Source</a>
