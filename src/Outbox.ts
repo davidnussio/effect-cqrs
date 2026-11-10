@@ -25,6 +25,8 @@
  * it is full or `linger` after its first message, and the checkpoint never moves
  * past a message that wasn't published. A failed batch is retried, in order,
  * until it succeeds.
+ *
+ * @module
  */
 import {
   Context,

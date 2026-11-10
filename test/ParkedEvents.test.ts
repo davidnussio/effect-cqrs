@@ -221,9 +221,13 @@ describe("ParkedEvents", () => {
       )
       assert.strictEqual(missing._tag, "EventStoreError")
 
-      yield* Effect.forEach(ParkedEvents.ddl({ table: "parked" }), (statement) => sql.unsafe(statement), {
-        discard: true
-      })
+      yield* Effect.forEach(
+        ParkedEvents.migrations({ table: "parked" }).flatMap(({ statements }) => statements),
+        (statement) => sql.unsafe(statement),
+        {
+          discard: true
+        }
+      )
       const store = yield* ParkedEvents.makeSql({ table: "parked", migrate: false })
       assert.deepStrictEqual(yield* store.list(), [])
     }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))))

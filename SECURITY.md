@@ -36,9 +36,9 @@ explains how to use it. This section says what it protects and what it doesn't.
 - Each subject has its own random AES-256 data key, created the first time one of its
   fields is written.
 - Every personal field is encrypted with AES-GCM under a fresh 96-bit random IV. The
-  additional authenticated data binds the ciphertext to the aggregate name, event type,
-  field path, subject and key id, so it can't be moved to another field or subject
-  without failing to decrypt.
+  additional authenticated data binds the ciphertext to the aggregate name, aggregate id,
+  event type, field path, subject and key id, so it can't be moved to another stream,
+  field or subject without failing to decrypt.
 - The key store only holds data keys wrapped by a `MasterKey`, with AES-GCM as well when
   the master key is held by the process. A `MasterKey` can also be backed by a KMS, which
   keeps the master key out of the process.

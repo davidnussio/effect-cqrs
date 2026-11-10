@@ -4,7 +4,7 @@
 
 `PersonalDataNode.layerCipher`, from `effect-cqrs/PersonalDataNode`, encrypts personal fields with `node:crypto` instead of WebCrypto. It is synchronous, which roughly halves what reading a personal field costs, and writes the same format, so data written with either cipher reads with the other. The cipher is a `PersonalData.Cipher`, WebCrypto unless another is provided, and keys are now `CipherKey`s rather than WebCrypto `CryptoKey`s.
 
-`PersonalData.layerSql` and `makeSqlBackend` take `migrate: false` to leave the key table to your own migrations, with its statements from `PersonalData.migrations("sqlite" | "pg", { table })`.
+`PersonalData.layerSql` and `makeSqlBackend` take `migrate: false` to leave the key table to your own migrations, with its migrations from `PersonalData.migrations({ table })`, in the same shape as the stores' `migrations`.
 
 The key cache now uses Effect's `Cache`. Concurrent requests for a subject that isn't cached share one read of the key store and one call to the master key, and writers racing for a new subject create a single key, where each used to wrap a key of its own, a paid call with a KMS.
 

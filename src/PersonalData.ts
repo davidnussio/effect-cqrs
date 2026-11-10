@@ -31,6 +31,8 @@
  *
  * Encryption is AES-256-GCM through a {@link Cipher}: WebCrypto by default, which
  * also runs in browsers, or `node:crypto` from `PersonalDataNode`.
+ *
+ * @module
  */
 import {
   Cache,
@@ -51,7 +53,7 @@ import {
 import { Base64 } from "effect/encoding"
 import { SqlClient } from "effect/sql"
 import { CurrentCausation } from "./Causation.ts"
-import { EventStore, type EventStoreError } from "./EventStore.ts"
+import { EventStore, type EventStoreError, type Migration } from "./EventStore.ts"
 import * as Ids from "./Ids.ts"
 import { CurrentMetadata } from "./Metadata.ts"
 
@@ -684,20 +686,17 @@ const defaultTable = "cqrs_personal_data_keys"
 const quoteIdentifier = (name: string) => `"${name.replaceAll(`"`, `""`)}"`
 
 /**
- * The statements that create the key table of {@link makeSqlBackend}, for
- * teams that run migrations themselves. They are safe to run again.
+ * The migrations of the key table of {@link makeSqlBackend}, the same on SQLite
+ * and PostgreSQL, for teams that run migrations themselves. They are safe to run
+ * again.
  */
-export const migrations = (
-  dialect: "sqlite" | "pg",
-  options?: { readonly table?: string | undefined }
-): ReadonlyArray<string> => {
+export const migrations = (options?: { readonly table?: string | undefined }): ReadonlyArray<Migration> => {
   const table = quoteIdentifier(options?.table ?? defaultTable)
-  // The same on both, as long as the columns stay this simple.
-  switch (dialect) {
-    case "sqlite":
-    case "pg":
-      return [
-        `CREATE TABLE IF NOT EXISTS ${table} (
+  return [{
+    id: 1,
+    name: "create_personal_data_keys",
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ${table} (
   subject TEXT PRIMARY KEY,
   key_id TEXT,
   master_key_id TEXT,
@@ -705,8 +704,8 @@ export const migrations = (
   forgotten_at BIGINT,
   CHECK ((key_id IS NOT NULL AND master_key_id IS NOT NULL AND wrapped IS NOT NULL) <> (forgotten_at IS NOT NULL))
 )`
-      ]
-  }
+    ]
+  }]
 }
 
 const KeyRow = Schema.Struct({
@@ -733,9 +732,8 @@ export const makeSqlBackend = Effect.fnUntraced(function*(options?: SqlOptions) 
   const sqlError = (operation: string, subject: string) => failure(operation, subject, "The key store failed")
 
   if (options?.migrate !== false) {
-    const dialect = sql.onDialectOrElse({ pg: () => "pg" as const, orElse: () => "sqlite" as const })
-    for (const statement of migrations(dialect, { table: tableName })) {
-      yield* sql.unsafe(statement).pipe(Effect.mapError(sqlError("migrate", "")))
+    for (const { statements } of migrations({ table: tableName })) {
+      for (const statement of statements) yield* sql.unsafe(statement).pipe(Effect.mapError(sqlError("migrate", "")))
     }
   }
 
@@ -855,6 +853,7 @@ const decodeWire = Schema.decodeUnknownOption(Wire)
 /** Where a payload is stored, which the ciphertext of its fields is bound to. */
 export interface Location {
   readonly aggregateName: string
+  readonly aggregateId: string
   readonly type: string
 }
 
@@ -880,8 +879,10 @@ const writableParent = (root: JsonRecord, path: ReadonlyArray<string>): JsonReco
   return current
 }
 
+// Binds a field to its stream, its event type and its place in the event, so a copy
+// moved anywhere else doesn't decrypt.
 const fieldLabel = (location: Location, path: ReadonlyArray<string>, subject: string, keyId: string) =>
-  label("field", wireVersion, location.aggregateName, location.type, path, subject, keyId)
+  label("field", wireVersion, location.aggregateName, location.aggregateId, location.type, path, subject, keyId)
 
 /**
  * Encrypts the personal fields of an encoded payload. Fields without a value are
@@ -891,11 +892,18 @@ const fieldLabel = (location: Location, path: ReadonlyArray<string>, subject: st
 export const seal = (
   keys: Keys["Service"],
   fields: ReadonlyArray<Field>,
-  location: Location & { readonly aggregateId: string | undefined },
+  location: Omit<Location, "aggregateId"> & { readonly aggregateId: string | undefined },
   payload: Schema.Json
 ): Effect.Effect<WithSubjects, SubjectForgotten | PersonalDataError> =>
   Effect.gen(function*() {
     if (!isRecord(payload)) return { payload, subjects: [] }
+    const { aggregateId } = location
+    if (aggregateId === undefined || aggregateId.length === 0) {
+      return yield* Effect.die(
+        new Error(`${location.aggregateName}.${location.type}: personal fields need the aggregate id of their stream`)
+      )
+    }
+    const bound: Location = { ...location, aggregateId }
     const copy = { ...payload }
     const subjects = new Set<string>()
     for (const field of fields) {
@@ -903,12 +911,12 @@ export const seal = (
       const name = field.path[field.path.length - 1]!
       const value = parent?.[name]
       if (parent === undefined || value === undefined || value === null) continue
-      const subject = field.subject === undefined ? location.aggregateId : parent[field.subject]
+      const subject = field.subject === undefined ? aggregateId : parent[field.subject]
       if (!Predicate.isString(subject) || subject.length === 0) {
         return yield* Effect.die(
           new Error(
             `${location.aggregateName}.${location.type}: ${describe(field.path)} has no subject: ` +
-              (field.subject === undefined ? "the aggregate id is missing" : `"${field.subject}" is not a string`)
+              `"${field.subject}" is not a string`
           )
         )
       }
@@ -917,7 +925,7 @@ export const seal = (
         keys.cipher,
         key,
         textEncoder.encode(JSON.stringify(value)),
-        fieldLabel(location, field.path, subject, keyId),
+        fieldLabel(bound, field.path, subject, keyId),
         "seal",
         subject
       )
@@ -937,13 +945,13 @@ export interface WithSubjects {
  * Decrypts the personal fields of a stored payload, putting the replacement in
  * place of the fields of forgotten subjects. A field stored in plaintext, from
  * before it was marked personal, is left as it is. A field has to be encrypted
- * for the subject it would be sealed for now: `aggregateId`, when given, or the
- * sibling it names.
+ * for the subject it would be sealed for now: the aggregate id, or the sibling it
+ * names.
  */
 export const open = (
   keys: Keys["Service"],
   fields: ReadonlyArray<Field>,
-  location: Location & { readonly aggregateId?: string | undefined },
+  location: Location,
   payload: Schema.Json
 ): Effect.Effect<WithSubjects, PersonalDataError> =>
   Effect.gen(function*() {
@@ -966,10 +974,9 @@ export const open = (
         })
       }
       const { data, keyId, subject } = wire.value
-      // The additional data binds a field to its place in an event, but not to
-      // a stream: this keeps a copy from reading as someone else's data.
+      // The additional data would refuse it too, but this says why.
       const expected = field.subject === undefined ? location.aggregateId : parent[field.subject]
-      if (expected !== undefined && expected !== subject) {
+      if (expected !== subject) {
         return yield* new PersonalDataError({
           operation: "open",
           subject,

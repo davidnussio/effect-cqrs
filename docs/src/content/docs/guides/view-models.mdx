@@ -140,8 +140,8 @@ those where a gap is better than a stop.
 
 Parked events are kept in memory unless `ParkedEvents` is provided. `ParkedEvents.layerSql()`
 keeps them in a table, `cqrs_parked_events` by default, on SQLite or PostgreSQL. It creates
-the table on startup unless `migrate` is `false`, and `ParkedEvents.ddl()` gives its
-statements to run another way. `viewModels.status` counts each view model's parked events,
+the table on startup unless `migrate` is `false`, and `ParkedEvents.migrations()` gives its
+migrations to run another way. `viewModels.status` counts each view model's parked events,
 and the counter `ViewModel.MetricNames.parkedEvents`, with a `view_model` attribute, counts
 every event parked.
 

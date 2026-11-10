@@ -15,6 +15,8 @@
  * The statement also sends a notification with the new head on a channel named
  * after the events table. A store on a `PgClient` listens to it, so view models in
  * every process wake up on every append.
+ *
+ * @module
  */
 import {
   Clock,
@@ -53,13 +55,8 @@ export interface Options {
   readonly pollInterval?: Duration.Input | undefined
 }
 
-/** A schema change. Migrations are listed in the order to apply them. */
-export interface Migration {
-  readonly id: number
-  readonly name: string
-  /** SQL statements with the table names filled in. Each one can run again without harm. */
-  readonly statements: ReadonlyArray<string>
-}
+/** A schema change, see `EventStore.Migration`. Migrations are listed in the order to apply them. */
+export type Migration = EventStore.Migration
 
 const quote = (name: string) => `"${name.replaceAll(`"`, `""`)}"`
 

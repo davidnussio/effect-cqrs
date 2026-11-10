@@ -4,6 +4,8 @@
  *
  * An aggregate is plain data. {@link AggregateService} gives it a store to run
  * against, and `Fixture` runs it in tests.
+ *
+ * @module
  */
 import { type DateTime, type Effect, Predicate, Schema } from "effect"
 import * as EventVersions from "./EventVersions.ts"

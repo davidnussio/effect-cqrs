@@ -12,6 +12,8 @@
  * JSON Schema describes the JSON form of a schema, as `Schema.toCodecJson` encodes
  * it. Personal fields, see `PersonalData`, are described in plaintext: in the store
  * they are encrypted.
+ *
+ * @module
  */
 import { DateTime, Effect, FileSystem, JsonSchema, Predicate, Result, Schema, type SchemaAST, Stream } from "effect"
 import type * as Aggregate from "./Aggregate.ts"

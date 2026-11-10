@@ -6,6 +6,8 @@
  * ```ts
  * program.pipe(Effect.provideService(Ids.IdGenerator, Ids.sequential("id")))
  * ```
+ *
+ * @module
  */
 import { Context, Effect } from "effect"
 

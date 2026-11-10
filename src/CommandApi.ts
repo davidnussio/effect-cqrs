@@ -22,6 +22,8 @@
  *
  * The group is an ordinary `HttpApiGroup`, so it takes middleware, a different
  * prefix and OpenAPI annotations like any other, and `HttpApiClient` calls it.
+ *
+ * @module
  */
 import { Effect, type Layer, Predicate, Schema, SchemaAST, type Scope } from "effect"
 import type { HttpServerRequest } from "effect/http"

@@ -5,6 +5,8 @@
  * two coordinates: a `version` that orders it inside its stream and a `position`
  * that orders it across the whole store. Writers use the version for optimistic
  * concurrency, readers use the position as a durable cursor.
+ *
+ * @module
  */
 import {
   Cause,
@@ -21,6 +23,17 @@ import {
   Stream,
   SubscriptionRef
 } from "effect"
+
+/**
+ * A schema change for a SQL table, with the table names filled in. Each module that
+ * keeps a table exports its migrations in the order to apply them, for teams that
+ * run them with their own tooling and turn off `migrate`.
+ */
+export interface Migration {
+  readonly id: number
+  readonly name: string
+  readonly statements: ReadonlyArray<string>
+}
 
 export class EventStoreError extends Schema.TaggedError<EventStoreError>()("EventStoreError", {
   operation: Schema.String,

@@ -7,6 +7,8 @@
  * An append is one statement, which checks the stream's version and inserts the
  * events only if it still matches. Appends that arrive while others are being
  * written go together into one transaction, so they share the cost of a commit.
+ *
+ * @module
  */
 import { Clock, DateTime, type Duration, Effect, Exit, Layer, Schema } from "effect"
 import { SqlClient, type SqlError } from "effect/sql"
@@ -29,16 +31,8 @@ export interface Options {
   readonly pollInterval?: Duration.Input | undefined
 }
 
-/** A schema change. Migrations are listed in the order to apply them. */
-export interface Migration {
-  readonly id: number
-  readonly name: string
-  /**
-   * SQL statements with the table names filled in. SQLite can't add a column only
-   * if it is missing, so the `ALTER TABLE` statements must run exactly once.
-   */
-  readonly statements: ReadonlyArray<string>
-}
+/** A schema change, see `EventStore.Migration`. Migrations are listed in the order to apply them. */
+export type Migration = EventStore.Migration
 
 const quote = (name: string) => `"${name.replaceAll(`"`, `""`)}"`
 
@@ -123,7 +117,8 @@ const steps: ReadonlyArray<{
 /**
  * The schema of the events and checkpoints tables, for tools that apply migrations
  * themselves. `layer` and `layerCheckpoints` run the same statements on startup
- * unless `migrate` is `false`.
+ * unless `migrate` is `false`. SQLite can't add a column only if it is missing, so
+ * the `ALTER TABLE` statements must run exactly once.
  */
 export const migrations = (options?: Options): ReadonlyArray<Migration> => {
   const tables = tableNames(options)

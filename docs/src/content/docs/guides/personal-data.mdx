@@ -79,10 +79,11 @@ its own permissions and backups. A copy of the keys outlives a forget for as lon
 copy is kept, so let backups of the key table expire.
 
 `layerSql` creates its table on startup. To create it with your own migrations instead, turn
-that off and take the statements from `PersonalData.migrations`, for `"sqlite"` or `"pg"`:
+that off and take the migrations from `PersonalData.migrations`, the same on SQLite and
+PostgreSQL and in the shape of the stores' `migrations`:
 
 ```ts
-const statements = PersonalData.migrations("pg", { table: "personal_data_keys" })
+const migrations = PersonalData.migrations({ table: "personal_data_keys" })
 const Keys = PersonalData.layerSql({ table: "personal_data_keys", migrate: false })
 ```
 

@@ -12,6 +12,8 @@
  * ```
  *
  * It lives in a module of its own so that code for browsers never imports `node:crypto`.
+ *
+ * @module
  */
 import { Cause, Effect, Layer } from "effect"
 import { createCipheriv, createDecipheriv, createSecretKey, type KeyObject, randomFillSync } from "node:crypto"

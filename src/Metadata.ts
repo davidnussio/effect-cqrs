@@ -15,6 +15,8 @@
  * A view model or saga reacting to an event doesn't inherit that event's
  * metadata: its commands record their own. The `causationId` leads back to the
  * event, and from there to its metadata.
+ *
+ * @module
  */
 import { Context, Effect, Function, Layer, Schema } from "effect"
 

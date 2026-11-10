@@ -18,6 +18,8 @@
  * commands a saga runs should be idempotent: give each a `commandId` made from the
  * execution id and the step, so that running it again returns the first result,
  * or record the id of the transfer it belongs to.
+ *
+ * @module
  */
 import { Effect, Layer, Schedule, Schema } from "effect"
 import { Activity, Workflow } from "effect/workflow"

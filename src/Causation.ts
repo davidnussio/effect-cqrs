@@ -10,6 +10,8 @@
  * outside any causation starts a new correlation with a fresh id. Inside a view
  * model handler the event being handled is the cause, so a chain of reactions
  * can be drawn as a tree without passing ids around by hand.
+ *
+ * @module
  */
 import { Context, Effect, Function } from "effect"
 import { eventId, type StoredEvent } from "./EventStore.ts"

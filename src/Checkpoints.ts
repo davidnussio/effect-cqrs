@@ -4,6 +4,8 @@
  * A checkpoint has to live as long as the view model it tracks: pair an
  * in-memory view model with {@link layerMemory} so it rebuilds from the event
  * store on restart, and a durable one with a durable checkpoint store.
+ *
+ * @module
  */
 import { Context, Effect, Layer } from "effect"
 import type { EventStoreError } from "./EventStore.ts"

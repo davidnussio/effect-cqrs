@@ -1,6 +1,8 @@
 /**
  * Runs an aggregate against the {@link EventStore}: the `command`, `read-model`
  * and `history` actions of moleculer-cqrs, as a typed service.
+ *
+ * @module
  */
 import {
   Array as Arr,
@@ -723,14 +725,25 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
           (acc, stored) => Effect.map(decodeEvent(stored), (decoded) => step(acc, decoded, stored))
         )
       )
-      // Decrypting waits on WebCrypto, so several events decrypt at once, still folded in order.
-      : stream.pipe(
-        Stream.mapEffect(
-          (stored) => Effect.map(decodeEvent(stored), (decoded) => [decoded, stored] as const),
-          { concurrency: decryptConcurrency }
-        ),
-        Stream.runFold(() => initial, (acc, [decoded, stored]) => step(acc, decoded, stored))
-      )
+      // Decrypting waits on WebCrypto, so the events of a page decrypt at once, still
+      // folded in order. Working page by page costs nothing for a stream with nothing
+      // new, which is most loads, and no fibers for a page of one event.
+      : Effect.suspend(() => {
+        let acc = initial
+        return stream.pipe(
+          Stream.runForEachArray((page) =>
+            Effect.map(
+              page.length === 1
+                ? Effect.map(decodeEvent(page[0]!), (decoded) => [decoded])
+                : Effect.forEach(page, decodeEvent, { concurrency: decryptConcurrency }),
+              (decoded) => {
+                for (let index = 0; index < page.length; index++) acc = step(acc, decoded[index]!, page[index]!)
+              }
+            )
+          ),
+          Effect.map(() => acc)
+        )
+      })
 
   const streamOf = (
     aggregateId: string,

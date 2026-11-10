@@ -23,6 +23,8 @@
  * The first schema is version 1, the shape events had before the history was
  * declared, and every `next` adds a version. The last one must be the event's
  * current schema, which is what new events are written with.
+ *
+ * @module
  */
 import { Schema, SchemaGetter } from "effect"
 

@@ -17,6 +17,8 @@
  * The history can include events stored in older versions of their schema, made
  * with `Aggregate.historical`, which then go through the same upcasting as events
  * read from a real store.
+ *
+ * @module
  */
 import { Arbitrary, Effect, Effectable, Option, Schema } from "effect"
 import * as Aggregate from "./Aggregate.ts"

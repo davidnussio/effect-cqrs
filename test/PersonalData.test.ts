@@ -211,6 +211,30 @@ describe("PersonalData", () => {
       assert.include(error.message, "encrypted for another subject")
     }).pipe(Effect.provide(Storage)))
 
+  it.effect("fails to read a field copied into another stream for the same subject", () =>
+    Effect.gen(function*() {
+      const store = yield* EventStore.EventStore
+      const accounts = yield* AggregateService.make(Account)
+      // Both transfers name Bob, so the beneficiary is encrypted with Bob's key in each.
+      yield* openAlice(accounts)
+      yield* accounts.commands.open("mallory", { owner: "Mallory" })
+      yield* accounts.commands.transfer("mallory", { to: "bob", beneficiary: "Someone Else", amount: 1 })
+      const events = Array.from(yield* Stream.runCollect(store.read()))
+      const sent = events.filter(({ type }) => type === "TransferSent")
+      const [fromAlice, fromMallory] = [
+        sent.find((e) => e.aggregateId === "alice")!,
+        sent.find((e) => e.aggregateId === "mallory")!
+      ]
+      const decode = AggregateService.makeEventDecoder(Account, yield* PersonalData.Keys)
+      const copied = {
+        ...fromMallory,
+        payload: { ...(fromMallory.payload as object), beneficiary: (fromAlice.payload as any).beneficiary }
+      }
+      const error = yield* Effect.flip(decode(copied))
+      assert.strictEqual(error._tag, "PersonalDataError")
+      assert.include(error.message, "doesn't decrypt")
+    }).pipe(Effect.provide(Storage)))
+
   it.effect("fails rather than redacts when the key store has lost a key", () =>
     Effect.gen(function*() {
       const accounts = yield* AggregateService.make(Account)
@@ -644,12 +668,12 @@ describe("PersonalData on SQLite", () => {
       const backend = yield* PersonalData.makeSqlBackend({ table, migrate: false })
       assert.isTrue(Exit.isFailure(yield* Effect.exit(backend.get("alice"))))
 
-      for (const statement of PersonalData.migrations("sqlite", { table })) yield* sql.unsafe(statement)
+      for (const { statements } of PersonalData.migrations({ table })) for (const s of statements) yield* sql.unsafe(s)
       const keys = yield* PersonalData.make(backend)
       const { keyId } = yield* keys.encryptionKey("alice")
       assert.isTrue(Option.isSome(yield* keys.decryptionKey("alice", keyId)))
       // Running them again changes nothing.
-      for (const statement of PersonalData.migrations("sqlite", { table })) yield* sql.unsafe(statement)
+      for (const { statements } of PersonalData.migrations({ table })) for (const s of statements) yield* sql.unsafe(s)
       assert.isTrue(Option.isSome(yield* backend.get("alice")))
     }).pipe(
       Effect.provide(Layer.merge(PersonalData.layerMasterKeyEphemeral, SqliteClient.layer({ filename: ":memory:" })))

@@ -5,6 +5,8 @@
  * models and race on their checkpoints. `ViewModel.layer` takes a lease on each
  * view model before running it: the process that holds the lease runs it, and the
  * others wait as standbys until it is given up.
+ *
+ * @module
  */
 import { Context, Duration, Effect, Exit, Layer, Schedule, Scope, Semaphore, Stream, SubscriptionRef } from "effect"
 import { SqlClient, type SqlConnection } from "effect/sql"

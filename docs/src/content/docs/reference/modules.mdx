@@ -50,7 +50,7 @@ Crypto-shredding of personal fields, see [personal data](../../guides/personal-d
 | `Keys`, `layerMemory`, `layerSql`, `make(backend)` | The keys of subjects, and where they are stored |
 | `MasterKey`, `layerMasterKey`, `layerMasterKeyConfig`, `layerMasterKeyEphemeral` | What wraps the keys of subjects |
 | `Backend`, `makeMemoryBackend`, `makeSqlBackend` | Key stores, to implement another |
-| `migrations(dialect, { table })` | The statements that create the key table, for `layerSql({ migrate: false })` |
+| `migrations({ table })` | The migrations of the key table, for `layerSql({ migrate: false })` |
 | `Cipher`, `webCrypto` | AES-256-GCM, on WebCrypto unless another cipher is provided |
 | `SubjectForgotten`, `PersonalDataError` | Its errors |
 | `streamName`, `subjectForgottenType` | Where forgetting is recorded |
@@ -129,7 +129,7 @@ Events view models gave up on, see [parking events](../../guides/view-models/#pa
 | `ParkedEvents` | The service: `park`, `list`, `remove` |
 | `layerMemory`, `makeMemory` | Parked events in memory |
 | `layerSql({ table, migrate })`, `makeSql` | Parked events in a table, on SQLite or PostgreSQL |
-| `ddl({ table })` | The statements that create the table |
+| `migrations({ table })` | The migrations of the table, for `layerSql({ migrate: false })` |
 | `ParkedEvent` | What it records, and its schema |
 
 ## Leases

@@ -4,10 +4,12 @@
  * A view model with the `ViewModel.park` failure policy records an event here
  * once it has failed often enough, skips it from then on, and handles it again
  * when `ViewModels.retryParked` asks it to.
+ *
+ * @module
  */
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlClient } from "effect/sql"
-import { EventStoreError } from "./EventStore.ts"
+import { EventStoreError, type Migration } from "./EventStore.ts"
 
 export const ParkedEvent = Schema.Struct({
   viewModel: Schema.String,
@@ -60,7 +62,7 @@ export interface SqlOptions {
   readonly table?: string | undefined
   /**
    * Creates the table on startup when it is missing. Defaults to `true`. Turn it
-   * off where the schema is managed elsewhere, from {@link ddl}.
+   * off where the schema is managed elsewhere, from {@link migrations}.
    */
   readonly migrate?: boolean | undefined
 }
@@ -68,11 +70,13 @@ export interface SqlOptions {
 const quote = (identifier: string) => `"${identifier.replaceAll("\"", "\"\"")}"`
 
 /**
- * The statements that create the table, for SQLite and PostgreSQL alike. They
- * are what {@link layerSql} runs unless `migrate` is `false`.
+ * The migrations of the table, the same on SQLite and PostgreSQL. They are what
+ * {@link layerSql} runs unless `migrate` is `false`, and are safe to run again.
  */
-export const ddl = (options?: Pick<SqlOptions, "table">): ReadonlyArray<string> => [
-  `CREATE TABLE IF NOT EXISTS ${quote(options?.table ?? "cqrs_parked_events")} (
+export const migrations = (options?: Pick<SqlOptions, "table">): ReadonlyArray<Migration> => [{
+  id: 1,
+  name: "create_parked_events",
+  statements: [`CREATE TABLE IF NOT EXISTS ${quote(options?.table ?? "cqrs_parked_events")} (
   view_model TEXT NOT NULL,
   position BIGINT NOT NULL,
   event_id TEXT NOT NULL,
@@ -80,8 +84,8 @@ export const ddl = (options?: Pick<SqlOptions, "table">): ReadonlyArray<string> 
   attempts INTEGER NOT NULL,
   parked_at BIGINT NOT NULL,
   PRIMARY KEY (view_model, position)
-)`
-]
+)`]
+}]
 
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(ParkedEvent))
 const encode = Schema.encodeSync(ParkedEvent)
@@ -94,7 +98,11 @@ export const makeSql = Effect.fnUntraced(function*(options?: SqlOptions) {
   const table = sql(options?.table ?? "cqrs_parked_events")
 
   if (options?.migrate ?? true) {
-    yield* Effect.forEach(ddl(options), (statement) => sql.unsafe(statement), { discard: true }).pipe(
+    yield* Effect.forEach(
+      migrations(options).flatMap(({ statements }) => statements),
+      (statement) => sql.unsafe(statement),
+      { discard: true }
+    ).pipe(
       Effect.mapError(storeError("initialize"))
     )
   }
