@@ -40,8 +40,8 @@ adding or upgrading a dependency.
 | Command | What it does |
 | --- | --- |
 | `pnpm check` | Type check `src`, the tests, the examples and the benchmarks |
-| `pnpm lint` | ESLint, with dprint as the formatter |
-| `pnpm lint:fix` | Fix what ESLint can, formatting included |
+| `pnpm lint` | oxlint, then dprint to check formatting |
+| `pnpm lint:fix` | Fix what oxlint can, and format with dprint |
 | `pnpm test` | Run the test suite |
 | `pnpm build` | Compile `src` into `dist`, which is what npm gets |
 | `pnpm example` | Run the todo example |
@@ -67,12 +67,14 @@ docker compose down
 
 ## Lint and format
 
-ESLint runs `@effect/eslint-plugin`'s dprint rule, configured like Effect's own code: two
-spaces, double quotes, no semicolons, no trailing commas and lines up to 120 characters.
-`pnpm lint:fix` formats the code for you. The configuration is in `eslint.config.mjs`.
+The setup follows Effect's own repository. oxlint checks the code with the rules in
+`.oxlintrc.json`, Effect's native rules without its private plugin, and dprint formats it
+as `dprint.json` says: two spaces, double quotes, no semicolons, no trailing commas and
+lines up to 120 characters. `pnpm lint:fix` formats the code for you. dprint downloads its
+TypeScript plugin the first time it runs.
 
-TypeScript 7 has no JavaScript API yet, so ESLint's TypeScript parser and TypeDoc run on
-TypeScript 6, which `.pnpmfile.cjs` gives them as their own dependency.
+TypeScript 7 has no JavaScript API yet, so TypeDoc runs on TypeScript 6, which
+`.pnpmfile.cjs` gives it as its own dependency.
 
 ## Documentation
 

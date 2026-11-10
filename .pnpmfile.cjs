@@ -1,10 +1,8 @@
-// TypeScript 7 has no JavaScript compiler API yet, and ESLint's TypeScript parser and
-// TypeDoc need one. They get TypeScript 6 as their own dependency instead of the
-// project's TypeScript 7 as a peer.
+// TypeScript 7 has no JavaScript compiler API yet, and TypeDoc needs one. It gets
+// TypeScript 6 as its own dependency instead of the project's TypeScript 7 as a peer.
 const typescript6 = "6.0.3"
 
-const needsTypescript6 = (name) =>
-  name === "typedoc" || name === "typescript-eslint" || name.startsWith("@typescript-eslint/")
+const needsTypescript6 = (name) => name === "typedoc"
 
 module.exports = {
   hooks: {

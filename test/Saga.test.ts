@@ -82,7 +82,7 @@ describe("Saga", () => {
       assert.strictEqual((yield* bank.readModel("bob")).balance, 30)
 
       // The credit records the transfer as its cause, in the correlation it started.
-      const [received] = (yield* bank.history("bob")).filter((entry) => entry.type === "TransferReceived")
+      const received = (yield* bank.history("bob")).find((entry) => entry.type === "TransferReceived")
       assert.strictEqual(received!.correlationId, sent.correlationId)
       assert.strictEqual(received!.causationId, EventStore.eventId({ ...sent, aggregateName: Account.name }))
     }).pipe(Effect.provide(Background)))
@@ -98,7 +98,7 @@ describe("Saga", () => {
       )
       yield* next("TransferReceived")
 
-      const [received] = (yield* bank.history("bob")).filter((entry) => entry.type === "TransferReceived")
+      const received = (yield* bank.history("bob")).find((entry) => entry.type === "TransferReceived")
       assert.strictEqual(received!.correlationId, "saga-1")
     }).pipe(Effect.provide(Base)))
 
