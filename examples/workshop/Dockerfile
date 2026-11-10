@@ -11,8 +11,10 @@ FROM node:24-slim AS build
 WORKDIR /app
 RUN corepack enable
 
-COPY package.json pnpm-lock.yaml .pnpmfile.cjs ./
-RUN pnpm install --frozen-lockfile --ignore-scripts
+# Only the examples package and the library it depends on: the docs are left out.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
+COPY examples/package.json ./examples/
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter effect-cqrs-examples...
 
 COPY src ./src
 COPY examples/workshop/api.ts ./examples/workshop/api.ts

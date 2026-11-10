@@ -4,18 +4,14 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+packageExtensionsChecksum: sha256-A30NP5+Q6gUtgJdUZEsXATWV7oh4PK5iN5LulESUQOE=
+
 pnpmfileChecksum: sha256-dSLqARG9Qrdy7T22W31icJ9WTda8Cd9fJ8KT6GDe9Fc=
 
 importers:
 
   .:
     devDependencies:
-      '@astrojs/markdown-satteri':
-        specifier: ^0.4.6
-        version: 0.4.6
-      '@astrojs/starlight':
-        specifier: ^0.42.7
-        version: 0.42.7(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))(typescript@7.0.2)
       '@changesets/cli':
         specifier: ^2.31.1
         version: 2.31.1(@types/node@24.19.2)
@@ -28,6 +24,82 @@ importers:
       '@effect/sql-sqlite-node':
         specifier: ^4.0.6
         version: 4.0.6(effect@4.0.6)
+      '@effect/vitest':
+        specifier: ^4.0.6
+        version: 4.0.6(effect@4.0.6)(vitest@5.0.5(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1)))
+      '@types/node':
+        specifier: ^24.0.0
+        version: 24.19.2
+      dprint:
+        specifier: ^0.64.3
+        version: 0.64.3
+      effect:
+        specifier: ^4.0.6
+        version: 4.0.6
+      oxlint:
+        specifier: ^1.90.0
+        version: 1.90.0
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^5.0.5
+        version: 5.0.5(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))
+
+  docs:
+    devDependencies:
+      '@astrojs/markdown-satteri':
+        specifier: ^0.4.6
+        version: 0.4.6
+      '@astrojs/starlight':
+        specifier: ^0.42.7
+        version: 0.42.7(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))(typescript@7.0.2)
+      astro:
+        specifier: ^7.4.4
+        version: 7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1)
+      effect-cqrs-examples:
+        specifier: workspace:*
+        version: link:../examples
+      starlight-llms-txt:
+        specifier: ^0.12.0
+        version: 0.12.0(@astrojs/markdown-satteri@0.4.6)(@astrojs/starlight@0.42.7(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))(typescript@7.0.2))(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))
+      starlight-typedoc:
+        specifier: ^0.23.2
+        version: 0.23.2(@astrojs/starlight@0.42.7(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))(typescript@7.0.2))(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))(typedoc-plugin-markdown@4.14.1(typedoc@0.28.20))(typedoc@0.28.20)
+      typedoc:
+        specifier: ^0.28.20
+        version: 0.28.20
+      typedoc-plugin-markdown:
+        specifier: ^4.14.1
+        version: 4.14.1(typedoc@0.28.20)
+
+  examples:
+    dependencies:
+      '@effect/platform-node':
+        specifier: ^4.0.6
+        version: 4.0.6(effect@4.0.6)(redis@6.3.0)
+      '@effect/sql-pg':
+        specifier: ^4.0.6
+        version: 4.0.6(effect@4.0.6)
+      '@effect/sql-sqlite-node':
+        specifier: ^4.0.6
+        version: 4.0.6(effect@4.0.6)
+      effect:
+        specifier: ^4.0.6
+        version: 4.0.6
+      effect-cqrs:
+        specifier: workspace:*
+        version: link:..
+      motion:
+        specifier: ^14.7.1
+        version: 14.7.1(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      react:
+        specifier: ^19.3.1
+        version: 19.3.1
+      react-dom:
+        specifier: ^19.3.1
+        version: 19.3.1(react@19.3.1)
+    devDependencies:
       '@effect/vitest':
         specifier: ^4.0.6
         version: 4.0.6(effect@4.0.6)(vitest@5.0.5(@types/node@24.19.2)(vite@8.3.5(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1)))
@@ -46,42 +118,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^6.1.2
         version: 6.1.2(vite@8.3.5(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))
-      astro:
-        specifier: ^7.4.4
-        version: 7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1)
-      dprint:
-        specifier: ^0.64.3
-        version: 0.64.3
-      effect:
-        specifier: ^4.0.6
-        version: 4.0.6
-      motion:
-        specifier: ^14.7.1
-        version: 14.7.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
-      oxlint:
-        specifier: ^1.90.0
-        version: 1.90.0
-      react:
-        specifier: ^19.3.1
-        version: 19.3.1
-      react-dom:
-        specifier: ^19.3.1
-        version: 19.3.1(react@19.3.1)
-      starlight-llms-txt:
-        specifier: ^0.12.0
-        version: 0.12.0(@astrojs/markdown-satteri@0.4.6)(@astrojs/starlight@0.42.7(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))(typescript@7.0.2))(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))
-      starlight-typedoc:
-        specifier: ^0.23.2
-        version: 0.23.2(@astrojs/starlight@0.42.7(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))(typescript@7.0.2))(astro@7.4.4(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))(typedoc-plugin-markdown@4.14.1(typedoc@0.28.20))(typedoc@0.28.20)
       tailwindcss:
         specifier: ^4.3.3
         version: 4.3.3
-      typedoc:
-        specifier: ^0.28.20
-        version: 0.28.20
-      typedoc-plugin-markdown:
-        specifier: ^4.14.1
-        version: 4.14.1(typedoc@0.28.20)
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -1725,9 +1764,12 @@ packages:
   framer-motion@14.7.1:
     resolution: {integrity: sha512-mFDYZxyfeZnpvL/zEQEqLZNYVA/ya47c9TBfZb/PEoNBBVSVvCLkMrCv9U38cuw72W161XENZwZB0+4nIBLEJg==}
     peerDependencies:
+      '@types/react': '*'
       react: ^18.0.0 || ^19.0.0
       react-dom: ^18.0.0 || ^19.0.0
     peerDependenciesMeta:
+      '@types/react':
+        optional: true
       react:
         optional: true
       react-dom:
@@ -4449,12 +4491,13 @@ snapshots:
     dependencies:
       tiny-inflate: 1.0.3
 
-  framer-motion@14.7.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
+  framer-motion@14.7.1(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
       motion-dom: 14.7.1
       motion-utils: 14.7.0
       tslib: 2.8.1
     optionalDependencies:
+      '@types/react': 19.3.0
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
 
@@ -5214,13 +5257,15 @@ snapshots:
 
   motion-utils@14.7.0: {}
 
-  motion@14.7.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
+  motion@14.7.1(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
-      framer-motion: 14.7.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      framer-motion: 14.7.1(@types/react@19.3.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       tslib: 2.8.1
     optionalDependencies:
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
+    transitivePeerDependencies:
+      - '@types/react'
 
   mri@1.2.0: {}
 

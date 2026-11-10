@@ -4,8 +4,8 @@ import { EventStore, PersonalData } from "effect-cqrs"
 import { HttpClientRequest, HttpServer } from "effect/http"
 import { HttpApiMiddleware, HttpApiTest } from "effect/http-api"
 import { TestClock } from "effect/testing"
-import { Api, Authorization } from "../examples/workshop/api.ts"
-import { forgotten } from "../examples/workshop/domain/account.ts"
+import { Api, Authorization } from "./api.ts"
+import { forgotten } from "./domain/account.ts"
 import {
   Bot,
   type BotSettings,
@@ -16,8 +16,8 @@ import {
   planRestocks,
   shopperId,
   Simulator
-} from "../examples/workshop/domain/automation.ts"
-import { Accounts, bankViews, ParticipantsStore, Transfers } from "../examples/workshop/domain/bank.ts"
+} from "./domain/automation.ts"
+import { Accounts, bankViews, ParticipantsStore, Transfers } from "./domain/bank.ts"
 import {
   Orders,
   OrderSagas,
@@ -27,12 +27,12 @@ import {
   reasons,
   seedCatalog,
   shopViews
-} from "../examples/workshop/domain/shop.ts"
-import { WorkshopLive } from "../examples/workshop/domain/workshop.ts"
-import * as Auth from "../examples/workshop/server/auth.ts"
-import { Handlers, StoreKind } from "../examples/workshop/server/http.ts"
-import * as Limits from "../examples/workshop/server/limits.ts"
-import { asyncApiDocument, Live, LiveLive, makeSpans, metrics, Spans } from "../examples/workshop/server/live.ts"
+} from "./domain/shop.ts"
+import { WorkshopLive } from "./domain/workshop.ts"
+import * as Auth from "./server/auth.ts"
+import { Handlers, StoreKind } from "./server/http.ts"
+import * as Limits from "./server/limits.ts"
+import { asyncApiDocument, Live, LiveLive, makeSpans, metrics, Spans } from "./server/live.ts"
 
 const adminCode = "presenter"
 

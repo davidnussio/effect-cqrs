@@ -1,0 +1,16 @@
+# The library is the root package. docs and examples are private packages with
+# their own dependencies, so the library's stay few.
+packages:
+  - docs
+  - examples
+
+# framer-motion's types import "react", but it doesn't depend on @types/react, so
+# they only found it while it sat in the root node_modules. Without it motion.div
+# is typed as any.
+packageExtensions:
+  framer-motion:
+    peerDependencies:
+      "@types/react": "*"
+    peerDependenciesMeta:
+      "@types/react":
+        optional: true

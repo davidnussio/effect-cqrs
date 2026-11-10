@@ -2,6 +2,8 @@
 *
 !package.json
 !pnpm-lock.yaml
+!pnpm-workspace.yaml
+!examples/package.json
 !.pnpmfile.cjs
 !src
 !examples/workshop/api.ts

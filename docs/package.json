@@ -1,0 +1,21 @@
+{
+  "name": "effect-cqrs-docs",
+  "private": true,
+  "description": "The documentation site of effect-cqrs, with the demos of effect-cqrs-examples",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "pnpm --filter effect-cqrs-examples run build:demos && astro build",
+    "preview": "astro preview"
+  },
+  "devDependencies": {
+    "@astrojs/markdown-satteri": "^0.4.6",
+    "@astrojs/starlight": "^0.42.7",
+    "astro": "^7.4.4",
+    "effect-cqrs-examples": "workspace:*",
+    "starlight-llms-txt": "^0.12.0",
+    "starlight-typedoc": "^0.23.2",
+    "typedoc": "^0.28.20",
+    "typedoc-plugin-markdown": "^4.14.1"
+  }
+}

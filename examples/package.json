@@ -1,0 +1,44 @@
+{
+  "name": "effect-cqrs-examples",
+  "private": true,
+  "description": "The examples and demos of effect-cqrs, which run the framework from its sources",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit && tsc --noEmit -p bank-ui && tsc --noEmit -p shop-ui && tsc --noEmit -p workshop/ui",
+    "test": "vitest run",
+    "todo": "node todo/main.ts",
+    "server": "node server/main.ts",
+    "tutorial": "node tutorial/main.ts",
+    "workshop": "node workshop/server/main.ts",
+    "workshop:load": "node workshop/load.ts",
+    "workshop:reset": "node workshop/reset.ts",
+    "ui:bank": "vite bank-ui",
+    "ui:shop": "vite shop-ui",
+    "ui:workshop": "vite workshop/ui --port 5190",
+    "build:demos": "vite build bank-ui --base \"${DOCS_BASE:-/effect-cqrs}/demo/\" --outDir ../../docs/public/demo --emptyOutDir && vite build shop-ui --base \"${DOCS_BASE:-/effect-cqrs}/shop-demo/\" --outDir ../../docs/public/shop-demo --emptyOutDir",
+    "build:workshop": "vite build workshop/ui",
+    "build:workshop-server": "vite build --config workshop/server/vite.config.ts"
+  },
+  "dependencies": {
+    "@effect/platform-node": "^4.0.6",
+    "@effect/sql-pg": "^4.0.6",
+    "@effect/sql-sqlite-node": "^4.0.6",
+    "effect": "^4.0.6",
+    "effect-cqrs": "workspace:*",
+    "motion": "^14.7.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^4.0.6",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5"
+  }
+}

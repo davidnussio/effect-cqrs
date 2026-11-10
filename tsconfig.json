@@ -18,6 +18,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "test", "examples", "bench", "vitest.config.ts"],
-  "exclude": ["examples/bank-ui", "examples/shop-ui", "examples/devtools", "examples/workshop/ui"]
+  "include": ["src", "test", "bench", "vitest.config.ts"]
 }

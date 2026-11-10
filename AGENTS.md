@@ -23,6 +23,18 @@ The qualification suite traces tests to the requirements in `test/qualification/
 
 Run `pnpm check` and `pnpm test` before finishing any change, with Postgres running if it touches a store.
 
+## Workspace
+
+The repository is a pnpm workspace with three packages:
+
+- the root, `effect-cqrs`: the library in `src`, with its tests in `test` and the benchmarks in `bench`. It is the only package that gets published.
+- `examples`, `effect-cqrs-examples`: every example and demo, which depends on the library with `workspace:*` and runs it from its sources. Its tests, such as `examples/workshop/workshop.test.ts`, run with `pnpm test` as a second Vitest project.
+- `docs`, `effect-cqrs-docs`: the documentation site, which builds the demos of `examples` into `docs/public`.
+
+A dependency goes in the package that imports it: the root keeps only what the library, its tests and its tooling need. The commands above work from the root, which hands the example and docs commands to their package with `pnpm --filter <package> run <script>`, so they run in that package's folder.
+
+The library's tests use their own fixtures in `test/fixtures` and never import from `examples`, so an example can change without breaking them.
+
 ## Releasing
 
 In this repository `effect-cqrs` resolves to the TypeScript sources. `publishConfig` points the published package at `dist` instead, so a change to `exports` belongs in both places. `node scripts/check-package.ts` packs the package, installs it in a new project and runs and type checks it there: run it after touching the build or `package.json`.

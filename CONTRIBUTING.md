@@ -55,6 +55,13 @@ adding or upgrading a dependency.
 Before you open a pull request, run `pnpm check`, `pnpm lint` and `pnpm test`, with
 PostgreSQL running if the change touches a store. CI runs the same.
 
+## Workspace
+
+The repository is a pnpm workspace. The root package is the library, the only one that gets
+published. `examples` and `docs` are private packages with their own dependencies, so a new
+dependency goes in the package that imports it. The commands above run from the root, and
+`pnpm test` runs the tests of the examples too.
+
 ## Tests with PostgreSQL
 
 The PostgreSQL tests are skipped unless `POSTGRES_URL` is set. `docker-compose.yml` starts a

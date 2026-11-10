@@ -17,6 +17,8 @@ services:
         - src/**
         - package.json
         - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - examples/package.json
     envVars:
       # The Supabase session pooler, ending in ?sslmode=require
       - key: POSTGRES_URL

@@ -1,8 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "pnpm install --frozen-lockfile",
+  "installCommand": "pnpm install --frozen-lockfile --filter effect-cqrs-examples...",
   "buildCommand": "pnpm build:workshop",
   "outputDirectory": "examples/workshop/ui/dist",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- examples/workshop examples/devtools examples/bank-ui/src/components/ui.tsx src package.json pnpm-lock.yaml vercel.json"
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- examples/workshop examples/devtools examples/bank-ui/src/components/ui.tsx examples/package.json src package.json pnpm-lock.yaml pnpm-workspace.yaml vercel.json"
 }

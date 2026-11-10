@@ -42,7 +42,7 @@ pnpm workshop
 pnpm ui:workshop
 ```
 
-The server listens on port 3000 and stores events in `workshop.sqlite`. To use the
+The server listens on port 3000 and stores events in `examples/workshop.sqlite`. To use the
 Postgres of `docker-compose.yml` instead:
 
 ```bash
