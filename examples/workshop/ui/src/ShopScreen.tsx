@@ -1,6 +1,7 @@
 import { DateTime } from "effect"
 import { useCallback, useEffect, useState } from "react"
 import type { Me, Session } from "../../api.ts"
+import type { BotStatus } from "../../domain/automation.ts"
 import { type CatalogProduct, maxQuantity, type ShopOrder } from "../../domain/shop.ts"
 import { call, type Outcome } from "./client.ts"
 import { Button, Card, credits } from "./ui.tsx"
@@ -9,19 +10,22 @@ interface Data {
   readonly me: Me
   readonly products: ReadonlyArray<CatalogProduct>
   readonly orders: ReadonlyArray<ShopOrder>
+  readonly bot: BotStatus
 }
 
 const load = async (position?: number): Promise<Outcome<Data>> => {
   const query = position === undefined ? {} : { position }
-  const [me, products, orders] = await Promise.all([
+  const [me, products, orders, bot] = await Promise.all([
     call((client) => client.me.get()),
     call((client) => client.shop.products({ query })),
-    call((client) => client.me.orders({ query }))
+    call((client) => client.me.orders({ query })),
+    call((client) => client.shop.bot())
   ])
   if (!me.ok) return me
   if (!products.ok) return products
   if (!orders.ok) return orders
-  return { ok: true, value: { me: me.value, products: products.value, orders: orders.value } }
+  if (!bot.ok) return bot
+  return { ok: true, value: { me: me.value, products: products.value, orders: orders.value, bot: bot.value } }
 }
 
 const statusLabels: Record<ShopOrder["status"], [string, string]> = {
@@ -153,6 +157,8 @@ export const ShopScreen = ({ session: current }: { readonly session: Session }) 
         </p>
       </Card>
 
+      {data !== undefined && <BotLine bot={data.bot} />}
+
       <Card title="I miei ordini">
         {data === undefined || data.orders.length === 0
           ? <p className="text-sm text-zinc-500">Nessun ordine, per ora.</p>
@@ -199,5 +205,37 @@ export const ShopScreen = ({ session: current }: { readonly session: Session }) 
           )}
       </Card>
     </div>
+  )
+}
+
+/** What the restock bot does, with a countdown to its next round. */
+const BotLine = ({ bot }: { readonly bot: BotStatus }) => {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  const { batch, enabled, intervalSeconds, threshold } = bot.settings
+  const next = bot.nextRunAt === undefined
+    ? undefined
+    : Math.max(0, Math.ceil((DateTime.toEpochMillis(bot.nextRunAt) - now) / 1000))
+  return (
+    <p className="flex flex-wrap items-center gap-x-2 rounded-xl border border-line px-4 py-3 text-sm text-zinc-400">
+      <span className="text-lg">🤖</span>
+      {enabled
+        ? (
+          <span>
+            Il bot rifornisce ogni {intervalSeconds} s i prodotti con {threshold} pezzi o meno, {batch}{" "}
+            alla volta più quelli in coda · prossimo giro{" "}
+            <span className="font-mono text-zinc-200">tra {next ?? "…"} s</span>
+          </span>
+        )
+        : <span>Il bot è in pausa: rifornisce solo il presentatore.</span>}
+      {bot.lastRestocks.length > 0 && (
+        <span className="text-zinc-500">
+          · ultimo giro: {bot.lastRestocks.map((restock) => `+${restock.quantity} ${restock.productId}`).join(", ")}
+        </span>
+      )}
+    </p>
   )
 }

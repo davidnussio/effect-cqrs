@@ -28,6 +28,7 @@ import { HttpRouter } from "effect/http"
 import { HttpApiBuilder, HttpApiSwagger } from "effect/http-api"
 import { createServer } from "node:http"
 import { Api } from "../api.ts"
+import { AutomationLive } from "../domain/automation.ts"
 import { BankLive } from "../domain/bank.ts"
 import { seedCatalog, ShopLive } from "../domain/shop.ts"
 import * as Auth from "./auth.ts"
@@ -81,6 +82,8 @@ const Keys = PersonalData.layerSql().pipe(Layer.provide(MasterKey))
 const Seed = Layer.effectDiscard(seedCatalog)
 
 const Workshop = Seed.pipe(
+  // The restock bot starts with the server; the simulated shoppers wait for the presenter.
+  Layer.provideMerge(AutomationLive),
   Layer.provideMerge(ShopLive),
   Layer.provideMerge(BankLive),
   Layer.provideMerge(Keys),

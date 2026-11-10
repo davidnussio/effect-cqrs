@@ -1,16 +1,19 @@
 import { useState } from "react"
 import { BankScreen } from "./BankScreen.tsx"
 import { useSession } from "./client.ts"
+import { ControlScreen } from "./ControlScreen.tsx"
 import { Join } from "./Join.tsx"
 import { ServerStatus } from "./ServerStatus.tsx"
 import { ShopScreen } from "./ShopScreen.tsx"
 
-const tabs = [["bank", "Banca"], ["shop", "Shop"]] as const
-type Tab = typeof tabs[number][0]
+const allTabs = [["bank", "Banca"], ["shop", "Shop"], ["control", "Regia"]] as const
+type Tab = typeof allTabs[number][0]
 
 export const App = () => {
   const current = useSession()
   const [tab, setTab] = useState<Tab>("bank")
+  // The controls are only for the presenter: the server refuses them to anyone else.
+  const tabs = allTabs.filter(([id]) => id !== "control" || current?.user.role === "admin")
   return (
     <main className="mx-auto flex min-h-full max-w-xl flex-col gap-5 px-4 py-8">
       <header className="flex items-end justify-between gap-4">
@@ -41,7 +44,9 @@ export const App = () => {
         ? <Join />
         : tab === "bank"
         ? <BankScreen key={current.user.id} session={current} />
-        : <ShopScreen key={current.user.id} session={current} />}
+        : tab === "shop"
+        ? <ShopScreen key={current.user.id} session={current} />
+        : <ControlScreen />}
       <ServerStatus />
     </main>
   )

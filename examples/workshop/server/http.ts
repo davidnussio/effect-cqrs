@@ -3,7 +3,7 @@
  * account: the account id is the user id in the token, never one from the request.
  */
 import { Clock, Config, Context, DateTime, Effect, Layer, Option, Predicate, Redacted } from "effect"
-import { EventStore, Ids, PersonalData, ViewModel } from "effect-cqrs"
+import { EventStore, Ids, Metadata, PersonalData, ViewModel } from "effect-cqrs"
 import { HttpApiBuilder } from "effect/http-api"
 import {
   Api,
@@ -17,6 +17,7 @@ import {
   type User,
   WrongAdminCode
 } from "../api.ts"
+import { Bot, Simulator } from "../domain/automation.ts"
 import { Accounts, ledgerOf, LedgerStore, listParticipants, ParticipantsStore } from "../domain/bank.ts"
 import {
   CatalogStore,
@@ -252,7 +253,9 @@ const ShopHandlers = HttpApiBuilder.group(Api, "shop", (handlers) =>
     const orders = yield* Orders
     const catchUp = yield* makeCatchUp
     const catalog = yield* CatalogStore
+    const bot = yield* Bot
     return handlers
+      .handle("bot", () => bot.status)
       .handle("products", ({ query }) =>
         Effect.andThen(catchUp(query.position), listCatalog.pipe(Effect.provideService(CatalogStore, catalog))))
       .handle("order", ({ payload: { backorder, productId, quantity } }) =>
@@ -275,16 +278,32 @@ const ShopHandlers = HttpApiBuilder.group(Api, "shop", (handlers) =>
         }))
   }))
 
+/** Lets only the presenter through. */
+const asAdmin = <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E | Forbidden, R | CurrentUser> =>
+  Effect.gen(function*() {
+    const user = yield* CurrentUser
+    if (user.role !== "admin") return yield* new Forbidden({ message: "Only the presenter can do this" })
+    return yield* self
+  })
+
 const AdminHandlers = HttpApiBuilder.group(Api, "admin", (handlers) =>
   Effect.gen(function*() {
     const products = yield* Products
-    return handlers.handle("restock", ({ params: { productId }, payload: { quantity } }) =>
-      Effect.gen(function*() {
-        const user = yield* CurrentUser
-        if (user.role !== "admin") return yield* new Forbidden({ message: "Only the presenter can restock" })
-        const result = yield* products.commands.restock(productId, { quantity }).pipe(expecting("ProductNotFound"))
-        return { position: result.position }
-      }))
+    const bot = yield* Bot
+    const simulator = yield* Simulator
+    return handlers
+      .handle("restock", ({ params: { productId }, payload: { quantity } }) =>
+        asAdmin(
+          products.commands.restock(productId, { quantity }).pipe(
+            Metadata.withMetadata({ actor: "presenter" }),
+            expecting("ProductNotFound"),
+            Effect.map((result) => ({ position: result.position }))
+          )
+        ))
+      .handle("configureBot", ({ payload }) => asAdmin(bot.configure(payload)))
+      .handle("runBot", () => asAdmin(bot.runNow))
+      .handle("simulator", () => asAdmin(simulator.status))
+      .handle("configureSimulator", ({ payload }) => asAdmin(simulator.configure(payload)))
   }))
 
 /** Every group of the API, needing the bank's and the shop's services and the authorization middleware. */

@@ -13,6 +13,7 @@ import {
   Nickname,
   SameAccountTransfer
 } from "./domain/account.ts"
+import { BotSettings, BotStatus, SimulatorSettings, SimulatorStatus } from "./domain/automation.ts"
 import { LedgerEntry, Participant } from "./domain/bank.ts"
 import { CatalogProduct, OrderNotCancellable, OrderQuantity, ProductNotFound, ShopOrder } from "./domain/shop.ts"
 
@@ -212,7 +213,19 @@ export const Shop = HttpApiGroup.make("shop")
       "Places an order. A saga then pays for it and takes the goods: follow it in /me/orders"
     )
   )
+  .add(
+    HttpApiEndpoint.get("bot", "/shop/bot", { success: BotStatus })
+      .annotate(OpenApi.Summary, "What the restock bot does and when it runs next")
+  )
   .middleware(Authorization)
+
+/** Fields to change, each optional. */
+const patchOf = <F extends Schema.Struct.Fields>(schema: Schema.Struct<F>) =>
+  Schema.Struct(
+    Object.fromEntries(Object.entries(schema.fields).map(([key, field]) => [key, Schema.optionalKey(field)])) as {
+      readonly [K in keyof F]: Schema.optionalKey<F[K]>
+    }
+  )
 
 // ---------------------------------------------------------------------------
 // The presenter's controls
@@ -227,6 +240,28 @@ export const Admin = HttpApiGroup.make("admin")
       error: [Forbidden, ProductNotFound]
     }).annotate(OpenApi.Summary, "Adds stock, which goes to the waiting orders first. Admin only")
   )
+  .add(
+    HttpApiEndpoint.patch("configureBot", "/admin/bot", {
+      payload: patchOf(BotSettings),
+      success: BotStatus,
+      error: Forbidden
+    }).annotate(OpenApi.Summary, "Pauses, resumes or tunes the restock bot. Admin only")
+  )
+  .add(
+    HttpApiEndpoint.post("runBot", "/admin/bot/run", { success: BotStatus, error: Forbidden })
+      .annotate(OpenApi.Summary, "Makes the bot look at the shelves now. Admin only")
+  )
+  .add(
+    HttpApiEndpoint.get("simulator", "/admin/simulator", { success: SimulatorStatus, error: Forbidden })
+      .annotate(OpenApi.Summary, "What the simulated shoppers do. Admin only")
+  )
+  .add(
+    HttpApiEndpoint.patch("configureSimulator", "/admin/simulator", {
+      payload: patchOf(SimulatorSettings),
+      success: SimulatorStatus,
+      error: Forbidden
+    }).annotate(OpenApi.Summary, "Starts, stops or tunes the simulated shoppers. Admin only")
+  )
   .middleware(Authorization)
 
 export class Api extends HttpApi.make("workshop-api")
@@ -236,5 +271,5 @@ export class Api extends HttpApi.make("workshop-api")
   .add(Bank)
   .add(Shop)
   .add(Admin)
-  .annotateMerge(OpenApi.annotations({ title: "effect-cqrs workshop", version: "0.3.0" }))
+  .annotateMerge(OpenApi.annotations({ title: "effect-cqrs workshop", version: "0.4.0" }))
 {}

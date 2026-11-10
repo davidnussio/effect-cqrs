@@ -1,12 +1,23 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Layer, Option, Redacted, Ref, References, Schedule } from "effect"
+import { Effect, Layer, Option, Random, Redacted, Ref, References, Schedule } from "effect"
 import { EventStore, PersonalData } from "effect-cqrs"
 import { HttpClientRequest, HttpServer } from "effect/http"
 import { HttpApiMiddleware, HttpApiTest } from "effect/http-api"
 import { TestClock } from "effect/testing"
 import { Api, Authorization } from "../examples/workshop/api.ts"
 import { forgotten } from "../examples/workshop/domain/account.ts"
-import { Accounts, BankLive } from "../examples/workshop/domain/bank.ts"
+import {
+  Bot,
+  type BotSettings,
+  defaultBotSettings,
+  defaultSimulatorSettings,
+  makeBot,
+  makeSimulator,
+  planRestocks,
+  shopperId,
+  Simulator
+} from "../examples/workshop/domain/automation.ts"
+import { Accounts, BankLive, ParticipantsStore } from "../examples/workshop/domain/bank.ts"
 import { Orders, OrdersStore, Products, reasons, seedCatalog, ShopLive } from "../examples/workshop/domain/shop.ts"
 import * as Auth from "../examples/workshop/server/auth.ts"
 import { Handlers, StoreKind } from "../examples/workshop/server/http.ts"
@@ -20,14 +31,21 @@ const Tokens = Layer.effect(
 
 const Keys = PersonalData.layerMemory().pipe(Layer.provide(PersonalData.layerMasterKeyEphemeral))
 
-const Server = Layer.mergeAll(Handlers, HttpServer.layerServices, Layer.effectDiscard(seedCatalog)).pipe(
-  Layer.provide(Tokens),
-  Layer.provideMerge(ShopLive),
-  Layer.provideMerge(BankLive),
-  Layer.provideMerge(Keys),
-  Layer.provideMerge(EventStore.layerMemory),
-  Layer.provide(Layer.succeed(StoreKind, "sqlite"))
-)
+/** The whole server in memory. The bot is off unless a test turns it on, so it can't restock behind a test's back. */
+const serverWith = (bot: BotSettings) =>
+  Layer.mergeAll(Handlers, HttpServer.layerServices, Layer.effectDiscard(seedCatalog)).pipe(
+    Layer.provide(Tokens),
+    Layer.provideMerge(
+      Layer.mergeAll(Layer.effect(Bot, makeBot(bot)), Layer.effect(Simulator, makeSimulator(defaultSimulatorSettings)))
+    ),
+    Layer.provideMerge(ShopLive),
+    Layer.provideMerge(BankLive),
+    Layer.provideMerge(Keys),
+    Layer.provideMerge(EventStore.layerMemory),
+    Layer.provide(Layer.succeed(StoreKind, "sqlite"))
+  )
+
+const Server = serverWith({ ...defaultBotSettings, enabled: false })
 
 /** An in-memory client that sends `token`, or no token at all. */
 const clientAs = (token?: string) =>
@@ -339,6 +357,101 @@ describe("workshop shop", () => {
       const cuffie = yield* (yield* Products).readModel("cuffie")
       assert.deepStrictEqual(cuffie.queue, [])
     }).pipe(Effect.provide(Server), quiet), 30_000)
+})
+
+describe("workshop automation", () => {
+  it("plans restocks for low shelves and waiting orders", () => {
+    const product = (id: string, available: number, queue: ReadonlyArray<number> = []) => ({
+      id,
+      name: id,
+      emoji: "",
+      price: 1,
+      available,
+      queue: queue.map((quantity, i) => ({ orderId: `${id}-${i}`, quantity })),
+      sold: 0
+    })
+    const settings = { enabled: true, intervalSeconds: 10, threshold: 2, batch: 5 }
+    assert.deepStrictEqual(
+      planRestocks(
+        [product("full", 8), product("low", 2), product("empty", 0), product("waiting", 0, [3, 4])],
+        settings
+      ),
+      [
+        { productId: "low", quantity: 5 },
+        { productId: "empty", quantity: 5 },
+        { productId: "waiting", quantity: 12 }
+      ]
+    )
+  })
+
+  it.effect("restocks on its schedule, stops when paused and runs on demand", () =>
+    Effect.gen(function*() {
+      const presenter = yield* participant("Presenter", 0, adminCode)
+      const buyer = yield* participant("Buyer", 100)
+      const orders = yield* Orders
+
+      const first = yield* buyer.client.shop.order({ payload: { productId: "cuffie", quantity: 1, backorder: true } })
+      yield* waitFor(orders.readModel(first.orderId), (state) => state.status === "backordered")
+
+      // Nothing happens before the interval, then the bot fills the queue.
+      yield* TestClock.adjust("5 seconds")
+      assert.strictEqual((yield* orders.readModel(first.orderId)).status, "backordered")
+      yield* TestClock.adjust("6 seconds")
+      yield* waitFor(orders.readModel(first.orderId), (state) => state.status === "fulfilled")
+      const status = yield* buyer.client.shop.bot()
+      assert.strictEqual(status.runs, 1)
+      assert.deepStrictEqual(status.lastRestocks, [{ productId: "cuffie", quantity: 4 }])
+
+      // The bot signs what it does.
+      const history = yield* (yield* Products).history("cuffie", { payload: true })
+      assert.deepStrictEqual(history.at(-2)?.metadata?.actor, "bot")
+
+      const refused = yield* Effect.flip(buyer.client.admin.configureBot({ payload: { enabled: false } }))
+      assert.strictEqual(refused._tag, "Forbidden")
+      const paused = yield* presenter.client.admin.configureBot({ payload: { enabled: false } })
+      assert.isFalse(paused.settings.enabled)
+      assert.isUndefined(paused.nextRunAt)
+
+      // 3 notebooks for 36 of the 40 left: 2 are on the shelf, so the order waits.
+      const second = yield* buyer.client.shop.order({
+        payload: { productId: "quaderno", quantity: 3, backorder: true }
+      })
+      yield* waitFor(orders.readModel(second.orderId), (state) => state.status === "backordered")
+      yield* TestClock.adjust("1 minute")
+      assert.strictEqual((yield* orders.readModel(second.orderId)).status, "backordered")
+
+      const ran = yield* presenter.client.admin.runBot()
+      assert.strictEqual(ran.runs, 2)
+      yield* waitFor(orders.readModel(second.orderId), (state) => state.status === "fulfilled")
+    }).pipe(Effect.provide(serverWith({ enabled: true, intervalSeconds: 10, threshold: 0, batch: 3 })), quiet))
+
+  it.effect("runs simulated shoppers without breaking the books", () =>
+    Effect.gen(function*() {
+      const simulator = yield* Simulator
+      yield* simulator.configure({ shoppers: 4 })
+      for (let i = 0; i < 60; i++) {
+        yield* simulator.step
+        yield* TestClock.adjust("10 millis")
+      }
+      const status = yield* simulator.status
+      assert.isAbove(status.actions, 20)
+
+      const accounts = yield* Accounts
+      const shoppers = yield* Effect.forEach([0, 1, 2, 3], (i) => accounts.readModel(shopperId(i)))
+      for (const shopper of shoppers) {
+        assert.strictEqual(shopper.status, "open")
+        assert.isAtLeast(shopper.balance, 0)
+      }
+      const participants = yield* ParticipantsStore.use(Ref.get)
+      assert.deepStrictEqual(
+        [0, 1, 2, 3].map((i) => participants.get(shopperId(i))?.nickname.startsWith("🤖")),
+        [true, true, true, true]
+      )
+      const products = yield* Products
+      for (const id of ["caffe", "cornetto", "succo", "cioccolato", "quaderno", "cappellino", "cuffie"]) {
+        assert.isAtLeast((yield* products.readModel(id)).available, 0)
+      }
+    }).pipe(Effect.provide(Server), quiet, Random.withSeed("workshop")))
 })
 
 /** Repeats `self` until `done` holds, moving the test clock so the saga's fibers run. */

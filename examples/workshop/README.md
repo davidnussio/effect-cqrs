@@ -5,7 +5,8 @@ use it from their phones while a big screen shows what happens inside. The plan,
 Italian, is in [PLAN.md](PLAN.md). So far it has the bank and the shop: participants
 join with a nickname, add money, send it to each other, buy from a shared catalog
 with real stock, wait in a queue for what is sold out, and close their account,
-which forgets their nickname.
+which forgets their nickname. A bot restocks the shop, and simulated shoppers keep
+it busy when the room is quiet.
 
 | Path | What it is |
 | --- | --- |
@@ -13,6 +14,7 @@ which forgets their nickname.
 | `domain/account.ts` | The account aggregate |
 | `domain/bank.ts` | The account service, the transfer saga and the view models |
 | `domain/shop.ts` | The product and order aggregates, the order sagas and the shop's view models |
+| `domain/automation.ts` | The restock bot and the simulated shoppers |
 | `server/auth.ts` | The tokens the server issues |
 | `server/http.ts` | The handlers of the API |
 | `server/main.ts` | The server: configuration, storage, Swagger |
@@ -59,7 +61,12 @@ server named by `VITE_API_URL`.
 | `POST /shop/orders` | Places an order; a saga then pays for it and takes the goods |
 | `GET /me/orders` | The caller's orders and where each one is |
 | `POST /me/orders/:orderId/cancel` | Cancels an order waiting in the queue and gives the money back |
+| `GET /shop/bot` | What the restock bot does and when it runs next |
 | `POST /admin/products/:productId/restock` | Adds stock, which goes to the queue first. Admin only |
+| `PATCH /admin/bot` | Pauses, resumes or tunes the bot. Admin only |
+| `POST /admin/bot/run` | Makes the bot run now. Admin only |
+| `GET /admin/simulator` | What the simulated shoppers do. Admin only |
+| `PATCH /admin/simulator` | Starts, stops or tunes them. Admin only |
 | `GET /docs` | Swagger UI |
 | `GET /openapi.json` | The OpenAPI document |
 
@@ -84,6 +91,24 @@ of it. A waiting order can be cancelled; one the goods already reached can't.
 Closing an account cancels its waiting orders and refunds them before paying out the
 balance.
 
+## The bot and the simulated shoppers
+
+Both run inside the server, through the same aggregate services as the API, and
+sign the events they cause with `actor` in the metadata: `bot` or `simulator`, and
+`presenter` for a restock by hand.
+
+The bot wakes up every second and, when its interval has passed, restocks each
+product at or below its threshold, and each product with orders waiting: it adds its
+batch plus what the queue still lacks. It starts with the server, every 30 seconds
+for products with 2 pieces or fewer, 5 at a time.
+
+The simulated shoppers start switched off. Once on, they open accounts named with a
+🤖, add money, buy, wait in queues, send money to anyone, people included, and now
+and then cancel. Their accounts have fixed ids, so a restart finds the same ones.
+
+Both are tuned from the **Regia** tab, which only the presenter sees. Settings live
+in memory and go back to the defaults when the server restarts.
+
 ## Authentication
 
 The server issues its own tokens: there is no identity provider. `/auth/join` makes
@@ -96,7 +121,7 @@ The token lives in the browser's storage only. Clearing it, or changing phone, l
 the account, which is why the UI has no "log out".
 
 Joining with `adminCode` equal to `ADMIN_CODE` makes the session an admin one, for
-the presenter's controls to come.
+the presenter's controls in the **Regia** tab.
 
 ## Server configuration
 

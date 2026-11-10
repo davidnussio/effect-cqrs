@@ -183,7 +183,9 @@ Ogni fase finisce con `pnpm check` e `pnpm test` verdi e con il deploy aggiornat
    *Fatto quando* un test lancia 20 acquisti concorrenti sull'ultimo pezzo e ne passa uno
    solo, e un backorder viene evaso al rifornimento successivo o annullato con
    rimborso.
-5. **Bot.** Bot di rifornimento con parametri modificabili e simulatore di clienti.
+5. **Bot.** *Fatta.* Bot di rifornimento con parametri modificabili e simulatore di
+   clienti, regolati dalla scheda Regia, che anticipa la sala di controllo. Le loro
+   azioni portano `actor` nei metadati degli eventi.
    *Fatto quando* il bot rifornisce da solo e si ferma e riparte dalla sala di
    controllo.
 6. **Tempo reale e AsyncAPI.** Hub con `PubSub`, tre stream SSE, presenze, metriche Effect
