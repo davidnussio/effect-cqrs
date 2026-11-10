@@ -31,7 +31,7 @@ try {
   const packed = JSON.parse(readFileSync(join(work, "package", "package.json"), "utf8"))
   if (packed.exports?.["."]?.default !== "./dist/index.js") fail("the packed exports don't point at dist")
   if (packed.private === true) fail("the package is private")
-  for (const file of ["dist/index.js", "dist/index.d.ts", "dist/ViewModel.js", "LICENSE", "README.md"]) {
+  for (const file of ["dist/index.js", "dist/index.d.ts", "dist/ViewModel.js", "LICENSE", "README.md", "LLMS.md"]) {
     if (!existsSync(join(work, "package", file))) fail(`the tarball has no ${file}`)
   }
   for (const folder of ["test", "bench", "examples", "docs"]) {
@@ -41,7 +41,10 @@ try {
   const consumer = join(work, "consumer")
   mkdirSync(consumer)
   cpSync(join(root, "scripts", "consumer"), consumer, { recursive: true })
-  writeFileSync(join(consumer, "package.json"), `${JSON.stringify({ name: "consumer", private: true, type: "module" })}\n`)
+  writeFileSync(
+    join(consumer, "package.json"),
+    `${JSON.stringify({ name: "consumer", private: true, type: "module" })}\n`
+  )
   const effect = JSON.parse(readFileSync(join(root, "node_modules", "effect", "package.json"), "utf8")).version
   run(
     "npm",

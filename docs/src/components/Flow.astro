@@ -1,8 +1,10 @@
 ---
 /**
  * The path of a command, in the colors the bank demo's pipeline uses, and the guide
- * for each stage. Links are relative to the home page.
+ * for each stage.
  */
+import { docsUrl } from "../source.ts"
+
 const stages = [
   {
     name: "Command",
@@ -43,7 +45,7 @@ const stages = [
         <span class="cq-node" aria-hidden="true" />
         <h3>{stage.name}</h3>
         <p set:html={stage.text} />
-        <a href={stage.link}>{stage.guide} guide</a>
+        <a href={docsUrl(stage.link)}>{stage.guide} guide</a>
       </li>
     ))}
   </ol>

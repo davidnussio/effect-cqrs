@@ -38,6 +38,9 @@ jobs:
       - name: Typecheck
         run: pnpm check
 
+      - name: Lint
+        run: pnpm lint
+
       - name: Tests
         run: pnpm test
 
