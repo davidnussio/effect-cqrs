@@ -1,6 +1,7 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
 import { DateTime, Duration, Effect, Layer, Option, Ref, References, Schedule, Schema, Stream } from "effect"
+import { SqlClient } from "effect/sql"
 import { TestClock } from "effect/testing"
 import { Aggregate, AggregateService, Checkpoints, EventStore, SqliteEventStore, ViewModel } from "effect-cqrs"
 import { mkdtempSync } from "node:fs"
@@ -398,6 +399,115 @@ describe("ViewModels", () => {
 
         assert.deepStrictEqual(saved, [500, 1_000, 1_250])
       }).pipe(Effect.provide(EventStore.layerMemory)))
+  })
+
+  describe("in a transaction", () => {
+    it.live("commits a batch and its checkpoint together, or neither", () =>
+      Effect.gen(function*() {
+        const filename = join(mkdtempSync(join(tmpdir(), "effect-cqrs-")), "events.sqlite")
+        const storage = Layer.merge(SqliteEventStore.layer(), SqliteEventStore.layerCheckpoints()).pipe(
+          Layer.provideMerge(Layer.fresh(SqliteClient.layer({ filename })))
+        )
+        const broken = yield* Ref.make(true)
+        const Rows = ViewModel.make({
+          name: "rows",
+          aggregates: [Todo],
+          dispose: Effect.void,
+          transaction: ViewModel.sqlTransaction,
+          handlers: {
+            TodoCreated: Effect.fnUntraced(function*({ title }, { aggregateId }) {
+              const sql = yield* SqlClient.SqlClient
+              // No `OR IGNORE`: an event handled twice fails here.
+              yield* sql`INSERT INTO todo_rows (id, title) VALUES (${aggregateId}, ${title})`
+              if (title === "bad" && (yield* Ref.get(broken))) return yield* Effect.fail("broken")
+            })
+          }
+        })
+        const inspect = Effect.gen(function*() {
+          const sql = yield* SqlClient.SqlClient
+          const rows = yield* sql<{ readonly id: string }>`SELECT id FROM todo_rows ORDER BY id`
+          const checkpoint = yield* Checkpoints.Checkpoints.use((checkpoints) => checkpoints.get("rows"))
+          return { rows: rows.map(({ id }) => id), checkpoint }
+        })
+        const session = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+          effect.pipe(Effect.provide(ViewModel.layer([Rows]).pipe(Layer.provideMerge(storage))), Effect.scoped)
+
+        yield* Effect.gen(function*() {
+          const sql = yield* SqlClient.SqlClient
+          yield* sql`CREATE TABLE todo_rows (id TEXT PRIMARY KEY, title TEXT NOT NULL)`
+          const todos = yield* AggregateService.make(Todo)
+          for (const [id, title] of [["a", "one"], ["b", "two"], ["c", "bad"], ["d", "four"]]) {
+            yield* todos.commands.createTodo(id!, { title: title! })
+          }
+        }).pipe(Effect.provide(storage), Effect.scoped)
+
+        // The third event fails, and takes the first two and the checkpoint with it.
+        yield* session(Effect.gen(function*() {
+          const viewModels = yield* ViewModel.ViewModels
+          yield* viewModels.status.pipe(
+            Effect.repeat({ until: ([status]) => Option.isSome(status!.lastError), schedule: Schedule.spaced("5 millis") }),
+            Effect.timeout("2 seconds")
+          )
+          assert.deepStrictEqual(yield* inspect, { rows: [], checkpoint: 0 })
+        }))
+        assert.deepStrictEqual(yield* session(inspect), { rows: [], checkpoint: 0 })
+
+        // After a restart it starts from the same place, and saves the checkpoint with the batch.
+        yield* Ref.set(broken, false)
+        yield* session(Effect.gen(function*() {
+          yield* ViewModel.ViewModels.use((viewModels) => viewModels.caughtUp())
+          assert.deepStrictEqual(yield* inspect, { rows: ["a", "b", "c", "d"], checkpoint: 4 })
+        }))
+
+        yield* session(Effect.gen(function*() {
+          const todos = yield* AggregateService.make(Todo)
+          const { position } = yield* todos.commands.createTodo("e", { title: "five" })
+          yield* ViewModel.ViewModels.use((viewModels) => viewModels.caughtUp(position))
+          assert.deepStrictEqual(yield* inspect, { rows: ["a", "b", "c", "d", "e"], checkpoint: 5 })
+        }))
+      }).pipe(Effect.provideService(References.MinimumLogLevel, "None")))
+
+    it.live("parks an event and commits the rest of its batch", () =>
+      Effect.gen(function*() {
+        const Rows = ViewModel.make({
+          name: "rows",
+          aggregates: [Todo],
+          dispose: Effect.void,
+          transaction: ViewModel.sqlTransaction,
+          onFailure: ViewModel.park({ attempts: 1 }),
+          handlers: {
+            TodoCreated: Effect.fnUntraced(function*({ title }, { aggregateId }) {
+              const sql = yield* SqlClient.SqlClient
+              yield* sql`INSERT INTO todo_rows (id, title) VALUES (${aggregateId}, ${title})`
+              if (title === "bad") return yield* Effect.fail("broken")
+            })
+          }
+        })
+
+        yield* Effect.gen(function*() {
+          const sql = yield* SqlClient.SqlClient
+          yield* sql`CREATE TABLE todo_rows (id TEXT PRIMARY KEY, title TEXT NOT NULL)`
+          const todos = yield* AggregateService.make(Todo)
+          for (const [id, title] of [["a", "one"], ["b", "bad"], ["c", "three"]]) {
+            yield* todos.commands.createTodo(id!, { title: title! })
+          }
+
+          yield* Effect.gen(function*() {
+            const viewModels = yield* ViewModel.ViewModels
+            yield* viewModels.caughtUp()
+            const rows = yield* sql<{ readonly id: string }>`SELECT id FROM todo_rows ORDER BY id`
+            assert.deepStrictEqual(rows.map(({ id }) => id), ["a", "c"])
+            assert.deepStrictEqual((yield* viewModels.parked()).map((event) => event.position), [2])
+            assert.strictEqual(yield* Checkpoints.Checkpoints.use((checkpoints) => checkpoints.get("rows")), 3)
+          }).pipe(Effect.provide(ViewModel.layer([Rows])), Effect.scoped)
+        }).pipe(
+          Effect.provide(
+            Layer.merge(SqliteEventStore.layer(), SqliteEventStore.layerCheckpoints()).pipe(
+              Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))
+            )
+          )
+        )
+      }).pipe(Effect.provideService(References.MinimumLogLevel, "None")))
   })
 
   describe("on SQLite", () => {

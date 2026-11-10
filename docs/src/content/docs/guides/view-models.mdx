@@ -47,7 +47,9 @@ everything the view model stored, before a replay rebuilds it.
 
 `ViewModel.layer([...])` starts the view models in the background for as long as the layer
 lives, and provides the `ViewModels` service. It needs an `EventStore`, `Checkpoints` and
-whatever services the handlers use.
+whatever services the handlers use. It also uses `ParkedEvents` and `Leases` when they are
+provided, see [failing handlers](#failing-handlers) and
+[several processes](#several-processes).
 
 ## At least once
 
@@ -59,6 +61,34 @@ stops, so after a crash it can see up to two batches of events again.
 Handlers must be idempotent. The bank demo's accounts view, for instance, ignores an
 event whose position it has already applied.
 </Aside>
+
+## Checkpoints in a transaction
+
+A view model that keeps its data in the same database as its checkpoints can commit both
+together. With `transaction`, each batch of handlers runs in one transaction with the
+checkpoint it reaches, so the checkpoint is saved after every batch. A batch that fails
+leaves nothing behind, and a crash repeats nothing, so handlers needn't be idempotent.
+
+```ts
+const TodoRows = ViewModel.make({
+  name: "todo-rows",
+  aggregates: [Todo],
+  dispose: SqlClient.SqlClient.use((sql) => sql`DELETE FROM todo_rows`),
+  transaction: ViewModel.sqlTransaction,
+  handlers: {
+    TodoCreated: ({ title }, { aggregateId }) =>
+      SqlClient.SqlClient.use((sql) => sql`INSERT INTO todo_rows (id, title) VALUES (${aggregateId}, ${title})`)
+  }
+})
+```
+
+`ViewModel.sqlTransaction` uses the `SqlClient` in context. The handlers and the checkpoints,
+`SqliteEventStore.layerCheckpoints()` or `PostgresEventStore.layerCheckpoints()`, have to get
+that same client: a transaction belongs to one client, and another client's writes don't
+join it. Any other `(effect) => Effect` works as `transaction` too, for a database of its own.
+
+Only the database is rolled back. A handler that runs a command or calls a service still
+does that once per attempt.
 
 ## Reading your own writes
 
@@ -75,6 +105,45 @@ reordered.
 
 `viewModels.status` lists each view model's position and the failure it is retrying, if any.
 A stalled view model doesn't catch up, so put a timeout on `caughtUp` where that matters.
+
+### Parking events
+
+An event that can never be handled, a bug or data the handler doesn't expect, stalls its
+view model for good. `onFailure: ViewModel.park({ attempts })` gives up on an event after
+it has failed that many times: the view model records it in `ParkedEvents`, skips it from
+then on and carries on with the next one.
+
+```ts
+const TodoList = ViewModel.make({
+  name: "todo-list",
+  aggregates: [Todo],
+  dispose: clearList,
+  onFailure: ViewModel.park({ attempts: 5 }),
+  handlers: { /* ... */ }
+})
+
+const viewModels = yield* ViewModel.ViewModels
+yield* viewModels.parked("todo-list") // view model, position, event id, error, attempts, time
+yield* viewModels.retryParked({ viewModel: "todo-list" }) // after fixing the handler
+```
+
+`retryParked` handles the parked events again, in order of position. Those that succeed
+leave `ParkedEvents`, the others stay with the new failure, and `positions` narrows it to
+some of them. A retried event comes after the events that followed it, so park only where
+order doesn't matter between them, and a replay keeps skipping parked events until they are
+retried.
+
+Stalling stays the default. A view model that skips an event is wrong from then on, in a way
+nothing shows, while a stalled one is visibly behind and right once it moves: a balance that
+missed a deposit is worse than one that is late. Parking is a choice per view model, for
+those where a gap is better than a stop.
+
+Parked events are kept in memory unless `ParkedEvents` is provided. `ParkedEvents.layerSql()`
+keeps them in a table, `cqrs_parked_events` by default, on SQLite or PostgreSQL. It creates
+the table on startup unless `migrate` is `false`, and `ParkedEvents.ddl()` gives its
+statements to run another way. `viewModels.status` counts each view model's parked events,
+and the counter `ViewModel.MetricNames.parkedEvents`, with a `view_model` attribute, counts
+every event parked.
 
 ## Replay
 
@@ -100,6 +169,53 @@ A checkpoint has to live as long as its view model:
   every start.
 - A view model stored in a database pairs with that database's checkpoints,
   `SqliteEventStore.layerCheckpoints()` or `PostgresEventStore.layerCheckpoints()`.
+
+## Several processes
+
+Replicas that share a database would each run every view model, and race on its checkpoint.
+`ViewModel.layer` takes a lease on each view model before running it, from the `Leases` in
+context. Without one, every lease is held, which suits a single process.
+
+`Leases.layerPostgres()` holds leases as PostgreSQL advisory locks, on a hash of the view
+model's name, so only one process runs each view model. The others are standbys: they try
+to take over every 5 seconds, `interval`, and the one that does resumes from the checkpoint
+the holder saved. The locks live on one connection reserved from the client's pool, so they
+go when the process dies or its connection does.
+
+```ts
+const Live = ViewModel.layer([TodoList]).pipe(
+  Layer.provideMerge(Layer.mergeAll(
+    PostgresEventStore.layer(),
+    PostgresEventStore.layerCheckpoints(),
+    Leases.layerPostgres()
+  )),
+  Layer.provide(PgClient.layer({ url: Redacted.make("postgres://localhost:5432/cqrs") }))
+)
+```
+
+In a standby:
+
+- `viewModels.status` shows `holdsLease: false` for the view models another process runs.
+- `caughtUp` doesn't wait for those view models, since nothing in this process moves them.
+  It returns once the view models this process runs have caught up, so read your own writes
+  where the view model runs, or wait on the read model itself.
+- `replay` and `retryParked` fail with a `ViewModelError`: run them where the view model runs.
+
+A holder notices that its connection is gone at its next check, up to `interval` later, and
+a standby may already have started by then. For that long, both can handle the same events,
+even in a `transaction`: a lease doesn't fence off the old holder's writes.
+
+In an Effect cluster, `Singleton` from `effect/cluster` does the
+same job with the cluster's own shard ownership, and needs no lease:
+
+```ts
+import { Singleton } from "effect/cluster"
+
+const TodoListSingleton = Singleton.make("todo-list", Layer.launch(ViewModel.layer([TodoList])))
+```
+
+The view models then run on whichever runner owns the singleton, and `ViewModels` is only
+available inside it.
 
 ## Keeping up
 
