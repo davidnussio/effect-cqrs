@@ -132,6 +132,11 @@ const unwrapNullable = (ast: SchemaAST.AST): SchemaAST.AST => {
   return present.length === 1 ? present[0]! : ast
 }
 
+// A field can be marked inside the union, `NullOr(field(String))`, or around it,
+// `field(NullOr(String))`, and both have to be found.
+const nullableAnnotationOf = (ast: SchemaAST.AST): FieldAnnotation | undefined =>
+  annotationOf(ast) ?? annotationOf(unwrapNullable(ast))
+
 const mentionsPersonal = (ast: SchemaAST.AST, seen: Set<SchemaAST.AST> = new Set()): boolean => {
   if (seen.has(ast)) return false
   seen.add(ast)
@@ -156,12 +161,12 @@ const mentionsPersonal = (ast: SchemaAST.AST, seen: Set<SchemaAST.AST> = new Set
 const describe = (path: ReadonlyArray<string>) => path.length === 0 ? "the top level" : path.join(".")
 
 const collect = (ast: SchemaAST.AST, path: ReadonlyArray<string>, fields: Array<Field>, where: string): void => {
-  const node = unwrapNullable(ast)
-  const annotation = annotationOf(node)
+  const annotation = nullableAnnotationOf(ast)
   if (annotation !== undefined) {
     fields.push({ path, subject: annotation.subject, redacted: annotation.redacted })
     return
   }
+  const node = unwrapNullable(ast)
   if (node._tag !== "Objects") {
     if (mentionsPersonal(node)) {
       throw new Error(
@@ -191,7 +196,7 @@ const collect = (ast: SchemaAST.AST, path: ReadonlyArray<string>, fields: Array<
         `${where}: ${describe(field.path)} takes its subject from "${field.subject}", which is not next to it`
       )
     }
-    if (annotationOf(unwrapNullable(sibling.type)) !== undefined) {
+    if (nullableAnnotationOf(sibling.type) !== undefined) {
       throw new Error(
         `${where}: ${describe(field.path)} takes its subject from "${field.subject}", which is personal itself`
       )

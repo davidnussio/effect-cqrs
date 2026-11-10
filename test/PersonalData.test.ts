@@ -506,6 +506,20 @@ describe("PersonalData", () => {
       )
     })
 
+    it("finds nullable fields, marked inside the union or around it", () => {
+      const Nullable = Schema.TaggedUnion({
+        Opened: {
+          inside: Schema.NullOr(PersonalData.field(Schema.String, { redacted: "x" })),
+          around: PersonalData.field(Schema.NullOr(Schema.String), { redacted: null }),
+          undefinedOr: PersonalData.field(Schema.UndefinedOr(Schema.String), { redacted: undefined })
+        }
+      })
+      assert.deepStrictEqual(
+        PersonalData.fieldsByTag(Nullable, "nullable").get("Opened")?.map(({ path }) => path),
+        [["inside"], ["around"], ["undefinedOr"]]
+      )
+    })
+
     it("rejects personal fields where they can't be found", () => {
       const InArray = Schema.TaggedUnion({
         Listed: { names: Schema.Array(PersonalData.field(Schema.String, { redacted: "" })) }
