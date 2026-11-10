@@ -78,6 +78,40 @@ Keep the key store apart from the events: another database or at least another c
 its own permissions and backups. A copy of the keys outlives a forget for as long as the
 copy is kept, so let backups of the key table expire.
 
+`layerSql` creates its table on startup. To create it with your own migrations instead, turn
+that off and take the statements from `PersonalData.migrations`, for `"sqlite"` or `"pg"`:
+
+```ts
+const statements = PersonalData.migrations("pg", { table: "personal_data_keys" })
+const Keys = PersonalData.layerSql({ table: "personal_data_keys", migrate: false })
+```
+
+Unwrapped keys stay in memory for `cacheTtl`, up to `cacheSize` subjects, 10,000 by
+default. Requests for a subject that isn't in memory share one read of the store and one
+call to the master key, and writers racing for a new subject create a single key, so a KMS
+is called once rather than once per writer.
+
+### On Node
+
+Encryption runs on WebCrypto, which works in Node and in browsers but is asynchronous. On
+Node, `PersonalDataNode.layerCipher` encrypts with `node:crypto` instead, synchronously,
+which makes a personal field about half as expensive to read. Both write the same format, so
+data written with one reads with the other. It is a module of its own, so that code for
+browsers never imports `node:crypto`:
+
+```ts
+import * as PersonalDataNode from "effect-cqrs/PersonalDataNode"
+
+const Keys = PersonalData.layerSql().pipe(
+  Layer.provide(PersonalData.layerMasterKeyConfig()),
+  Layer.provide(PersonalDataNode.layerCipher),
+  Layer.provide(SqliteClient.layer({ filename: "./data/keys.sqlite" }))
+)
+```
+
+The cipher is a `PersonalData.Cipher`, provided to the keys and the master key when they are
+built.
+
 ## Forgetting
 
 ```ts

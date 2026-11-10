@@ -7,7 +7,8 @@ import { sourceUrl } from "../../../source.ts"
 
 Everything is exported from `effect-cqrs` as a namespace, as in
 `import { Aggregate, ViewModel } from "effect-cqrs"`, and each module also has its own path,
-such as `effect-cqrs/ViewModel`.
+such as `effect-cqrs/ViewModel`. `PersonalDataNode` only has its own path, which keeps
+`node:crypto` out of code for browsers.
 
 ## Aggregate
 
@@ -46,8 +47,19 @@ Crypto-shredding of personal fields, see [personal data](../../guides/personal-d
 | `Keys`, `layerMemory`, `layerSql`, `make(backend)` | The keys of subjects, and where they are stored |
 | `MasterKey`, `layerMasterKey`, `layerMasterKeyConfig`, `layerMasterKeyEphemeral` | What wraps the keys of subjects |
 | `Backend`, `makeMemoryBackend`, `makeSqlBackend` | Key stores, to implement another |
+| `migrations(dialect, { table })` | The statements that create the key table, for `layerSql({ migrate: false })` |
+| `Cipher`, `webCrypto` | AES-256-GCM, on WebCrypto unless another cipher is provided |
 | `SubjectForgotten`, `PersonalDataError` | Its errors |
 | `streamName`, `subjectForgottenType` | Where forgetting is recorded |
+
+## PersonalDataNode
+
+The [personal data](../../guides/personal-data/#on-node) cipher on `node:crypto`, imported from `effect-cqrs/PersonalDataNode`. <a href={sourceUrl("src/PersonalDataNode.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `layerCipher` | Encrypts personal fields synchronously, in the same format as WebCrypto |
+| `cipher` | The `Cipher` it provides |
 
 ## EventVersions
 

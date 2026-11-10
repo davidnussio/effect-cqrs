@@ -210,7 +210,12 @@ const makeDecoder = <A extends Aggregate.Any>(aggregate: A, keys: PersonalData.K
       return Effect.map(decodePayload(stored.payload), (event) => ({ event, subjects: noSubjects }))
     }
     return Effect.flatMap(
-      PersonalData.open(personalKeys!, fields, { aggregateName: stored.aggregateName, type: stored.type }, stored.payload),
+      PersonalData.open(
+        personalKeys!,
+        fields,
+        { aggregateName: stored.aggregateName, type: stored.type, aggregateId: stored.aggregateId },
+        stored.payload
+      ),
       ({ payload, subjects }) => Effect.map(decodePayload(payload), (event) => ({ event, subjects }))
     )
   }
@@ -612,7 +617,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     initial: Acc,
     step: (acc: Acc, decoded: Decoded<Aggregate.Event<A>>, stored: StoredEvent) => Acc
   ) =>
-    keys === undefined
+    keys === undefined || !keys.cipher.asynchronous
       ? stream.pipe(
         Stream.runFoldEffect(
           () => initial,

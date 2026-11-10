@@ -1,7 +1,7 @@
 {
   "environment": {
-    "date": "2026-11-09T20:25:04.636Z",
-    "commit": "8301c33-dirty",
+    "date": "2026-11-10T07:31:18.673Z",
+    "commit": "5b822f1-dirty",
     "node": "v26.13.0",
     "effect": "4.0.6",
     "sqlite": "3.54.1",
@@ -34,10 +34,10 @@
       "label": "plain, new stream each",
       "count": 5000,
       "unit": "commands/s",
-      "rate": 36705,
+      "rate": 43097,
       "range": [
-        30776,
-        42150
+        36516,
+        47912
       ]
     },
     {
@@ -45,39 +45,65 @@
       "backend": "memory",
       "label": "plain, cold load of 1000",
       "count": 100,
-      "rate": 1004,
+      "rate": 1097,
       "unit": "reads/s",
       "latencyMs": {
-        "p50": 0.9709170000000995,
-        "p95": 1.1330830000001697,
-        "p99": 1.5302079999999023,
-        "max": 1.9644160000000284
+        "p50": 0.8851670000001377,
+        "p95": 1.0258750000000418,
+        "p99": 1.2936670000001413,
+        "max": 1.4340830000001006
       }
     },
     {
       "scenario": "personal data",
       "backend": "memory",
-      "label": "personal, new stream each",
+      "label": "personal WebCrypto, new stream each",
       "count": 5000,
       "unit": "commands/s",
-      "rate": 8698,
+      "rate": 10930,
       "range": [
-        7120,
-        8763
+        9944,
+        11827
       ]
     },
     {
       "scenario": "personal data",
       "backend": "memory",
-      "label": "personal, cold load of 1000",
+      "label": "personal WebCrypto, cold load of 1000",
       "count": 100,
-      "rate": 79,
+      "rate": 85,
       "unit": "reads/s",
       "latencyMs": {
-        "p50": 12.458542000000307,
-        "p95": 13.723791000000347,
-        "p99": 14.640833000000384,
-        "max": 16.484042000000045
+        "p50": 11.398791999999958,
+        "p95": 13.316083000000617,
+        "p99": 13.695625000000291,
+        "max": 18.159999999999854
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "memory",
+      "label": "personal node:crypto, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 24920,
+      "range": [
+        23526,
+        25477
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "memory",
+      "label": "personal node:crypto, cold load of 1000",
+      "count": 100,
+      "rate": 156,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 6.137625000000298,
+        "p95": 7.753707999999278,
+        "p99": 7.91924999999992,
+        "max": 8.038750000000618
       }
     },
     {
@@ -86,10 +112,10 @@
       "label": "plain, new stream each",
       "count": 5000,
       "unit": "commands/s",
-      "rate": 12952,
+      "rate": 14709,
       "range": [
-        12617,
-        13226
+        14096,
+        15142
       ]
     },
     {
@@ -97,39 +123,65 @@
       "backend": "sqlite-memory",
       "label": "plain, cold load of 1000",
       "count": 100,
-      "rate": 213,
+      "rate": 245,
       "unit": "reads/s",
       "latencyMs": {
-        "p50": 4.577957999999853,
-        "p95": 5.465958000000683,
-        "p99": 6.526499999999942,
-        "max": 7.414084000000003
+        "p50": 3.9886249999999563,
+        "p95": 4.563083999999435,
+        "p99": 4.85149999999885,
+        "max": 4.88812500000131
       }
     },
     {
       "scenario": "personal data",
       "backend": "sqlite-memory",
-      "label": "personal, new stream each",
+      "label": "personal WebCrypto, new stream each",
       "count": 5000,
       "unit": "commands/s",
-      "rate": 5821,
+      "rate": 7292,
       "range": [
-        5655,
-        5909
+        7031,
+        7363
       ]
     },
     {
       "scenario": "personal data",
       "backend": "sqlite-memory",
-      "label": "personal, cold load of 1000",
+      "label": "personal WebCrypto, cold load of 1000",
       "count": 100,
-      "rate": 58,
+      "rate": 67,
       "unit": "reads/s",
       "latencyMs": {
-        "p50": 17.11029200000121,
-        "p95": 18.219250000000102,
-        "p99": 18.63304199999766,
-        "max": 19.787374999999884
+        "p50": 14.93816600000173,
+        "p95": 15.489792000000307,
+        "p99": 15.88208300000042,
+        "max": 15.944541000000754
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-memory",
+      "label": "personal node:crypto, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 11731,
+      "range": [
+        11467,
+        11778
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-memory",
+      "label": "personal node:crypto, cold load of 1000",
+      "count": 100,
+      "rate": 100,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 9.884208999999828,
+        "p95": 10.618416999997862,
+        "p99": 10.895458999999391,
+        "max": 15.018707999999606
       }
     },
     {
@@ -138,10 +190,10 @@
       "label": "plain, new stream each",
       "count": 5000,
       "unit": "commands/s",
-      "rate": 7150,
+      "rate": 8975,
       "range": [
-        6913,
-        7690
+        8720,
+        9100
       ]
     },
     {
@@ -149,39 +201,65 @@
       "backend": "sqlite-file",
       "label": "plain, cold load of 1000",
       "count": 100,
-      "rate": 205,
+      "rate": 249,
       "unit": "reads/s",
       "latencyMs": {
-        "p50": 4.5972079999992275,
-        "p95": 6.649750000000495,
-        "p99": 8.863624999998137,
-        "max": 10.189082999997481
+        "p50": 3.9834589999991294,
+        "p95": 4.163959000001341,
+        "p99": 4.293792000000394,
+        "max": 4.329125000000204
       }
     },
     {
       "scenario": "personal data",
       "backend": "sqlite-file",
-      "label": "personal, new stream each",
+      "label": "personal WebCrypto, new stream each",
       "count": 5000,
       "unit": "commands/s",
-      "rate": 4127,
+      "rate": 5143,
       "range": [
-        4012,
-        4279
+        5096,
+        5272
       ]
     },
     {
       "scenario": "personal data",
       "backend": "sqlite-file",
-      "label": "personal, cold load of 1000",
+      "label": "personal WebCrypto, cold load of 1000",
       "count": 100,
-      "rate": 57,
+      "rate": 66,
       "unit": "reads/s",
       "latencyMs": {
-        "p50": 16.896874999998545,
-        "p95": 18.405334000002767,
-        "p99": 35.68329200000153,
-        "max": 36.40191699999923
+        "p50": 15.083624999999302,
+        "p95": 15.944875000001048,
+        "p99": 16.081833000000188,
+        "max": 19.537916999997833
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-file",
+      "label": "personal node:crypto, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 7410,
+      "range": [
+        7134,
+        7604
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "sqlite-file",
+      "label": "personal node:crypto, cold load of 1000",
+      "count": 100,
+      "rate": 97,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 10.136375000001863,
+        "p95": 11.1059580000001,
+        "p99": 12.805082999999286,
+        "max": 16.328125
       }
     },
     {
@@ -190,10 +268,10 @@
       "label": "plain, new stream each",
       "count": 5000,
       "unit": "commands/s",
-      "rate": 749,
+      "rate": 929,
       "range": [
-        424,
-        762
+        453,
+        957
       ]
     },
     {
@@ -201,39 +279,65 @@
       "backend": "postgres",
       "label": "plain, cold load of 1000",
       "count": 100,
-      "rate": 205,
+      "rate": 296,
       "unit": "reads/s",
       "latencyMs": {
-        "p50": 4.229332999995677,
-        "p95": 10.742083999997703,
-        "p99": 12.947666000007303,
-        "max": 14.200542000005953
+        "p50": 3.3065840000053868,
+        "p95": 3.8226250000006985,
+        "p99": 3.945584000000963,
+        "max": 5.568417000002228
       }
     },
     {
       "scenario": "personal data",
       "backend": "postgres",
-      "label": "personal, new stream each",
+      "label": "personal WebCrypto, new stream each",
       "count": 5000,
       "unit": "commands/s",
-      "rate": 617,
+      "rate": 850,
       "range": [
-        412,
-        643
+        309,
+        875
       ]
     },
     {
       "scenario": "personal data",
       "backend": "postgres",
-      "label": "personal, cold load of 1000",
+      "label": "personal WebCrypto, cold load of 1000",
       "count": 100,
-      "rate": 51,
+      "rate": 68,
       "unit": "reads/s",
       "latencyMs": {
-        "p50": 18.97933400000329,
-        "p95": 22.80587499999092,
-        "p99": 34.23429200000828,
-        "max": 34.96991699998034
+        "p50": 14.558958000008715,
+        "p95": 15.522541999991518,
+        "p99": 15.817957999999635,
+        "max": 19.461416999984067
+      }
+    },
+    {
+      "scenario": "personal data",
+      "backend": "postgres",
+      "label": "personal node:crypto, new stream each",
+      "count": 5000,
+      "unit": "commands/s",
+      "rate": 910,
+      "range": [
+        865,
+        954
+      ]
+    },
+    {
+      "scenario": "personal data",
+      "backend": "postgres",
+      "label": "personal node:crypto, cold load of 1000",
+      "count": 100,
+      "rate": 93,
+      "unit": "reads/s",
+      "latencyMs": {
+        "p50": 10.661541000008583,
+        "p95": 12.263000000006286,
+        "p99": 13.334915999992518,
+        "max": 15.648875000013504
       }
     }
   ]
