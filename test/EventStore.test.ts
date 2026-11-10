@@ -1,13 +1,13 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it, layer } from "@effect/vitest"
-import { DateTime, Duration, Effect, Fiber, Layer, Stream } from "effect"
+import { Context, DateTime, Duration, Effect, Exit, Fiber, Latch, Layer, Option, Stream } from "effect"
 import { SqlClient } from "effect/sql"
 import { TestClock } from "effect/testing"
 import { Checkpoints, EventStore, SqliteEventStore } from "effect-cqrs"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { postgresUrl, temporaryPostgres } from "../bench/common.ts"
+import { postgresUrl, storage, temporaryPostgres } from "../bench/common.ts"
 
 const append = (aggregateId: string, expectedVersion: number, ...types: ReadonlyArray<string>) =>
   EventStore.EventStore.use((store) =>
@@ -25,6 +25,8 @@ const read = (filter?: EventStore.EventFilter) =>
 const adapters = {
   memory: EventStore.layerMemory,
   sqlite: SqliteEventStore.layer().pipe(Layer.provide(SqliteClient.layer({ filename: ":memory:" }))),
+  // A file, where appends are written in groups.
+  "sqlite-file": storage("sqlite-file"),
   // Needs the database of `docker-compose.yml` and POSTGRES_URL.
   ...(postgresUrl === undefined ? {} : { postgres: Layer.suspend(temporaryPostgres) })
 }
@@ -246,8 +248,124 @@ for (const [name, adapter] of Object.entries(adapters)) {
 
         assert.deepStrictEqual(events.map((event) => event.type), ["A1", "A2", "A3"])
       }).pipe(Effect.provide(adapter)))
+
+    it.effect("fails only the stale ones among concurrent appends, with positions in order", () =>
+      Effect.gen(function*() {
+        for (let index = 0; index < 10; index++) yield* append(`old-${index}`, 0, "A")
+
+        const exits = yield* Effect.forEach(
+          Array.from({ length: 20 }, (_, index) => index),
+          (index) =>
+            Effect.exit(
+              index < 10
+                ? append(`old-${index}`, index % 2 === 0 ? 1 : 0, "B")
+                : append(`new-${index}`, 0, "C", "D")
+            ),
+          { concurrency: "unbounded" }
+        )
+
+        const failed = exits.flatMap((exit, index) => Exit.isFailure(exit) ? [index] : [])
+        assert.deepStrictEqual(failed, [1, 3, 5, 7, 9])
+        for (const index of failed) {
+          const failure = Exit.findErrorOption(exits[index]!)
+          assert.isTrue(Option.isSome(failure) && failure.value._tag === "ConcurrencyConflict")
+        }
+        const stored = yield* read()
+        assert.deepStrictEqual(stored.map((event) => event.position), Array.from({ length: 35 }, (_, i) => i + 1))
+        const appended = exits.flatMap((exit) => Exit.isSuccess(exit) ? exit.value : [])
+        assert.deepStrictEqual(
+          appended.map((event) => event.position).sort((a, b) => a - b),
+          stored.slice(10).map((event) => event.position)
+        )
+        for (const event of appended) {
+          assert.deepStrictEqual(stored[event.position - 1], event)
+        }
+      }).pipe(Effect.provide(adapter)))
   })
 }
+
+describe("EventStore.groupCommit", () => {
+  const input = (aggregateId: string, events = 1): EventStore.AppendInput => ({
+    aggregateName: "test",
+    aggregateId,
+    expectedVersion: 0,
+    events: Array.from({ length: events }, () => ({ type: "A", payload: null }))
+  })
+
+  /** A backend whose writes wait for a latch, and which records the groups it got. */
+  const recording = Effect.gen(function*() {
+    const groups: Array<ReadonlyArray<string>> = []
+    const latch = yield* Latch.make()
+    const append = yield* EventStore.groupCommit(
+      (inputs) =>
+        Effect.as(
+          latch.await,
+          inputs.map((input) =>
+            input.aggregateId.startsWith("stale")
+              ? Exit.fail(
+                new EventStore.ConcurrencyConflict({
+                  aggregateName: input.aggregateName,
+                  aggregateId: input.aggregateId,
+                  expectedVersion: 0
+                })
+              )
+              : Exit.succeed([])
+          )
+        ).pipe(Effect.tap(() => Effect.sync(() => groups.push(inputs.map((input) => input.aggregateId))))),
+      { maxEvents: 3 }
+    )
+    return { append, groups, latch }
+  })
+
+  it.effect("writes alone when nothing waits, then those that waited together", () =>
+    Effect.gen(function*() {
+      const { append, groups, latch } = yield* recording
+      const first = yield* Effect.forkChild(append(input("a")))
+      yield* Effect.yieldNow
+      const rest = yield* Effect.forkChild(
+        Effect.forEach(["b", "c", "d"], (id) => append(input(id)), { concurrency: "unbounded" })
+      )
+      yield* Effect.yieldNow
+      yield* latch.open
+      yield* Fiber.join(first)
+      yield* Fiber.join(rest)
+
+      assert.deepStrictEqual(groups, [["a"], ["b", "c", "d"]])
+    }).pipe(Effect.scoped))
+
+  it.effect("keeps a second append to a stream, or one past maxEvents, for the next group", () =>
+    Effect.gen(function*() {
+      const { append, groups, latch } = yield* recording
+      const first = yield* Effect.forkChild(append(input("a")))
+      yield* Effect.yieldNow
+      const rest = yield* Effect.forkChild(
+        Effect.forEach([input("b"), input("b"), input("c"), input("d", 2), input("e")], append, {
+          concurrency: "unbounded"
+        })
+      )
+      yield* Effect.yieldNow
+      yield* latch.open
+      yield* Fiber.join(first)
+      yield* Fiber.join(rest)
+
+      assert.deepStrictEqual(groups, [["a"], ["b", "c", "e"], ["b", "d"]])
+    }).pipe(Effect.scoped))
+
+  it.effect("gives each append of a group its own outcome", () =>
+    Effect.gen(function*() {
+      const { append, latch } = yield* recording
+      const first = yield* Effect.forkChild(append(input("a")))
+      yield* Effect.yieldNow
+      const rest = yield* Effect.forkChild(
+        Effect.forEach(["b", "stale", "c"], (id) => Effect.exit(append(input(id))), { concurrency: "unbounded" })
+      )
+      yield* Effect.yieldNow
+      yield* latch.open
+      yield* Fiber.join(first)
+
+      assert.deepStrictEqual((yield* Fiber.join(rest)).map(Exit.isSuccess), [true, false, true])
+    }).pipe(Effect.scoped))
+})
 
 describe("EventStore pagination", () => {
   for (const [name, adapter] of Object.entries(adapters)) {
@@ -390,6 +508,73 @@ describe("SqliteEventStore", () => {
           ]
         )
       }).pipe(Effect.provide(SqliteEventStore.layer()))
+    }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))))
+
+  it.live("wakes a subscriber on another connection to the file by polling", () =>
+    Effect.gen(function*() {
+      const filename = join(mkdtempSync(join(tmpdir(), "effect-cqrs-")), "events.sqlite")
+      const writer = yield* Layer.build(SqliteEventStore.layer().pipe(Layer.provide(SqliteClient.layer({ filename }))))
+      const reader = yield* Layer.build(
+        SqliteEventStore.layer({ pollInterval: "20 millis" }).pipe(Layer.provide(SqliteClient.layer({ filename })))
+      )
+
+      const fiber = yield* Context.get(reader, EventStore.EventStore).subscribe().pipe(
+        Stream.take(2),
+        Stream.runCollect,
+        Effect.forkChild
+      )
+      yield* append("a", 0, "A1", "A2").pipe(Effect.provideContext(writer))
+
+      const events = yield* Fiber.join(fiber).pipe(Effect.timeout("5 seconds"))
+      assert.deepStrictEqual(events.map((event) => event.type), ["A1", "A2"])
+    }).pipe(Effect.scoped))
+
+  it.effect("creates no tables with migrate off, and runs on the ones `migrations` describes", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      const options = { eventsTable: "managed_events", checkpointsTable: "managed_checkpoints", migrate: false }
+      const storage = Layer.merge(SqliteEventStore.layer(options), SqliteEventStore.layerCheckpoints(options))
+
+      const failure = yield* Effect.flip(Effect.provide(Effect.void, storage))
+      assert.strictEqual(failure._tag, "EventStoreError")
+      const tables = yield* sql<{ readonly name: string }>`SELECT name FROM sqlite_master WHERE type = 'table'`
+      assert.deepStrictEqual(tables.filter(({ name }) => name.startsWith("managed")), [])
+
+      const migrations = SqliteEventStore.migrations(options)
+      assert.deepStrictEqual(migrations.map(({ id, name }) => [id, name]), [
+        [1, "create_events"],
+        [2, "add_causation"],
+        [3, "add_metadata"],
+        [4, "create_checkpoints"]
+      ])
+      for (const migration of migrations) {
+        for (const statement of migration.statements) yield* sql.unsafe(statement)
+      }
+
+      yield* Effect.gen(function*() {
+        const store = yield* EventStore.EventStore
+        yield* store.append({
+          aggregateName: "test",
+          aggregateId: "a",
+          expectedVersion: 0,
+          events: [{ type: "A", payload: null, schemaVersion: 2 }],
+          causationId: "cause",
+          metadata: { user: "u" }
+        })
+        yield* Checkpoints.Checkpoints.use((checkpoints) => checkpoints.set("view", 1))
+        assert.deepStrictEqual(
+          (yield* read()).map((event) => [event.schemaVersion, event.causationId, event.metadata]),
+          [[2, "cause", { user: "u" }]]
+        )
+      }).pipe(Effect.provide(storage))
+    }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))))
+
+  it.effect("migrates on every start without harm", () =>
+    Effect.gen(function*() {
+      const storage = Layer.fresh(Layer.merge(SqliteEventStore.layer(), SqliteEventStore.layerCheckpoints()))
+      yield* append("a", 0, "A1").pipe(Effect.provide(storage))
+      yield* append("a", 1, "A2").pipe(Effect.provide(storage))
+      assert.strictEqual((yield* read().pipe(Effect.provide(storage))).length, 2)
     }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))))
 
   layer(

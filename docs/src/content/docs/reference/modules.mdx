@@ -187,7 +187,8 @@ The append-only log. <a href={sourceUrl("src/EventStore.ts")}>Source</a>
 | --- | --- |
 | `EventStore` | The service: `append`, `read`, `subscribe`, `head`, `changes` |
 | `layerMemory`, `makeMemory` | The store in memory |
-| `make(backend)`, `Backend` | Builds a store on another database |
+| `make(backend, options)`, `Backend`, `MakeOptions` | Builds a store on another database |
+| `groupCommit(appendGroup)` | Group commit for a backend: concurrent appends to different streams in one transaction |
 | `StoredEvent`, `EventFilter`, `AppendInput` | What it stores, selects and takes |
 | `eventId(event)` | An event's id as a cause, like `account/alice@4` |
 | `toStored(input, event, index, position, timestamp)` | A new event's stored form, for a backend |
@@ -211,7 +212,8 @@ Durable stores through `effect/sql`. <a href={sourceUrl("src/SqliteEventStore.ts
 | --- | --- |
 | `layer(options)` | The event store, given a `SqlClient` |
 | `layerCheckpoints(options)` | Checkpoints in the same database |
-| `Options` | `eventsTable` and `checkpointsTable` |
+| `migrations(options)`, `Migration` | The schema as SQL, for your own migration tooling |
+| `Options` | `eventsTable`, `checkpointsTable`, `migrate`, `pollInterval`, and `listen` on PostgreSQL |
 
 ## Fixture
 

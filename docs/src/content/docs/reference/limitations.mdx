@@ -6,9 +6,9 @@ description: What the port leaves out.
 effect-cqrs is a trial port, not a maintained library. These are the gaps that matter
 before using it for anything real.
 
-- **New events stay in their process.** They wake view models and subscribers in the same
-  process only. There is no transport like the Moleculer broker, so `dispatch` is the
-  entry point to wire into your own HTTP or RPC layer.
+- **No broker.** New events wake view models and subscribers in every process, through
+  PostgreSQL notifications or by polling, but there is no transport like the Moleculer
+  broker, so `dispatch` is the entry point to wire into your own HTTP or RPC layer.
 - **SQLite, PostgreSQL and memory only.** There are no adapters for MongoDB or MySQL.
 - **Snapshots are opt-in.** Without them, recent state is only kept in memory, so after a
   restart each aggregate is replayed the first time it is used. A changed state needs a new
@@ -18,5 +18,5 @@ before using it for anything real.
 - **No code generator.** There is no equivalent of `cqrs generate`.
 - **Slow handlers don't slow writers.** There is no backpressure, so a view model with a
   slow handler falls behind and catches up when writes stop.
-- **One thread.** Throughput doesn't grow with concurrency, and synchronous SQLite calls
-  block the event loop while they run.
+- **One thread.** Concurrent writers share commits, but the work itself doesn't spread over
+  cores, and synchronous SQLite calls block the event loop while they run.

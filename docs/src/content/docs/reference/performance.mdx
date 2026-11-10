@@ -23,10 +23,27 @@ Docker on the same machine. Treat them as orders of magnitude, not as a promise.
 - **A command costs the same whatever the store holds.** The service remembers recent
   state and reads only new events.
 - **Commits are what cost.** Batching events into fewer commands helps more than anything
-  else. Concurrency doesn't: SQLite has one writer, and PostgreSQL writers queue for the
-  counter that numbers events.
+  else. Concurrent writers help too, because appends that wait for each other share a
+  commit, as the next table shows.
 - **The first use of a long aggregate after a restart replays it**, at about 3 µs per
   event on SQLite, unless [snapshots](../../guides/commands/#snapshots) are on.
+
+## Concurrent writers
+
+Commands on new streams, run by a number of workers at once, measured with
+`BENCH_SCALE=0.2`:
+
+| Workers | SQLite file | PostgreSQL |
+| ---: | ---: | ---: |
+| 1 | 8,967 commands/s | 1,261 commands/s |
+| 16 | 13,463 commands/s | 6,910 commands/s |
+| 256 | 15,784 commands/s | 14,460 commands/s |
+
+Before [group commit](../../guides/storage/#postgresql), every worker count gave about the
+same: 7,400 to 8,300 commands/s on a SQLite file and 1,000 to 1,400 on PostgreSQL, where an append
+took five round trips and held the counter until it committed. Now an append is one
+statement, and the appends that queue behind it are written together in the next one. A database in memory has no commit to
+share, so its throughput stays where it was.
 
 ## Personal data
 

@@ -11,7 +11,7 @@ concurrency, and readers use the position as a cursor.
 | Store | For |
 | --- | --- |
 | `EventStore.layerMemory` | Tests, examples, the browser |
-| `SqliteEventStore` | One process, on a local file |
+| `SqliteEventStore` | One machine, on a local file |
 | `PostgresEventStore` | A server, possibly with several processes writing |
 
 ## In memory
@@ -31,12 +31,20 @@ const Storage = Layer.merge(SqliteEventStore.layer(), SqliteEventStore.layerChec
 )
 ```
 
-The tables are created on startup. Positions rely on SQLite having a single writer, so
-the schema doesn't carry over to other databases.
+Positions rely on SQLite having a single writer, so the schema doesn't carry over to other
+databases.
 
-Each event row also holds its `schema_version`, `correlation_id` and `causation_id`. A table
-created by an older version of effect-cqrs gets these columns on startup, with existing
-events at schema version 1 and no causation. The same goes for PostgreSQL.
+An append is one statement, which checks the stream's version and inserts the events only
+if it still matches. On a file, each commit waits for the disk, so once writers overlap,
+appends that become ready together are written in one transaction and share that wait. An append whose stream moved on
+still fails alone. A database in memory writes each append on its own.
+
+Several processes can share one file. A store sees its own appends at once, and with
+`pollInterval` it also reads the head that often to notice the others':
+
+```ts
+SqliteEventStore.layer({ pollInterval: "200 millis" })
+```
 
 ## PostgreSQL
 
@@ -57,8 +65,21 @@ that commits later. Positions come from a counter row instead, which an append h
 it commits. Writers wait for each other at that one step, and positions follow commit order
 with no gaps.
 
-- Several processes can write to one database, but a view model only wakes on appends from
-  its own process.
+So that writers don't wait in line, a store writes the appends of its process in groups.
+Appends that arrive while one is being written go together into the next statement, which
+checks each stream's version, numbers the events of the appends that pass and inserts them,
+in one round trip and one commit. An append whose stream moved on fails alone. When a writer
+in another process takes a stream first, the group is written again one append at a time.
+
+Every append also sends a notification with the new head, on a channel named after the
+events table. On a `PgClient` from `@effect/sql-pg` the store listens to it, on a connection
+of its own, so view models and subscribers in every process wake up on every append.
+
+- Behind a pooler that doesn't keep sessions, such as PgBouncer in transaction mode,
+  `LISTEN` doesn't work. Set `listen: false` and a `pollInterval`. A client other than
+  `PgClient` needs a `pollInterval` too.
+- A `pollInterval` next to listening is a safety net. The store already reads the head again
+  whenever it reconnects, so a notification sent while it was away isn't lost.
 - After a bulk load, run `ANALYZE`. Until autovacuum gets to a new table, reads for view
   models are slow.
 
@@ -70,9 +91,42 @@ docker compose up -d --wait
 POSTGRES_URL=postgres://postgres:postgres@localhost:5432/cqrs pnpm test
 ```
 
+## Migrations
+
+By default, `layer` and `layerCheckpoints` create their tables on startup, and bring tables
+from an earlier version of effect-cqrs up to date: existing events get schema version 1, no
+causation and `{}` as metadata. The statements can run again without harm, and on PostgreSQL
+an advisory lock keeps processes that start together apart.
+
+Where the application may not change the schema, set `migrate: false` and apply the
+migrations with your own tooling. `migrations(options)` lists them in order, as SQL with the
+table names filled in:
+
+```ts
+for (const { id, name, statements } of PostgresEventStore.migrations({ eventsTable: "orders_events" })) {
+  writeFileSync(`migrations/${id}_${name}.sql`, statements.map((statement) => `${statement};\n`).join(""))
+}
+```
+
+| Migration | What it does |
+| --- | --- |
+| 1 `create_events` | The events table and its index, and on PostgreSQL the counter row |
+| 2 `add_causation` | `schema_version`, `correlation_id` and `causation_id` |
+| 3 `add_metadata` | `metadata` |
+| 4 `create_checkpoints` | The checkpoints table |
+
+A database that effect-cqrs 0.2 created already has all four. One from 0.1 lacks 2 and 3. On
+PostgreSQL every statement checks first, but SQLite can't add a column only if it is
+missing, so there its `ALTER TABLE` statements must run exactly once.
+
 ## Options
 
-Both databases take table names, so several stores can share one database:
+| Option | Stores | Default | What it does |
+| --- | --- | --- | --- |
+| `eventsTable`, `checkpointsTable` | Both | `cqrs_events`, `cqrs_checkpoints` | Table names, so several stores can share one database |
+| `migrate` | Both | `true` | Creates and updates the tables on startup |
+| `pollInterval` | Both | Off | Reads the head this often, for appends from other processes |
+| `listen` | PostgreSQL | `true` | Listens for appends from other processes, on a `PgClient` |
 
 ```ts
 SqliteEventStore.layer({ eventsTable: "orders_events" })
@@ -82,18 +136,25 @@ SqliteEventStore.layerCheckpoints({ checkpointsTable: "orders_checkpoints" })
 ## Your own backend
 
 Another database needs an `EventStore.Backend` with three operations, and
-`EventStore.make(backend)` builds the store on top:
+`EventStore.make(backend, options)` builds the store on top:
 
 | Operation | What it does |
 | --- | --- |
 | `append(input)` | Appends atomically, failing with `ConcurrencyConflict` if the stream moved past `expectedVersion` |
 | `readBatch(filter, afterPosition, limit)` | Up to `limit` events past `afterPosition` that match the filter, by position |
 | `head` | The position of the latest event, `0` when the store is empty |
+| `changes`, optional | The head positions other processes write, as the database announces them |
 
 A backend stores each event's `schemaVersion`, `correlationId`, `causationId` and
 `metadata` along with it. `EventStore.toStored` fills in the defaults: version 1, no
 causation and `{}`.
 
+`make` runs `changes` and the `pollInterval` of its options in fibers that need a `Scope`,
+which `Layer.effect` provides. If `changes` fails, the store logs it and runs it again a
+second later, so it should start with the current head.
+
 Positions must follow commit order, so a backend on a database with concurrent writers has
-to guarantee that itself. The store tests in `test/EventStore.test.ts` run against every
-backend and show what each must do.
+to guarantee that itself. `EventStore.groupCommit(appendGroup)` gives a backend group
+commit: it calls `appendGroup` with appends to different streams, to write in one
+transaction, and expects an exit for each. The store tests in `test/EventStore.test.ts` run
+against every backend and show what each must do.

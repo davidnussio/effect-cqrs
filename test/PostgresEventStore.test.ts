@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Exit, Fiber, Latch, Layer, Option, Stream } from "effect"
+import { Context, Effect, Exit, Fiber, Latch, Layer, Option, Stream } from "effect"
 import { SqlClient } from "effect/sql"
-import { Checkpoints, EventStore } from "effect-cqrs"
+import { Checkpoints, EventStore, PostgresEventStore } from "effect-cqrs"
 import { postgresClient, postgresStorage, postgresUrl, temporaryPostgres } from "../bench/common.ts"
 
 const append = (aggregateId: string, expectedVersion: number, ...types: ReadonlyArray<string>) =>
@@ -170,6 +170,90 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
       assert.strictEqual((yield* Stream.runCollect(tail)).length, 0)
     }).pipe(Effect.provide(storage)))
 
+  it.live("wakes a subscriber of another process through a notification", () =>
+    Effect.gen(function*() {
+      const [writer, reader] = yield* twoProcesses({})
+
+      const fiber = yield* reader.subscribe().pipe(Stream.take(2), Stream.runCollect, Effect.forkChild)
+      yield* writer.append({
+        aggregateName: "test",
+        aggregateId: "a",
+        expectedVersion: 0,
+        events: [{ type: "A1", payload: null }, { type: "A2", payload: null }]
+      })
+
+      const events = yield* Fiber.join(fiber).pipe(Effect.timeout("5 seconds"))
+      assert.deepStrictEqual(events.map((event) => event.type), ["A1", "A2"])
+    }).pipe(Effect.scoped))
+
+  it.live("polls for appends of another process when it doesn't listen", () =>
+    Effect.gen(function*() {
+      const [writer, reader] = yield* twoProcesses({ listen: false, pollInterval: "20 millis" })
+
+      const fiber = yield* reader.subscribe().pipe(Stream.take(1), Stream.runCollect, Effect.forkChild)
+      yield* writer.append({ aggregateName: "test", aggregateId: "a", expectedVersion: 0, events: [{ type: "A", payload: null }] })
+
+      const events = yield* Fiber.join(fiber).pipe(Effect.timeout("5 seconds"))
+      assert.deepStrictEqual(events.map((event) => event.type), ["A"])
+    }).pipe(Effect.scoped))
+
+  it.live("writes the rest of a group when another process took one of its streams", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      const events = sql(`${table}_events`)
+
+      // Another process has written to `s1` and not committed yet: the group's version
+      // check can't see it, but its insert waits for it and then breaks the constraint.
+      const inserted = yield* Latch.make()
+      const release = yield* Latch.make()
+      const other = yield* sql`
+        INSERT INTO ${events} (position, aggregate_name, aggregate_id, version, type, payload, "timestamp")
+        VALUES (1000, 'test', 's1', 1, 'X', '{}', 0)
+      `.pipe(Effect.andThen(inserted.open), Effect.andThen(release.await), sql.withTransaction, Effect.forkChild)
+      yield* inserted.await
+
+      // `s0` is written alone, and `s1` and `s2` wait for it and go together.
+      const writes = yield* Effect.forEach(["s0", "s1", "s2"], (id) => Effect.exit(append(id, 0, "A")), {
+        concurrency: "unbounded"
+      }).pipe(Effect.forkChild)
+      yield* Effect.sleep("200 millis")
+      yield* release.open
+      yield* Fiber.join(other)
+      const [s0, s1, s2] = yield* Fiber.join(writes)
+
+      assert.isTrue(Exit.isSuccess(s0!))
+      assert.deepStrictEqual(Exit.findErrorOption(s1!).pipe(Option.map((error) => error._tag)), Option.some("ConcurrencyConflict"))
+      assert.deepStrictEqual(Exit.isSuccess(s2!) ? s2.value.map((event) => event.position) : [], [2])
+    }).pipe(Effect.provide(storage)))
+
+  it.live("creates no tables with migrate off, and runs on the ones `migrations` describes", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      const name = `managed_${crypto.randomUUID().replaceAll("-", "")}`
+      const options = { eventsTable: `${name}_events`, checkpointsTable: `${name}_checkpoints`, migrate: false }
+      const storage = Layer.merge(PostgresEventStore.layer(options), PostgresEventStore.layerCheckpoints(options))
+      yield* Effect.addFinalizer(() =>
+        sql.unsafe(`DROP TABLE IF EXISTS ${name}_events, ${name}_events_head, ${name}_checkpoints`).pipe(Effect.ignore)
+      )
+
+      const failure = yield* Effect.flip(Effect.provide(Effect.void, storage))
+      assert.strictEqual(failure._tag, "EventStoreError")
+      const tables = yield* sql<{ readonly name: string }>`
+        SELECT tablename AS name FROM pg_tables WHERE tablename LIKE ${`${name}%`}
+      `
+      assert.deepStrictEqual(tables, [])
+
+      for (const migration of PostgresEventStore.migrations(options)) {
+        for (const statement of migration.statements) yield* sql.unsafe(statement)
+      }
+
+      yield* Effect.gen(function*() {
+        yield* append("a", 0, "A")
+        yield* Checkpoints.Checkpoints.use((checkpoints) => checkpoints.set("view", 1))
+        assert.deepStrictEqual(yield* positions, [1])
+      }).pipe(Effect.provide(storage))
+    }).pipe(Effect.scoped, Effect.provide(Layer.fresh(postgresClient()))))
+
   it.live("takes a batch larger than one statement can carry", () =>
     Effect.gen(function*() {
       const total = 12_000
@@ -181,6 +265,24 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
 })
 
 const table = `test_${crypto.randomUUID().replaceAll("-", "")}`
+
+/** Two stores on the same tables, each with a client of its own, as two processes have. */
+const twoProcesses = Effect.fnUntraced(function*(options: PostgresEventStore.Options) {
+  const name = `shared_${crypto.randomUUID().replaceAll("-", "")}`
+  const admin = yield* Layer.build(Layer.fresh(postgresClient()))
+  yield* Effect.addFinalizer(() =>
+    Context.get(admin, SqlClient.SqlClient).unsafe(`DROP TABLE IF EXISTS ${name}_events, ${name}_events_head`).pipe(
+      Effect.ignore
+    )
+  )
+  const open = () =>
+    Layer.build(
+      PostgresEventStore.layer({ ...options, eventsTable: `${name}_events` }).pipe(
+        Layer.provide(Layer.fresh(postgresClient()))
+      )
+    ).pipe(Effect.map(Context.get(EventStore.EventStore)))
+  return [yield* open(), yield* open()] as const
+})
 
 /** A store whose table name the test can see. */
 const storage = Layer.suspend(() =>
