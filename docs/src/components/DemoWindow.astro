@@ -5,7 +5,7 @@
  * Narrow screens get the link only: the demo needs room.
  */
 import { LinkButton } from "@astrojs/starlight/components"
-import { demoUrl } from "../source.ts"
+import { demoUrl, docsUrl } from "../source.ts"
 ---
 
 <section class="cq-demo not-content" aria-labelledby="demo-title">
@@ -18,7 +18,7 @@ import { demoUrl } from "../source.ts"
     </p>
     <div class="cq-demo-actions">
       <LinkButton href={demoUrl}>Open the demo</LinkButton>
-      <LinkButton href="example/bank/" variant="secondary">Read how it's built</LinkButton>
+      <LinkButton href={docsUrl("example/bank/")} variant="secondary">Read how it's built</LinkButton>
     </div>
   </div>
   <div class="cq-window">

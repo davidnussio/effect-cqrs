@@ -3,6 +3,7 @@
  * Two things people ask next: how to test an aggregate, and where the events live.
  */
 import { Code } from "@astrojs/starlight/components"
+import { docsUrl } from "../source.ts"
 
 const fixture = `it.effect("deletes a todo", () =>
   Fixture.make(Todo)
@@ -26,7 +27,7 @@ const stores = [
       encoding are tested too. The chain is an Effect, which <code>it.effect</code> runs.
     </p>
     <Code code={fixture} lang="ts" />
-    <a href="guides/testing/">Testing guide</a>
+    <a href={docsUrl("guides/testing/")}>Testing guide</a>
   </div>
   <div>
     <h2>Keep the log where it fits</h2>
@@ -40,9 +41,9 @@ const stores = [
         </li>
       ))}
     </ul>
-    <a href="guides/storage/">Storage guide</a>
+    <a href={docsUrl("guides/storage/")}>Storage guide</a>
     <span class="cq-sep" aria-hidden="true"></span>
-    <a href="reference/performance/">Performance</a>
+    <a href={docsUrl("reference/performance/")}>Performance</a>
   </div>
 </section>
 

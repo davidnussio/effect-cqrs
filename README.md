@@ -10,7 +10,9 @@ It's an experiment, not a maintained library: the API may change, and
 [Limitations](#limitations) lists what the port leaves out.
 
 The documentation, with a walkthrough of the bank demo, is at
-https://davidnussio.github.io/effect-cqrs/.
+https://davidnussio.github.io/effect-cqrs/. For coding agents, the package ships
+[LLMS.md](LLMS.md), a short guide to using it, and the documentation is also published as
+[llms.txt](https://davidnussio.github.io/effect-cqrs/llms.txt).
 
 Commands decide on events, events are the only source of truth, and read models
 are projections you can throw away and rebuild.
@@ -33,7 +35,8 @@ pnpm example
 ```
 
 The example needs `node:sqlite` and runs TypeScript directly. `pnpm build` compiles
-`src` into `dist`, which is what npm gets.
+`src` into `dist`, which is what npm gets. [CONTRIBUTING.md](CONTRIBUTING.md) has the rest
+of the setup, and [SECURITY.md](SECURITY.md) says how to report a vulnerability.
 
 `pnpm ui` serves an interactive demo at http://localhost:5173, also published at
 https://davidnussio.github.io/effect-cqrs/demo/. It runs the framework

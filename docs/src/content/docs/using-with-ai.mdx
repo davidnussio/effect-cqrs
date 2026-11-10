@@ -1,0 +1,36 @@
+---
+title: Using with AI
+description: What to give a coding agent or a chat so it writes effect-cqrs code that compiles.
+---
+
+export const base = import.meta.env.BASE_URL.replace(/\/$/, "")
+
+effect-cqrs is young and built on Effect 4, so a model's training data knows little about
+either. Give it the documentation instead.
+
+## A guide for coding agents
+
+The package ships `LLMS.md`, a short guide to the modules, the patterns to follow, the
+mistakes to avoid and how to test. Point your agent at it from `AGENTS.md` or `CLAUDE.md`:
+
+```md
+Before writing code that uses effect-cqrs, read node_modules/effect-cqrs/LLMS.md.
+```
+
+It is also [on GitHub](https://github.com/davidnussio/effect-cqrs/blob/main/LLMS.md).
+Effect has [its own guide](https://github.com/Effect-TS/effect/blob/main/LLMS.md) for the
+code around it.
+
+## The documentation as text
+
+The site follows the [llms.txt](https://llmstxt.org/) convention:
+
+| File | What it holds |
+| --- | --- |
+| <a href={`${base}/llms.txt`}>`llms.txt`</a> | An index of the files below |
+| <a href={`${base}/llms-full.txt`}>`llms-full.txt`</a> | Every page, the API reference included, as one Markdown file |
+| <a href={`${base}/llms-small.txt`}>`llms-small.txt`</a> | The guides without asides or the API reference, for smaller context windows |
+
+Each page is also served as Markdown: replace the trailing slash of its URL with `.md`, as
+in <a href={`${base}/guides/aggregates.md`}>`guides/aggregates.md`</a>. The button under each
+page title copies that Markdown, and its menu opens the page in Claude or ChatGPT.

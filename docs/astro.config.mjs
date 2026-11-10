@@ -1,6 +1,18 @@
 // @ts-check
+import { satteri } from "@astrojs/markdown-satteri"
 import starlight from "@astrojs/starlight"
 import { defineConfig } from "astro/config"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import starlightLlmsTxt from "starlight-llms-txt"
+import starlightTypeDoc, { typeDocSidebarGroup } from "starlight-typedoc"
+import { baseLinks } from "./src/links.ts"
+
+const root = fileURLToPath(new URL("..", import.meta.url))
+
+// The function starlight-llms-txt turns a page into Markdown with, which its package
+// doesn't export. The Markdown copy of each page uses it too, so the two agree.
+const llmsMarkdown = join(dirname(fileURLToPath(import.meta.resolve("starlight-llms-txt"))), "entryToSimpleMarkdown.ts")
 
 // GitHub Pages serves the site under /<repository>/. The workflow passes that path.
 const base = process.env.DOCS_BASE ?? "/effect-cqrs"
@@ -25,12 +37,67 @@ export default defineConfig({
         { tag: "link", attrs: { rel: "stylesheet", href: fonts } }
       ],
       customCss: ["./src/styles/custom.css"],
+      plugins: [
+        // The API reference, from the TSDoc comments of every module in src/.
+        starlightTypeDoc({
+          entryPoints: [join(root, "src/*.ts")],
+          tsconfig: join(root, "tsconfig.build.json"),
+          output: "reference/api",
+          sidebar: { label: "API", collapsed: true },
+          typeDoc: {
+            name: "API reference",
+            // index.ts only gathers the modules into namespaces.
+            exclude: ["**/index.ts"],
+            // One page per module.
+            outputFileStrategy: "modules",
+            // Leaves out what classes inherit from Effect, such as the members of Schema.TaggedError.
+            excludeExternals: true,
+            // TypeDoc compiles with TypeScript 6 and the project with TypeScript 7.
+            skipErrorChecking: true,
+            // Source links point to the commit the site was built from. TypeDoc asks git which
+            // files it tracks, so a build from a git worktree has no links.
+            sourceLinkTemplate: "https://github.com/davidnussio/effect-cqrs/blob/{gitRevision}/{path}#L{line}"
+          }
+        }),
+        starlightLlmsTxt({
+          details: [
+            "Commands decide on events, events are the only source of truth, and read models are projections",
+            "you can throw away and rebuild.",
+            "",
+            "- It is built on Effect 4 (`effect@^4`), whose APIs differ from Effect 3's.",
+            "- Everything is exported from `effect-cqrs` as a namespace, as in `import { Aggregate } from \"effect-cqrs\"`.",
+            "- Each page is also served as Markdown: replace the trailing slash of its URL with `.md`."
+          ].join("\n"),
+          optionalLinks: [
+            {
+              label: "LLMS.md",
+              url: "https://github.com/davidnussio/effect-cqrs/blob/main/LLMS.md",
+              description: "a short guide for coding agents that use effect-cqrs, also in the npm package"
+            }
+          ],
+          promote: ["index*", "getting-started", "tutorial", "using-with-ai", "guides/**"],
+          demote: ["reference/api/**"],
+          // The generated API reference has its own set, so the abridged file stays short.
+          exclude: ["reference/api/**"],
+          // The "Section titled" links next to each heading.
+          customSelectors: { all: [".sl-anchor-link"] },
+          customSets: [
+            {
+              label: "API reference",
+              paths: ["reference/api/**"],
+              description: "the exports of every module, generated from the TSDoc comments"
+            }
+          ]
+        })
+      ],
       components: {
         Hero: "./src/components/Hero.astro",
         SocialIcons: "./src/components/HeaderLinks.astro",
         Search: "./src/components/HeaderSearch.astro",
         // Dark only, like the demo.
         ThemeProvider: "./src/components/ThemeProvider.astro",
+        // The title, with buttons to copy the page as Markdown or ask a chat about it.
+        PageTitle: "./src/components/PageTitle.astro",
         ThemeSelect: "./src/components/Nothing.astro"
       },
       expressiveCode: {
@@ -55,20 +122,44 @@ export default defineConfig({
         }
       },
       sidebar: [
-        { label: "Start here", items: ["getting-started", "tutorial"] },
+        { label: "Start here", items: ["getting-started", "tutorial", "using-with-ai"] },
         {
           label: "Guides",
-          items: ["guides/aggregates", "guides/commands", "guides/view-models", "guides/sagas", "guides/testing", "guides/storage", "guides/personal-data"]
+          items: [
+            "guides/aggregates",
+            "guides/commands",
+            "guides/view-models",
+            "guides/sagas",
+            "guides/testing",
+            "guides/storage",
+            "guides/personal-data"
+          ]
         },
         {
           label: "Example",
-          items: ["example/bank", { label: "Live demo", link: "/demo/" }, { label: "Tutorial demo", link: "/shop-demo/" }]
+          items: ["example/bank", { label: "Live demo", link: "/demo/" }, {
+            label: "Tutorial demo",
+            link: "/shop-demo/"
+          }]
         },
         {
           label: "Reference",
-          items: ["reference/modules", "reference/moleculer-cqrs", "reference/performance", "reference/limitations"]
+          items: [
+            "reference/modules",
+            "reference/moleculer-cqrs",
+            "reference/performance",
+            "reference/limitations",
+            // Generated from the TSDoc comments, a page per module.
+            typeDocSidebarGroup
+          ]
         }
       ]
     })
-  ]
+  ],
+  markdown: {
+    processor: satteri({ hastPlugins: [baseLinks({ base, contentDir: join(root, "docs/src/content/docs") })] })
+  },
+  vite: {
+    resolve: { alias: { "#llms-markdown": llmsMarkdown } }
+  }
 })

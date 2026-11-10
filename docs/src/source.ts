@@ -12,8 +12,11 @@ export const region = (source: string, name: string): string => {
   return body.map((line) => line.slice(indent)).join("\n")
 }
 
+/** A page of the site, such as `guides/commands/`, under the site's base. */
+export const docsUrl = (path: string) => `${import.meta.env.BASE_URL.replace(/\/$/, "")}/${path}`
+
 /** The bank demo, which the build puts next to the documentation. */
-export const demoUrl = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/demo/`
+export const demoUrl = docsUrl("demo/")
 
 export const repository = "https://github.com/davidnussio/effect-cqrs"
 
