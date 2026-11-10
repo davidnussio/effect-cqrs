@@ -45,14 +45,14 @@ export const ControlScreen = () => {
   }
 
   return (
-    <div className="flex flex-col gap-5">
-      {error !== undefined && <p className="text-sm text-rose-300">{error}</p>}
+    <div className="grid items-start gap-5 lg:grid-cols-2">
+      {error !== undefined && <p className="text-sm text-rose-300 lg:col-span-2">{error}</p>}
       {window.location.hash !== "#sala" && (
         <a
           href="#sala"
           target="_blank"
           rel="noreferrer"
-          className="rounded-2xl border border-violet-400/30 bg-violet-400/10 p-4 text-sm hover:bg-violet-400/15"
+          className="rounded-2xl border border-violet-400/30 bg-violet-400/10 p-4 text-sm hover:bg-violet-400/15 lg:col-span-2"
         >
           <span className="font-medium text-violet-200">Apri la sala di controllo ↗</span>
           <span className="mt-1 block text-zinc-400">

@@ -1,5 +1,5 @@
 import { DateTime } from "effect"
-import { type FormEvent, useCallback, useState } from "react"
+import { type FormEvent, useCallback, useEffect, useState } from "react"
 import type { Me, Session } from "../../api.ts"
 import { maxDeposit } from "../../domain/account.ts"
 import type { LedgerEntry, Participant } from "../../domain/bank.ts"
@@ -37,7 +37,11 @@ const labels: Record<string, string> = {
   TransferRefunded: "Rimborso del bonifico a"
 }
 
-export const BankScreen = ({ session: current }: { readonly session: Session }) => {
+export const BankScreen = ({ onBalance, session: current }: {
+  readonly session: Session
+  /** Tells the page the balance, which it shows in the header. */
+  readonly onBalance: (balance: number) => void
+}) => {
   const [data, setData] = useState<Data>()
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ readonly tone: "ok" | "error"; readonly text: string }>()
@@ -50,6 +54,10 @@ export const BankScreen = ({ session: current }: { readonly session: Session }) 
 
   // Reads again when the log moves, as the live stream reports it.
   useLiveRefresh(refresh)
+  const balance = data?.me.balance
+  useEffect(() => {
+    if (balance !== undefined) onBalance(balance)
+  }, [balance, onBalance])
   const { presence } = useRoom()
   const online = new Set(presence?.online.map((person) => person.id))
 

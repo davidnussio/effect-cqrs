@@ -185,7 +185,7 @@ Ogni fase finisce con `pnpm check` e `pnpm test` verdi e con il deploy aggiornat
    solo, e un backorder viene evaso al rifornimento successivo o annullato con
    rimborso.
 5. **Bot.** *Fatta.* Bot di rifornimento con parametri modificabili e simulatore di
-   clienti, regolati dalla scheda Regia, che anticipa la sala di controllo. Le loro
+   clienti, regolati dalla sezione Regia, che anticipa la sala di controllo. Le loro
    azioni portano `actor` nei metadati degli eventi.
    *Fatto quando* il bot rifornisce da solo e si ferma e riparte dalla sala di
    controllo.
@@ -203,7 +203,7 @@ Ogni fase finisce con `pnpm check` e `pnpm test` verdi e con il deploy aggiornat
    con la conferma di cosa verrà cancellato. Lo stream SSE si apre con il client HTTP di
    Effect e `Sse.decode`, e si riconnette da solo; chi è in sala ha il pallino verde.
    *Fatto quando* tutto il flusso funziona da un telefono senza ricaricare la pagina.
-8. **Sala di controllo.** *Fatta*, su `#sala` o dalla scheda Regia. Presenze, log in
+8. **Sala di controllo.** *Fatta*, su `#sala` o dalla sezione Regia. Presenze, log in
    diretta colorato per correlazione con chi ha causato cosa, metriche e invariante,
    scaffali e code, trace, prima e dopo dei dati personali. Bottoni: bot, simulatore,
    "guasta il prossimo ordine" (la saga rimborsa), "ricostruisci un view model". Il

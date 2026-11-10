@@ -119,7 +119,7 @@ The simulated shoppers start switched off. Once on, they open accounts named wit
 🤖, add money, buy, wait in queues, send money to anyone, people included, and now
 and then cancel. Their accounts have fixed ids, so a restart finds the same ones.
 
-Both are tuned from the **Regia** tab, which only the presenter sees. Settings live
+Both are tuned from the **Regia** section, which only the presenter sees. Settings live
 in memory and go back to the defaults when the server restarts.
 
 ## Live streams and the control room
@@ -140,7 +140,7 @@ and the streams themselves.
 client and parses them with `Sse.decode`, reconnecting with a growing delay. The
 participants' screens read their data again whenever the log moves.
 
-The presenter opens the control room from the **Regia** tab, or at `#sala`. It shows
+The presenter opens the control room from the **Regia** section, or at `#sala`. It shows
 who is in, the log as it grows, coloured by correlation, the measures, the shelves
 and the queues, the trace, and personal data: the nickname as the log keeps it,
 encrypted, and the moment its key is destroyed. It also checks that the money adds
@@ -208,7 +208,7 @@ The token lives in the browser's storage only. Clearing it, or changing phone, l
 the account, which is why the UI has no "log out".
 
 Joining with `adminCode` equal to `ADMIN_CODE` makes the session an admin one, for
-the presenter's controls in the **Regia** tab.
+the presenter's controls in the **Regia** section.
 
 ## Server configuration
 

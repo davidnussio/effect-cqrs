@@ -1,14 +1,14 @@
 import { DateTime } from "effect"
 import { useCallback, useEffect, useState } from "react"
-import type { Me, Session } from "../../api.ts"
+import type { Session } from "../../api.ts"
 import type { BotStatus } from "../../domain/automation.ts"
 import { type CatalogProduct, maxQuantity, type ShopOrder } from "../../domain/shop.ts"
 import { call, type Outcome } from "./client.ts"
 import { useLiveRefresh } from "./live.ts"
 import { Button, Card, credits } from "./ui.tsx"
 
+// The balance is in the page's header, which the bank fills: the shop doesn't read it again.
 interface Data {
-  readonly me: Me
   readonly products: ReadonlyArray<CatalogProduct>
   readonly orders: ReadonlyArray<ShopOrder>
   readonly bot: BotStatus
@@ -16,17 +16,15 @@ interface Data {
 
 const load = async (position?: number): Promise<Outcome<Data>> => {
   const query = position === undefined ? {} : { position }
-  const [me, products, orders, bot] = await Promise.all([
-    call((client) => client.me.get()),
+  const [products, orders, bot] = await Promise.all([
     call((client) => client.shop.products({ query })),
     call((client) => client.me.orders({ query })),
     call((client) => client.shop.bot())
   ])
-  if (!me.ok) return me
   if (!products.ok) return products
   if (!orders.ok) return orders
   if (!bot.ok) return bot
-  return { ok: true, value: { me: me.value, products: products.value, orders: orders.value, bot: bot.value } }
+  return { ok: true, value: { products: products.value, orders: orders.value, bot: bot.value } }
 }
 
 const statusLabels: Record<ShopOrder["status"], [string, string]> = {
@@ -67,14 +65,7 @@ export const ShopScreen = ({ session: current }: { readonly session: Session }) 
 
   return (
     <div className="flex flex-col gap-5">
-      <Card
-        title="Catalogo"
-        aside={
-          <span className="text-sm text-zinc-400">
-            Saldo <span className="font-mono text-zinc-200">{data === undefined ? "…" : credits(data.me.balance)}</span>
-          </span>
-        }
-      >
+      <Card title="Catalogo">
         <ul className="flex flex-col">
           {data?.products.map((product) => {
             const quantity = quantities[product.id] ?? 1
@@ -86,7 +77,8 @@ export const ShopScreen = ({ session: current }: { readonly session: Session }) 
                 className="flex flex-wrap items-center gap-3 border-t border-line py-3 first:border-0"
               >
                 <span className="text-2xl">{product.emoji}</span>
-                <div className="min-w-0 flex-1">
+                {/* At least 10rem for the name, so on a phone the buttons go to a line of their own. */}
+                <div className="min-w-0 flex-1 basis-40">
                   <p className="font-medium">{product.name}</p>
                   <p className="text-xs text-zinc-500">
                     {credits(product.price)} · {product.available > 0
@@ -99,48 +91,50 @@ export const ShopScreen = ({ session: current }: { readonly session: Session }) 
                     )}
                   </p>
                 </div>
-                <select
-                  aria-label={`Quanti ${product.name}`}
-                  className="rounded-lg border border-line bg-ink px-2 py-1.5 text-sm"
-                  value={quantity}
-                  onChange={(event) => setQuantities({ ...quantities, [product.id]: Number(event.target.value) })}
-                >
-                  {Array.from({ length: maxQuantity }, (_, i) => i + 1).map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-                <Button
-                  tone={inStock ? "primary" : "ghost"}
-                  disabled={busy}
-                  onClick={() =>
-                    void run(
-                      () =>
-                        call((client) =>
-                          client.shop.order({ payload: { productId: product.id, quantity, backorder: !inStock } })
-                        ),
-                      inStock
-                        ? `Ordine di ${quantity} ${product.name} inviato`
-                        : `Ordine di ${quantity} ${product.name} inviato: aspetterai il rifornimento`
-                    )}
-                >
-                  {inStock ? "Compra" : "Prenota"}
-                </Button>
-                {isAdmin && (
+                <div className="ml-auto flex items-center gap-2">
+                  <select
+                    aria-label={`Quanti ${product.name}`}
+                    className="rounded-lg border border-line bg-ink px-2 py-1.5 text-sm"
+                    value={quantity}
+                    onChange={(event) => setQuantities({ ...quantities, [product.id]: Number(event.target.value) })}
+                  >
+                    {Array.from({ length: maxQuantity }, (_, i) => i + 1).map((n) => (
+                      <option key={n} value={n}>{n}</option>
+                    ))}
+                  </select>
                   <Button
-                    tone="ghost"
+                    tone={inStock ? "primary" : "ghost"}
                     disabled={busy}
                     onClick={() =>
                       void run(
                         () =>
                           call((client) =>
-                            client.admin.restock({ params: { productId: product.id }, payload: { quantity: 5 } })
+                            client.shop.order({ payload: { productId: product.id, quantity, backorder: !inStock } })
                           ),
-                        `Riforniti 5 ${product.name}`
+                        inStock
+                          ? `Ordine di ${quantity} ${product.name} inviato`
+                          : `Ordine di ${quantity} ${product.name} inviato: aspetterai il rifornimento`
                       )}
                   >
-                    +5
+                    {inStock ? "Compra" : "Prenota"}
                   </Button>
-                )}
+                  {isAdmin && (
+                    <Button
+                      tone="ghost"
+                      disabled={busy}
+                      onClick={() =>
+                        void run(
+                          () =>
+                            call((client) =>
+                              client.admin.restock({ params: { productId: product.id }, payload: { quantity: 5 } })
+                            ),
+                          `Riforniti 5 ${product.name}`
+                        )}
+                    >
+                      +5
+                    </Button>
+                  )}
+                </div>
               </li>
             )
           })}
