@@ -2,7 +2,7 @@
  * The handlers of `api.ts`. Every command runs as the caller, on the caller's
  * account: the account id is the user id in the token, never one from the request.
  */
-import { Clock, Config, Context, DateTime, Effect, Layer, Option, Predicate, Redacted } from "effect"
+import { Clock, Config, Context, DateTime, Effect, Layer, Option, Predicate, Redacted, Stream } from "effect"
 import { EventStore, Ids, Metadata, PersonalData, ViewModel } from "effect-cqrs"
 import { HttpApiBuilder } from "effect/http-api"
 import {
@@ -18,9 +18,17 @@ import {
   WrongAdminCode
 } from "../api.ts"
 import { Bot, Simulator } from "../domain/automation.ts"
-import { Accounts, ledgerOf, LedgerStore, listParticipants, ParticipantsStore } from "../domain/bank.ts"
+import {
+  Accounts,
+  type BooksStore,
+  ledgerOf,
+  LedgerStore,
+  listParticipants,
+  ParticipantsStore
+} from "../domain/bank.ts"
 import {
   CatalogStore,
+  Chaos,
   listCatalog,
   OrderNotCancellable,
   Orders,
@@ -31,6 +39,8 @@ import {
   reasons
 } from "../domain/shop.ts"
 import { type InvalidToken, Tokens } from "./auth.ts"
+import { limits, RateLimiter } from "./limits.ts"
+import { asyncApiDocument, controlStream, type Live, metrics, publicStream, type Spans, sseResponse } from "./live.ts"
 
 export class StoreKind extends Context.Service<StoreKind, "postgres" | "sqlite">()("workshop/StoreKind") {}
 
@@ -76,7 +86,10 @@ export const AuthorizationLayer = Layer.effect(
           )
           const account = yield* Effect.orDie(accounts.readModel(user.id))
           if (account.status !== "open") return yield* new Unauthorized({ message: "The account is closed" })
-          return yield* Effect.provideService(httpEffect, CurrentUser, user)
+          // Every event the request causes records who caused it.
+          return yield* Effect.provideService(httpEffect, CurrentUser, user).pipe(
+            Metadata.withMetadata({ actor: user.id })
+          )
         })
     })
   })
@@ -88,7 +101,8 @@ const SystemHandlers = HttpApiBuilder.group(Api, "system", (handlers) =>
     const kind = yield* StoreKind
     const commit = yield* Config.option(Config.String("RENDER_GIT_COMMIT"))
     const startedAt = yield* DateTime.now
-    return handlers.handle("health", () =>
+    const asyncApi = asyncApiDocument()
+    return handlers.handle("asyncapi", () => Effect.succeed(asyncApi)).handle("health", () =>
       Effect.gen(function*() {
         // Read from the store, so that a database that can't be reached shows up here.
         const position = yield* Effect.orDie(store.head)
@@ -108,8 +122,13 @@ const AuthHandlers = HttpApiBuilder.group(Api, "auth", (handlers) =>
   Effect.gen(function*() {
     const tokens = yield* Tokens
     const accounts = yield* Accounts
-    return handlers.handle("join", ({ payload }) =>
+    const limiter = yield* RateLimiter
+    return handlers.handle("join", ({ payload, request }) =>
       Effect.gen(function*() {
+        // Behind Render's proxy the client is the first address it forwards.
+        const forwarded = request.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+        const address = forwarded ?? Option.getOrElse(request.remoteAddress, () => "unknown")
+        yield* limiter.take(`join:${address}`, limits.joinsPerAddressPerMinute, "1 minute")
         if (payload.adminCode !== undefined && !tokens.isAdminCode(payload.adminCode)) {
           return yield* new WrongAdminCode()
         }
@@ -118,7 +137,10 @@ const AuthHandlers = HttpApiBuilder.group(Api, "auth", (handlers) =>
           nickname: payload.nickname,
           role: payload.adminCode === undefined ? "participant" : "admin"
         }
-        yield* Effect.orDie(accounts.commands.openAccount(user.id, { nickname: user.nickname }))
+        yield* accounts.commands.openAccount(user.id, { nickname: user.nickname }).pipe(
+          Metadata.withMetadata({ actor: user.id }),
+          Effect.orDie
+        )
         return { token: yield* tokens.issue(user), user }
       }))
   }))
@@ -134,6 +156,7 @@ const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
     const ledgers = yield* LedgerStore
     const orderList = yield* OrdersStore
     const forgetting = yield* Effect.context<PersonalData.Keys | EventStore.EventStore>()
+    const limiter = yield* RateLimiter
 
     const balanceOf = (id: string) => Effect.map(Effect.orDie(accounts.readModel(id)), (state) => state.balance)
 
@@ -171,6 +194,7 @@ const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
       .handle("deposit", ({ payload }) =>
         Effect.gen(function*() {
           const user = yield* CurrentUser
+          yield* limiter.take(`deposit:${user.id}`, limits.depositsPerMinute, "1 minute")
           const result = yield* accounts.commands.deposit(user.id, payload).pipe(expecting("AccountNotOpen"))
           return { position: result.position, balance: yield* balanceOf(user.id) }
         }))
@@ -291,7 +315,13 @@ const AdminHandlers = HttpApiBuilder.group(Api, "admin", (handlers) =>
     const products = yield* Products
     const bot = yield* Bot
     const simulator = yield* Simulator
+    const chaos = yield* Chaos
+    const viewModels = yield* ViewModel.ViewModels
+    const measures = yield* Effect.context<
+      Live | EventStore.EventStore | ViewModel.ViewModels | ParticipantsStore | BooksStore | OrdersStore
+    >()
     return handlers
+      .handle("metrics", () => asAdmin(Effect.provideContext(metrics, measures)))
       .handle("restock", ({ params: { productId }, payload: { quantity } }) =>
         asAdmin(
           products.commands.restock(productId, { quantity }).pipe(
@@ -301,9 +331,27 @@ const AdminHandlers = HttpApiBuilder.group(Api, "admin", (handlers) =>
           )
         ))
       .handle("configureBot", ({ payload }) => asAdmin(bot.configure(payload)))
-      .handle("runBot", () => asAdmin(bot.runNow))
+      .handle("breakNextOrder", () => asAdmin(Effect.map(chaos.breakNext, (pending) => ({ pending }))))
+      .handle("replay", ({ payload: { viewModel } }) =>
+        asAdmin(viewModels.replay({ viewModels: [viewModel] }).pipe(Effect.orDie)))
+      .handle("runBot", () =>
+        asAdmin(bot.runNow))
       .handle("simulator", () => asAdmin(simulator.status))
       .handle("configureSimulator", ({ payload }) => asAdmin(simulator.configure(payload)))
+  }))
+
+const LiveHandlers = HttpApiBuilder.group(Api, "live", (handlers) =>
+  Effect.gen(function*() {
+    // The streams run for as long as the client listens, with the services of the server.
+    const context = yield* Effect.context<
+      Live | Spans | EventStore.EventStore | ViewModel.ViewModels | ParticipantsStore | BooksStore | OrdersStore
+    >()
+    return handlers
+      .handle("events", () =>
+        CurrentUser.use((user) =>
+          Effect.succeed(sseResponse(publicStream(user).pipe(Stream.provideContext(context))))
+        ))
+      .handle("control", () => asAdmin(Effect.succeed(sseResponse(controlStream.pipe(Stream.provideContext(context))))))
   }))
 
 /** Every group of the API, needing the bank's and the shop's services and the authorization middleware. */
@@ -313,7 +361,8 @@ export const Handlers = Layer.mergeAll(
   MeHandlers,
   BankHandlers,
   ShopHandlers,
-  AdminHandlers
+  AdminHandlers,
+  LiveHandlers
 ).pipe(
   Layer.provideMerge(AuthorizationLayer)
 )

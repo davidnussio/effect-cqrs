@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "../../../devtools";
+@source "../../../bank-ui/src/components/ui.tsx";
 
 @theme {
   --font-sans: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;

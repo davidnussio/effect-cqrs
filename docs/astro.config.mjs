@@ -142,7 +142,7 @@ export default defineConfig({
           items: ["example/bank", { label: "Live demo", link: "/demo/" }, {
             label: "Tutorial demo",
             link: "/shop-demo/"
-          }]
+          }, "example/workshop"]
         },
         {
           label: "Reference",

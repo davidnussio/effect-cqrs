@@ -5,8 +5,10 @@ use it from their phones while a big screen shows what happens inside. The plan,
 Italian, is in [PLAN.md](PLAN.md). So far it has the bank and the shop: participants
 join with a nickname, add money, send it to each other, buy from a shared catalog
 with real stock, wait in a queue for what is sold out, and close their account,
-which forgets their nickname. A bot restocks the shop, and simulated shoppers keep
-it busy when the room is quiet.
+which forgets their nickname. A bot restocks the shop, simulated shoppers keep it
+busy when the room is quiet, and a control room on the projector shows who is in,
+every event as it is stored, the measures, the trace and personal data before and
+after it is forgotten.
 
 | Path | What it is |
 | --- | --- |
@@ -15,11 +17,16 @@ it busy when the room is quiet.
 | `domain/bank.ts` | The account service, the transfer saga and the view models |
 | `domain/shop.ts` | The product and order aggregates, the order sagas and the shop's view models |
 | `domain/automation.ts` | The restock bot and the simulated shoppers |
+| `domain/workshop.ts` | The bank and the shop together, with every view model in one layer |
 | `server/auth.ts` | The tokens the server issues |
 | `server/http.ts` | The handlers of the API |
+| `server/live.ts` | The live streams: events, presence, metrics, spans, and the AsyncAPI document |
+| `server/limits.ts` | The rate limits |
 | `server/main.ts` | The server: configuration, storage, Swagger |
 | `server/vite.config.ts` | Bundles the server into one file for the Docker image |
-| `ui/` | The UI, a Vite and React app |
+| `ui/` | The UI, a Vite and React app, and the control room at `#sala` |
+| `load.ts` | The rehearsal: many virtual participants at once |
+| `reset.ts` | Empties the database |
 | `Dockerfile` | The image Render runs, built from the root of the repository |
 
 `render.yaml` and `vercel.json` at the root of the repository deploy it, and
@@ -52,7 +59,7 @@ server named by `VITE_API_URL`.
 | `GET /health` | Says the server is up, and reads the position of the log from the store |
 | `POST /auth/join` | Opens an account for a nickname and returns a token for it |
 | `GET /me` | The caller's account |
-| `POST /me/deposit` | Adds up to 100 |
+| `POST /me/deposit` | Adds up to 100, 10 times a minute |
 | `POST /me/transfers` | Sends money to another participant |
 | `GET /me/ledger` | The caller's movements |
 | `POST /me/close` | Pays out the balance, closes the account and forgets the nickname |
@@ -67,6 +74,12 @@ server named by `VITE_API_URL`.
 | `POST /admin/bot/run` | Makes the bot run now. Admin only |
 | `GET /admin/simulator` | What the simulated shoppers do. Admin only |
 | `PATCH /admin/simulator` | Starts, stops or tunes them. Admin only |
+| `POST /admin/chaos/break-next-order` | Makes the next order fail after payment, so the saga refunds it. Admin only |
+| `POST /admin/replay` | Rebuilds a view model from the log. Admin only |
+| `GET /admin/metrics` | The control room's measures, once. Admin only |
+| `GET /stream/events` | Server-Sent Events: events with personal fields hidden, and presence |
+| `GET /stream/control` | Server-Sent Events: everything the control room shows. Admin only |
+| `GET /asyncapi.json` | The AsyncAPI 3 document of the events and the two streams |
 | `GET /docs` | Swagger UI |
 | `GET /openapi.json` | The OpenAPI document |
 
@@ -109,6 +122,80 @@ and then cancel. Their accounts have fixed ids, so a restart finds the same ones
 Both are tuned from the **Regia** tab, which only the presenter sees. Settings live
 in memory and go back to the defaults when the server restarts.
 
+## Live streams and the control room
+
+The server follows the log once and sends each event on two Server-Sent Events
+streams. On `/stream/events` the personal fields read `[personal]`; on
+`/stream/control`, for the presenter, they are decrypted, next to the payload as the
+store keeps it, encrypted. Each event carries its `actor`: the participant's id for
+what they did through the API, `bot`, `simulator` or `presenter`. Events without one
+come from a saga, and share the `correlationId` of the request that started it.
+
+Opening `/stream/events` counts as being in the room: presence goes up with the first
+tab and down when the last one closes. The control stream also sends the metrics
+every second and the spans as they end, leaving out SQL statements, CORS preflights
+and the streams themselves.
+
+`EventSource` can't send a token, so the UI opens the streams with Effect's HTTP
+client and parses them with `Sse.decode`, reconnecting with a growing delay. The
+participants' screens read their data again whenever the log moves.
+
+The presenter opens the control room from the **Regia** tab, or at `#sala`. It shows
+who is in, the log as it grows, coloured by correlation, the measures, the shelves
+and the queues, the trace, and personal data: the nickname as the log keeps it,
+encrypted, and the moment its key is destroyed. It also checks that the money adds
+up: the participants' balances, from one view model, against the books, another
+one folded from the same events, and says when they can't be compared because one
+is behind. Its buttons break the next order after payment, so the saga shows its
+compensation, and rebuild a view model from the log.
+
+`/asyncapi.json` describes the events of the three aggregates, from
+`EventCatalog.document`, and the two streams. It opens in
+[AsyncAPI Studio](https://studio.asyncapi.com/) by URL.
+
+## Limits
+
+Deposits are limited to 10 a minute per participant, and joins to 120 a minute per
+address, which leaves room for a classroom behind one router. Both answer `429`.
+
+## Rehearsal and reset
+
+`pnpm workshop:load` plays many participants at once through the typed client: each
+joins, opens the live stream and deposits, buys and sends money for a while. It ends
+with how long each call took, what the domain refused, and, given `ADMIN_CODE`,
+whether the books balance and the view models caught up.
+
+```bash
+ADMIN_CODE=prova LOAD_PARTICIPANTS=50 LOAD_SECONDS=60 pnpm workshop:load
+```
+
+To rehearse against something as small as Render's free plan, run the image with
+its limits:
+
+```bash
+docker run --rm --cpus 0.1 --memory 512m -p 3000:3000 -e ADMIN_CODE=prova \
+  -e AUTH_SECRET=... -e PERSONAL_DATA_MASTER_KEY_ID=k -e PERSONAL_DATA_MASTER_KEY=... \
+  -e POSTGRES_URL=... effect-cqrs-workshop
+```
+
+With 50 participants for 60 seconds, against the image with Postgres:
+
+| CPU | Screen read p50 / p95 | Order p50 / p95 |
+| --- | --- | --- |
+| 1, a laptop | 6 / 39 ms | 7 / 18 ms |
+| 0.5, Render Starter | 66 / 196 ms | 16 / 120 ms |
+| 0.1, Render free | 6 s / 60 s | 6 s / 48 s |
+
+None of them lost a call, and every time the books balanced and the view models
+caught up: the tenth of a CPU is simply too little.
+
+`pnpm workshop:reset` drops the framework's tables, events and keys alike, so the
+next start is a clean one. Stop the server first; it asks for `RESET=yes`:
+
+```bash
+RESET=yes POSTGRES_URL=... pnpm workshop:reset
+```
+
 ## Authentication
 
 The server issues its own tokens: there is no identity provider. `/auth/join` makes
@@ -145,6 +232,11 @@ without `AUTH_SECRET` and the master key.
 Everything runs on free plans: Supabase for Postgres, Render for the server and
 Vercel for the UI. Set them up in this order, since each needs the address of the
 one before.
+
+Render's free instance has a tenth of a CPU, which is enough for the demo online and
+a few people at a time, but not for a room: with 50 phones reading their screens,
+calls take seconds. For the workshop itself, run the server on a laptop behind a
+Cloudflare tunnel, as described in "The laptop", with the same database.
 
 ### 1. Supabase
 
@@ -189,10 +281,12 @@ minute to wake up: the UI says so while it waits.
 
 Vercel skips a build when a push changes nothing the UI uses.
 
-### Plan B: the laptop
+### The laptop
 
-If Render misbehaves on the day, run the same image on a laptop and expose it with a
-Cloudflare quick tunnel, which needs no account:
+For the workshop, run the same image on a laptop and expose it with a Cloudflare
+quick tunnel, which needs no account. Give it the variables Render has, so it uses
+the same database, and suspend the Render service meanwhile: two servers on one
+database would both run the bot and the sagas.
 
 ```bash
 docker build -f examples/workshop/Dockerfile -t effect-cqrs-workshop .

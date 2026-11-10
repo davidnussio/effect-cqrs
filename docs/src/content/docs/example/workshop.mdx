@@ -1,0 +1,72 @@
+---
+title: The workshop demo
+description: A bank and a shop on a real server, for a room full of phones and a projector.
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import shop from "../../../../../examples/workshop/domain/shop.ts?raw"
+import { region } from "../../../source.ts"
+
+export const shopFile = "examples/workshop/domain/shop.ts"
+
+The [bank demo](../bank/) runs in the browser, for one person. The workshop demo runs
+the framework on a server, for a room: participants join from their phones, and a
+control room on the projector shows what the system does while they use it. Its code
+is in [`examples/workshop`](https://github.com/davidnussio/effect-cqrs/tree/main/examples/workshop),
+and its README says how to run it and put it online on free plans.
+
+## What the participants do
+
+- They join with a nickname, which is personal data: the framework encrypts it with a
+  key of their own.
+- They add money to their account and send it to each other. A transfer touches two
+  accounts, so a saga completes it, and refunds the sender when the other account has
+  closed.
+- They buy from a shared catalog with real stock, paying from their account. When a
+  product is sold out they can wait in its queue, and cancel for a refund until the
+  goods arrive.
+- They close their account: the balance is paid out, and the key of their nickname is
+  destroyed. The events stay, and the nickname reads `[forgotten]`.
+
+A bot restocks the shop, and simulated shoppers keep it busy when the room is quiet.
+Both go through the same aggregate services as the HTTP API and sign their events.
+
+## Two orders, one piece
+
+The queue lives in the product aggregate. Restocking hands goods to the waiting
+orders in the same command, in order of arrival, so two orders can't get the same
+piece, and while a queue exists newcomers join it rather than take goods ahead of it:
+
+<Code code={region(shop, "allocate")} lang="ts" title={shopFile} />
+
+An order touches the account, the product and itself, so a saga carries it. Each step
+does nothing the second time, so the saga can run again after a restart. The presenter
+can make the next order break after it is paid, and the room watches the saga give
+the money back:
+
+<Code code={region(shop, "checkout")} lang="ts" title={shopFile} />
+
+<Aside>
+  The tests in [`test/Workshop.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/test/Workshop.test.ts)
+  send twenty buyers after the last piece at once: one gets it, nineteen get their money back.
+</Aside>
+
+## The control room
+
+The server follows the log once and sends each event on two Server-Sent Events
+streams. The participants' stream hides personal fields; the presenter's stream shows
+them decrypted, next to the payload as the store keeps it, encrypted. Each event
+carries who caused it and the correlation of the request it follows from, so a saga's
+steps line up behind the click that started them.
+
+The control room also checks that the money adds up. The participants' balances come
+from one view model, the books from another, both folded from the same events. When
+the two are at the same position their totals must agree, and while one is behind the
+room says so instead of guessing: eventual consistency on the projector.
+
+Everything the streams send is described in an AsyncAPI 3 document, built from the
+aggregates with `EventCatalog.document`, and the REST API in OpenAPI, built from the
+same `HttpApi` the UI calls through a typed client. See the
+[source](https://github.com/davidnussio/effect-cqrs/tree/main/examples/workshop) and
+its [`README`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/workshop/README.md).
+

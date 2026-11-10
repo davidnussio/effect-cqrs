@@ -13,7 +13,7 @@ import * as Aggregate from "effect-cqrs/Aggregate"
 import * as AggregateService from "effect-cqrs/AggregateService"
 import * as Saga from "effect-cqrs/Saga"
 import * as ViewModel from "effect-cqrs/ViewModel"
-import { WorkflowEngine } from "effect/workflow"
+import { Activity, WorkflowEngine } from "effect/workflow"
 import { AccountNotOpen, Amount, InsufficientFunds } from "./account.ts"
 import { Accounts } from "./bank.ts"
 
@@ -81,6 +81,7 @@ const initialProduct: ProductState = {
   handled: []
 }
 
+// #region allocate
 /**
  * Hands the available goods to the queue in order. The first order that doesn't
  * fit stops it: a small order behind it doesn't jump the queue.
@@ -94,6 +95,8 @@ const allocate = (available: number, queue: ReadonlyArray<Waiting>): ReadonlyArr
   }
   return events
 }
+
+// #endregion
 
 const leaveQueue = (queue: ReadonlyArray<Waiting>, orderId: string) =>
   queue.filter((waiting) => waiting.orderId !== orderId)
@@ -311,8 +314,31 @@ export const reasons = {
   insufficientFunds: "saldo insufficiente",
   accountClosed: "conto chiuso",
   outOfStock: "esaurito",
-  cancelled: "annullato dal cliente"
+  cancelled: "annullato dal cliente",
+  warehouse: "guasto in magazzino (simulato)"
 } as const
+
+/**
+ * The presenter's way to break things on purpose: the next orders fail after
+ * they are paid, so the room sees the saga give the money back.
+ */
+export class Chaos extends Context.Service<Chaos, {
+  /** Breaks one more order, and says how many will break. */
+  readonly breakNext: Effect.Effect<number>
+  /** Whether this order breaks, using up one if so. */
+  readonly consume: Effect.Effect<boolean>
+  readonly pending: Effect.Effect<number>
+}>()("workshop/Chaos") {
+  static readonly layer = Layer.effect(
+    Chaos,
+    Effect.map(Ref.make(0), (broken) =>
+      Chaos.of({
+        breakNext: Ref.updateAndGet(broken, (n) => n + 1),
+        consume: Ref.modify(broken, (n) => n > 0 ? [true, n - 1] : [false, 0]),
+        pending: Ref.get(broken)
+      }))
+  )
+}
 
 /** Takes an order from placed to fulfilled, backordered or rejected with its money back. */
 export const Checkout = Saga.workflow("Checkout", {
@@ -327,6 +353,7 @@ export const Checkout = Saga.workflow("Checkout", {
   idempotencyKey: ({ orderId }) => orderId
 })
 
+// #region checkout
 const CheckoutWorkflow = Saga.toLayer(
   Checkout,
   ({ backorder, customer, orderId, productId, quantity, total }) =>
@@ -334,6 +361,7 @@ const CheckoutWorkflow = Saga.toLayer(
       const accounts = yield* Accounts
       const products = yield* Products
       const orders = yield* Orders
+      const chaos = yield* Chaos
 
       const reject = (reason: string) =>
         Saga.command("reject", { execute: orders.commands.reject(orderId, { reason }) })
@@ -354,6 +382,13 @@ const CheckoutWorkflow = Saga.toLayer(
       if (!paid) return
       yield* Saga.command("mark-paid", { execute: orders.commands.markPaid(orderId, {}) })
 
+      // An activity, so a saga that runs again after a restart decides the same way.
+      const broken = yield* Activity.make({ name: "warehouse", success: Schema.Boolean, execute: chaos.consume })
+      if (broken) {
+        yield* refund(reasons.warehouse)
+        return yield* reject(reasons.warehouse)
+      }
+
       const taken = yield* Saga.command("take", {
         error: OutOfStock,
         execute: products.commands.take(productId, { orderId, quantity })
@@ -370,6 +405,8 @@ const CheckoutWorkflow = Saga.toLayer(
       }
     })
 )
+
+// #endregion
 
 /** Delivers an order from the queue when goods arrive for it. */
 export const Fulfil = Saga.workflow("Fulfil", {
@@ -397,8 +434,9 @@ const RefundCancelledWorkflow = Saga.toLayer(RefundCancelled, ({ customer, order
     })
   }))
 
-const OrderSagas = Saga.make({
-  name: "orders",
+export const OrderSagas = Saga.make({
+  // Not "orders": a saga is a view model, and that name is the orders view model's checkpoint.
+  name: "order-sagas",
   aggregates: [Order],
   handlers: {
     OrderPlaced: ({ backorder, customer, productId, quantity, total }, { aggregateId }) =>
@@ -408,7 +446,7 @@ const OrderSagas = Saga.make({
   }
 })
 
-const ProductSagas = Saga.make({
+export const ProductSagas = Saga.make({
   name: "backorders",
   aggregates: [Product],
   handlers: {
@@ -416,7 +454,7 @@ const ProductSagas = Saga.make({
   }
 })
 
-const ShopSagas = Saga.layer([OrderSagas, ProductSagas]).pipe(
+export const ShopSagas = Saga.layer([OrderSagas, ProductSagas]).pipe(
   Layer.provideMerge(Layer.mergeAll(CheckoutWorkflow, FulfilWorkflow, RefundCancelledWorkflow)),
   Layer.provide(WorkflowEngine.layerMemory)
 )
@@ -600,16 +638,12 @@ export const seedCatalog = Products.use((products) =>
   )
 )
 
-/**
- * The shop, on top of the bank: its two aggregates, view models and sagas. Its
- * view models and sagas keep their checkpoints in memory, as the bank's do.
- */
-export const ShopLive = Layer.mergeAll(ViewModel.layer([CatalogView, OrdersView]), ShopSagas).pipe(
-  Layer.provideMerge(
-    Layer.mergeAll(
-      Layer.effect(Products, AggregateService.make(Product)),
-      Layer.effect(Orders, AggregateService.make(Order))
-    )
-  ),
-  Layer.provideMerge(Layer.mergeAll(CatalogStore.layer, OrdersStore.layer))
+/** The shop's view models. `domain/workshop.ts` runs them with the bank's. */
+export const shopViews = [CatalogView, OrdersView] as const
+
+export const ShopStores = Layer.mergeAll(CatalogStore.layer, OrdersStore.layer)
+
+export const ShopServices = Layer.mergeAll(
+  Layer.effect(Products, AggregateService.make(Product)),
+  Layer.effect(Orders, AggregateService.make(Order))
 )

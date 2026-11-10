@@ -5,7 +5,6 @@
 import { Context, DateTime, Effect, Layer, Ref, Schema } from "effect"
 import type { EventMeta } from "effect-cqrs/Aggregate"
 import * as AggregateService from "effect-cqrs/AggregateService"
-import * as Checkpoints from "effect-cqrs/Checkpoints"
 import * as Saga from "effect-cqrs/Saga"
 import * as ViewModel from "effect-cqrs/ViewModel"
 import { WorkflowEngine } from "effect/workflow"
@@ -44,7 +43,7 @@ const TransferWorkflow = Saga.toLayer(Transfer, ({ amount, from, to, transferId 
     )
   }))
 
-const Transfers = Saga.make({
+export const Transfers = Saga.make({
   name: "transfers",
   aggregates: [Account],
   handlers: {
@@ -208,13 +207,70 @@ export const LedgerView = ViewModel.make({
 export const ledgerOf = (accountId: string) =>
   LedgerStore.use((store) => Effect.map(Ref.get(store), (ledgers) => ledgers.get(accountId) ?? []))
 
+// ---------------------------------------------------------------------------
+// Books
+// ---------------------------------------------------------------------------
+
 /**
- * The bank: the account service, its view models and the transfer saga. It needs
- * an event store and the keys of personal data. View models and the saga keep
- * their checkpoints in memory, so they rebuild from the log on every start, which
- * takes moments for a workshop's worth of events.
+ * Where the money went, counted by kind of movement. It is folded apart from the
+ * participants' balances on purpose: the control room checks that both agree.
  */
-export const BankLive = Layer.mergeAll(ViewModel.layer([ParticipantsView, LedgerView]), TransferSaga).pipe(
-  Layer.provideMerge(Layer.effect(Accounts, AggregateService.make(Account))),
-  Layer.provideMerge(Layer.mergeAll(ParticipantsStore.layer, LedgerStore.layer, Checkpoints.layerMemory))
-)
+export const Books = Schema.Struct({
+  deposited: Schema.Number,
+  withdrawn: Schema.Number,
+  /** Paid for orders, and given back for orders cancelled or not delivered. */
+  purchases: Schema.Number,
+  purchaseRefunds: Schema.Number,
+  transfersSent: Schema.Number,
+  transfersReceived: Schema.Number,
+  transfersRefunded: Schema.Number
+})
+export type Books = typeof Books.Type
+
+export const emptyBooks: Books = {
+  deposited: 0,
+  withdrawn: 0,
+  purchases: 0,
+  purchaseRefunds: 0,
+  transfersSent: 0,
+  transfersReceived: 0,
+  transfersRefunded: 0
+}
+
+export class BooksStore extends Context.Service<BooksStore, Ref.Ref<Books>>()("workshop/BooksStore") {
+  static readonly layer = Layer.effect(BooksStore, Ref.make(emptyBooks))
+}
+
+const add = (key: keyof Books) => ({ amount }: { readonly amount: number }) =>
+  BooksStore.use((store) => Ref.update(store, (books) => ({ ...books, [key]: books[key] + amount })))
+
+export const BooksView = ViewModel.make({
+  name: "books",
+  aggregates: [Account],
+  dispose: BooksStore.use((store) => Ref.set(store, emptyBooks)),
+  handlers: {
+    MoneyDeposited: add("deposited"),
+    MoneyWithdrawn: add("withdrawn"),
+    PurchasePaid: add("purchases"),
+    PurchaseRefunded: add("purchaseRefunds"),
+    TransferSent: add("transfersSent"),
+    TransferReceived: add("transfersReceived"),
+    TransferRefunded: add("transfersRefunded")
+  }
+})
+
+/** What the participants' balances should add up to, according to the books. */
+export const expectedBalances = (books: Books) =>
+  books.deposited - books.withdrawn - (books.purchases - books.purchaseRefunds) -
+  (books.transfersSent - books.transfersReceived - books.transfersRefunded)
+
+// ---------------------------------------------------------------------------
+// Wiring
+// ---------------------------------------------------------------------------
+
+/** The bank's view models. `domain/workshop.ts` runs them with the shop's. */
+export const bankViews = [ParticipantsView, LedgerView, BooksView] as const
+
+export const BankStores = Layer.mergeAll(ParticipantsStore.layer, LedgerStore.layer, BooksStore.layer)
+
+export const AccountsLive = Layer.effect(Accounts, AggregateService.make(Account))

@@ -1,9 +1,10 @@
 import { DateTime } from "effect"
-import { type FormEvent, useCallback, useEffect, useState } from "react"
+import { type FormEvent, useCallback, useState } from "react"
 import type { Me, Session } from "../../api.ts"
 import { maxDeposit } from "../../domain/account.ts"
 import type { LedgerEntry, Participant } from "../../domain/bank.ts"
 import { call, type Outcome, session } from "./client.ts"
+import { useLiveRefresh, useRoom } from "./live.ts"
 import { Avatar, Button, Card, credits, inputClass } from "./ui.tsx"
 
 interface Data {
@@ -47,12 +48,10 @@ export const BankScreen = ({ session: current }: { readonly session: Session }) 
     else setNotice({ tone: "error", text: outcome.message })
   }, [])
 
-  // No streams yet: poll, and read again right after each command.
-  useEffect(() => {
-    void refresh()
-    const timer = setInterval(() => void refresh(), 2000)
-    return () => clearInterval(timer)
-  }, [refresh])
+  // Reads again when the log moves, as the live stream reports it.
+  useLiveRefresh(refresh)
+  const { presence } = useRoom()
+  const online = new Set(presence?.online.map((person) => person.id))
 
   const run = async <A extends { readonly position: number }>(
     command: () => Promise<Outcome<A>>,
@@ -165,7 +164,15 @@ export const BankScreen = ({ session: current }: { readonly session: Session }) 
               key={participant.id}
               className={`flex items-center gap-3 ${participant.status === "closed" ? "opacity-40" : ""}`}
             >
-              <Avatar id={participant.id} nickname={participant.nickname} />
+              <span className="relative">
+                <Avatar id={participant.id} nickname={participant.nickname} />
+                {online.has(participant.id) && (
+                  <span
+                    title="in sala"
+                    className="absolute -right-0.5 -bottom-0.5 size-3 rounded-full border-2 border-panel bg-emerald-400"
+                  />
+                )}
+              </span>
               <span className="min-w-0 flex-1 truncate text-sm">
                 {participant.nickname}
                 {participant.id === current.user.id && <span className="text-zinc-500">(tu)</span>}

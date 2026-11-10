@@ -14,7 +14,7 @@ import {
   SameAccountTransfer
 } from "./domain/account.ts"
 import { BotSettings, BotStatus, SimulatorSettings, SimulatorStatus } from "./domain/automation.ts"
-import { LedgerEntry, Participant } from "./domain/bank.ts"
+import { Books, LedgerEntry, Participant } from "./domain/bank.ts"
 import { CatalogProduct, OrderNotCancellable, OrderQuantity, ProductNotFound, ShopOrder } from "./domain/shop.ts"
 
 // ---------------------------------------------------------------------------
@@ -34,10 +34,15 @@ export const Health = Schema.Struct({
 })
 export type Health = typeof Health.Type
 
-export const System = HttpApiGroup.make("system").add(
-  HttpApiEndpoint.get("health", "/health", { success: Health })
-    .annotate(OpenApi.Summary, "Says the server is up and can reach the event store")
-)
+export const System = HttpApiGroup.make("system")
+  .add(
+    HttpApiEndpoint.get("health", "/health", { success: Health })
+      .annotate(OpenApi.Summary, "Says the server is up and can reach the event store")
+  )
+  .add(
+    HttpApiEndpoint.get("asyncapi", "/asyncapi.json", { success: Schema.Json })
+      .annotate(OpenApi.Summary, "The AsyncAPI 3 document of the events and of the live streams")
+  )
 
 // ---------------------------------------------------------------------------
 // Authentication
@@ -70,6 +75,11 @@ export class Authorization extends HttpApiMiddleware.Service<Authorization, {
   error: Unauthorized
 }) {}
 
+/** A limit that keeps one client from flooding a demo open to anyone. */
+export class TooManyRequests extends Schema.TaggedError<TooManyRequests>()("TooManyRequests", {
+  retryAfterSeconds: Schema.Number
+}, { httpApiStatus: 429 }) {}
+
 export class WrongAdminCode extends Schema.TaggedError<WrongAdminCode>()("WrongAdminCode", {}, {
   httpApiStatus: 403
 }) {}
@@ -89,7 +99,7 @@ export const Auth = HttpApiGroup.make("auth").add(
       adminCode: Schema.optionalKey(Schema.String)
     }),
     success: Session,
-    error: WrongAdminCode
+    error: [WrongAdminCode, TooManyRequests]
   }).annotate(OpenApi.Summary, "Opens an account and returns a token for it")
 )
 
@@ -140,8 +150,8 @@ export const MyAccount = HttpApiGroup.make("me")
     HttpApiEndpoint.post("deposit", "/me/deposit", {
       payload: Schema.Struct({ amount: DepositAmount }),
       success: Receipt,
-      error: AccountNotOpen
-    }).annotate(OpenApi.Summary, "Adds money, up to 100 at a time")
+      error: [AccountNotOpen, TooManyRequests]
+    }).annotate(OpenApi.Summary, "Adds money, up to 100 at a time and 10 times a minute")
   )
   .add(
     HttpApiEndpoint.post("transfer", "/me/transfers", {
@@ -228,6 +238,103 @@ const patchOf = <F extends Schema.Struct.Fields>(schema: Schema.Struct<F>) =>
   )
 
 // ---------------------------------------------------------------------------
+// Live messages
+// ---------------------------------------------------------------------------
+
+/**
+ * An event as the live streams send it. Times are ISO strings, so the messages
+ * are plain JSON on both sides.
+ */
+export const LiveEvent = Schema.Struct({
+  position: Schema.Number,
+  aggregate: Schema.String,
+  aggregateId: Schema.String,
+  version: Schema.Number,
+  type: Schema.String,
+  timestamp: Schema.String,
+  /** Who caused it: a participant's id, `bot`, `simulator` or `presenter`. */
+  actor: Schema.optionalKey(Schema.String),
+  correlationId: Schema.NullOr(Schema.String),
+  causationId: Schema.NullOr(Schema.String),
+  /**
+   * The payload. On the public stream personal fields read `[personal]`; on the
+   * control stream they are decrypted, or read `[forgotten]`.
+   */
+  payload: Schema.Json,
+  /** Control stream only: the payload as the store keeps it, personal fields encrypted. */
+  stored: Schema.optionalKey(Schema.Json)
+})
+export type LiveEvent = typeof LiveEvent.Type
+
+export const Presence = Schema.Struct({
+  online: Schema.Array(Schema.Struct({
+    id: Schema.String,
+    nickname: Schema.String,
+    since: Schema.String,
+    /** Open tabs. */
+    connections: Schema.Number
+  })),
+  /** Who joined or left last, newest first. */
+  changes: Schema.Array(Schema.Struct({
+    kind: Schema.Literals(["joined", "left"]),
+    id: Schema.String,
+    nickname: Schema.String,
+    at: Schema.String
+  }))
+})
+export type Presence = typeof Presence.Type
+
+export const CommandTiming = Schema.Struct({
+  aggregate: Schema.String,
+  command: Schema.String,
+  /** `success`, or the tag of the error. */
+  outcome: Schema.String,
+  count: Schema.Number,
+  totalMs: Schema.Number,
+  maxMs: Schema.Number
+})
+export type CommandTiming = typeof CommandTiming.Type
+
+export const Metrics = Schema.Struct({
+  at: Schema.String,
+  /** The position of the last event in the log. */
+  position: Schema.Number,
+  connections: Schema.Number,
+  commands: Schema.Array(CommandTiming),
+  viewModels: Schema.Array(Schema.Struct({
+    name: Schema.String,
+    position: Schema.Number,
+    /** How many positions behind the log it is. */
+    lag: Schema.Number,
+    error: Schema.optionalKey(Schema.String)
+  })),
+  /** Orders by status. */
+  orders: Schema.Record(Schema.String, Schema.Number),
+  books: Books,
+  /** The participants' balances added up, from their own view model. */
+  balances: Schema.Number,
+  /**
+   * Whether the balances agree with the books: `catching-up` while the two view
+   * models are at different positions, so they can't be compared yet.
+   */
+  invariant: Schema.Literals(["ok", "catching-up", "broken"]),
+  memoryMb: Schema.Number
+})
+export type Metrics = typeof Metrics.Type
+
+export const SpanEntry = Schema.Struct({
+  spanId: Schema.String,
+  traceId: Schema.String,
+  parentId: Schema.UndefinedOr(Schema.String),
+  name: Schema.String,
+  start: Schema.Number,
+  end: Schema.UndefinedOr(Schema.Number),
+  attributes: Schema.Record(Schema.String, Schema.Unknown),
+  status: Schema.Literals(["running", "ok", "error"]),
+  error: Schema.optionalKey(Schema.String)
+})
+
+// ---------------------------------------------------------------------------
 // The presenter's controls
 // ---------------------------------------------------------------------------
 
@@ -252,6 +359,28 @@ export const Admin = HttpApiGroup.make("admin")
       .annotate(OpenApi.Summary, "Makes the bot look at the shelves now. Admin only")
   )
   .add(
+    HttpApiEndpoint.get("metrics", "/admin/metrics", { success: Metrics, error: Forbidden })
+      .annotate(OpenApi.Summary, "The control room's measures, once. Admin only")
+  )
+  .add(
+    HttpApiEndpoint.post("breakNextOrder", "/admin/chaos/break-next-order", {
+      success: Schema.Struct({ pending: Schema.Number }),
+      error: Forbidden
+    }).annotate(
+      OpenApi.Summary,
+      "Makes the next order fail after it is paid, so the saga refunds it. Admin only"
+    )
+  )
+  .add(
+    HttpApiEndpoint.post("replay", "/admin/replay", {
+      payload: Schema.Struct({
+        viewModel: Schema.Literals(["participants", "ledger", "books", "catalog", "orders"])
+      }),
+      success: Schema.Struct({ viewModels: Schema.Array(Schema.String), eventCount: Schema.Number }),
+      error: Forbidden
+    }).annotate(OpenApi.Summary, "Throws a view model away and rebuilds it from the log. Admin only")
+  )
+  .add(
     HttpApiEndpoint.get("simulator", "/admin/simulator", { success: SimulatorStatus, error: Forbidden })
       .annotate(OpenApi.Summary, "What the simulated shoppers do. Admin only")
   )
@@ -264,6 +393,32 @@ export const Admin = HttpApiGroup.make("admin")
   )
   .middleware(Authorization)
 
+// ---------------------------------------------------------------------------
+// Live streams
+// ---------------------------------------------------------------------------
+
+/** Both streams are Server-Sent Events: each message's `event` names one of the schemas above. */
+export const Live = HttpApiGroup.make("live")
+  .add(
+    HttpApiEndpoint.get("events", "/stream/events", { success: Schema.String })
+      .annotate(OpenApi.Summary, "Live events and presence")
+      .annotate(
+        OpenApi.Description,
+        "Server-Sent Events: `event` for each event stored, personal fields hidden, and `presence` when someone " +
+          "joins or leaves. Opening it counts as being in the room. See /asyncapi.json"
+      )
+  )
+  .add(
+    HttpApiEndpoint.get("control", "/stream/control", { success: Schema.String, error: Forbidden })
+      .annotate(OpenApi.Summary, "Everything the control room shows. Admin only")
+      .annotate(
+        OpenApi.Description,
+        "Server-Sent Events: `event` with personal fields decrypted and as stored, `presence`, `metrics` every " +
+          "second and `spans` as they end"
+      )
+  )
+  .middleware(Authorization)
+
 export class Api extends HttpApi.make("workshop-api")
   .add(System)
   .add(Auth)
@@ -271,5 +426,6 @@ export class Api extends HttpApi.make("workshop-api")
   .add(Bank)
   .add(Shop)
   .add(Admin)
-  .annotateMerge(OpenApi.annotations({ title: "effect-cqrs workshop", version: "0.4.0" }))
+  .add(Live)
+  .annotateMerge(OpenApi.annotations({ title: "effect-cqrs workshop", version: "0.5.0" }))
 {}

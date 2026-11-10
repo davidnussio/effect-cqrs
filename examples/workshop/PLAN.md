@@ -79,8 +79,9 @@ Valute vere, pagamenti veri, email, notifiche push, più istanze del server.
 | Tema | Scelta | Perché |
 |---|---|---|
 | Codice | `examples/workshop/` in questo repo: `domain/`, `server/`, `ui/`, `api.ts` condiviso | Usa il framework dai sorgenti, entra in `pnpm check`, un solo repo GitHub |
-| Backend | Container Node su **Render free** (Dockerfile), deploy automatico da GitHub | Gratuito e senza carta; saghe, bot e SSE vogliono un processo sempre acceso |
-| Piano B | Lo stesso container sul portatile dietro `cloudflared tunnel --url` | Gratuito, nessun limite di risorse, pronto se Render ha problemi |
+| Backend online | Container Node su **Render free** (Dockerfile), deploy automatico da GitHub | Gratuito e senza carta: va bene per la demo pubblica e per pochi utenti alla volta |
+| Backend del workshop | Lo stesso container sul **portatile** dietro `cloudflared tunnel --url` | Gratuito, una CPU vera: la prova di carico mostra che 0,1 CPU di Render free non regge una sala (vedi fase 9) |
+| Piano B | Render Starter (0,5 CPU) solo per il giorno, oppure Render free con pochi partecipanti | Starter regge 50 telefoni nella prova; si paga a giorni |
 | UI | Vite + React + Tailwind, statica su **Vercel Hobby** dallo stesso repo | Come `bank-ui`; gratuita |
 | Database | **Supabase free**, connessione dal **session pooler** (porta 5432) | Il transaction pooler non regge `LISTEN`; la connessione diretta è solo IPv6 |
 | Auth | Il server emette i suoi token: JWT HS256 firmati con WebCrypto e `AUTH_SECRET`, validi un giorno | Un click da telefono, nessuna password, nessun servizio esterno; funziona uguale in locale, su Render e col tunnel |
@@ -188,24 +189,48 @@ Ogni fase finisce con `pnpm check` e `pnpm test` verdi e con il deploy aggiornat
    azioni portano `actor` nei metadati degli eventi.
    *Fatto quando* il bot rifornisce da solo e si ferma e riparte dalla sala di
    controllo.
-6. **Tempo reale e AsyncAPI.** Hub con `PubSub`, tre stream SSE, presenze, metriche Effect
-   (`Metric`), tracer che pubblica le span, `/asyncapi.json`.
-   *Fatto quando* `curl -N` su ciascuno stream mostra eventi, presenze e metriche, e il
-   documento AsyncAPI passa la validazione.
-7. **UI partecipante.** Mobile first: conto e movimenti, ricarica, bonifico, catalogo,
-   ordini con stato in diretta, backorder e annullamento, chiusura del conto con la
-   conferma di cosa verrà cancellato.
+6. **Tempo reale e AsyncAPI.** *Fatta.* Un hub segue il log una volta per tutti e manda
+   ogni evento su due stream SSE: `/stream/events` per i partecipanti, con i dati
+   personali nascosti, e `/stream/control` per la regia, decifrato e con l'originale
+   cifrato, più metriche ogni secondo e span. Due stream invece di tre: quello
+   personale non serve, perché la UI rilegge i suoi dati quando il log avanza.
+   Presenze, metriche con l'invariante dei soldi (view model `books` contro
+   `participants`), `/asyncapi.json` da `EventCatalog.document` più i due stream. Tutti
+   i view model stanno in un solo layer, così `?position=` aspetta davvero tutti.
+   Il documento AsyncAPI non è passato da un validatore esterno: lo controllano i test.
+7. **UI partecipante.** *Fatta.* Mobile first: conto e movimenti, ricarica, bonifico,
+   catalogo, ordini con stato in diretta, backorder e annullamento, chiusura del conto
+   con la conferma di cosa verrà cancellato. Lo stream SSE si apre con il client HTTP di
+   Effect e `Sse.decode`, e si riconnette da solo; chi è in sala ha il pallino verde.
    *Fatto quando* tutto il flusso funziona da un telefono senza ricaricare la pagina.
-8. **Sala di controllo.** Presenze, flusso eventi con causazione, saldi e stock, code,
-   saghe, grafici delle metriche, trace, prima e dopo dei dati personali, bottoni di
-   R17. Pagine `/docs` e AsyncAPI raggiungibili dal menu.
+8. **Sala di controllo.** *Fatta*, su `#sala` o dalla scheda Regia. Presenze, log in
+   diretta colorato per correlazione con chi ha causato cosa, metriche e invariante,
+   scaffali e code, trace, prima e dopo dei dati personali. Bottoni: bot, simulatore,
+   "guasta il prossimo ordine" (la saga rimborsa), "ricostruisci un view model". Il
+   reset della demo non è un bottone: è `pnpm workshop:reset`, a server fermo.
    *Fatto quando* il simulatore muove tutti i pannelli e ogni bottone ha un effetto
    visibile.
-9. **Prova generale.** Prova di carico con il simulatore a 50 clienti su Render free;
-   limiti di richiesta; script di reset; runbook del giorno (sveglia Supabase, scalda
-   Render, piano B col tunnel); pagina nella documentazione.
-   *Fatto quando* la prova a 50 clienti regge 10 minuti senza errori e l'invariante dei
-   totali resta vero.
+9. **Prova generale.** *Fatta in locale.* `pnpm workshop:load` fa 50 telefoni virtuali:
+   entrano, tengono aperto lo stream, rileggono lo schermo ogni 2 secondi e ricaricano,
+   comprano e mandano soldi per 60 secondi. Limiti di 10 ricariche al minuto e 120
+   ingressi al minuto per indirizzo; `pnpm workshop:reset`; runbook qui sotto; pagina
+   "The workshop demo" nella documentazione.
+
+   Risultati sull'immagine Docker con Postgres, con la CPU limitata:
+
+   | CPU | Rilettura schermo p50 / p95 | Ordine p50 / p95 | Errori |
+   |---|---|---|---|
+   | 1, come un portatile | 6 / 39 ms | 7 / 18 ms | 0 |
+   | 0,5, come Render Starter | 66 / 196 ms | 16 / 120 ms | 0 |
+   | 0,1, come Render free | 6 s / 60 s | 6 s / 48 s | 0 |
+
+   In tutti e tre i casi i conti tornano e i view model sono allineati alla fine: il
+   limite è solo la CPU. Con 0,1 CPU anche 25 telefoni danno attese di secondi. Per
+   questo il server del workshop dal vivo gira sul portatile, vedi le decisioni.
+
+   La prova ha trovato un bug vero: la saga degli ordini si chiamava `orders` come il
+   view model degli ordini, e i due si spostavano a vicenda il checkpoint. Ora un test
+   controlla che i nomi siano tutti diversi.
 
 Le fasi 3 e 4 possono procedere insieme dopo la 2; la 7 e la 8 dopo la 6.
 
@@ -228,14 +253,51 @@ Le fasi 3 e 4 possono procedere insieme dopo la 2; la 7 e la 8 dopo la 6.
 **Vercel** (Hobby): root del repo, build `vite build examples/workshop/ui`, output
 `examples/workshop/ui/dist`. Una sola variabile: `VITE_API_URL`.
 
-**Il giorno prima.** Apri Supabase, così non va in pausa. Fai il reset della demo e una
-prova col simulatore. Tieni pronto sul portatile il container e `cloudflared`.
+### Il giorno del workshop
+
+**Il giorno prima**
+1. Apri la dashboard di Supabase, così il progetto non va in pausa.
+2. Metti in pausa il servizio su Render (Suspend) e fai
+   `RESET=yes POSTGRES_URL=... pnpm workshop:reset` dal portatile.
+3. Prova generale sul portatile, con il tunnel acceso:
+   `ADMIN_CODE=... LOAD_URL=https://<tunnel>.trycloudflare.com pnpm workshop:load`.
+   Deve finire con `books: ok` e nessun fallimento. Poi resetta di nuovo.
+4. Costruisci l'immagine sul portatile e installa `cloudflared`.
+
+**Un'ora prima**
+1. Sul portatile, collegato via cavo o all'hotspot del telefono:
+   `docker run --rm -p 3000:3000 -e NODE_ENV=production -e POSTGRES_URL=... -e AUTH_SECRET=...
+   -e ADMIN_CODE=... -e PERSONAL_DATA_MASTER_KEY_ID=... -e PERSONAL_DATA_MASTER_KEY=... effect-cqrs-workshop`,
+   con le stesse variabili di Render, così i dati sono quelli di Supabase.
+2. `cloudflared tunnel --url http://localhost:3000` e copia l'indirizzo `trycloudflare.com`.
+3. Su Vercel metti quell'indirizzo in `VITE_API_URL` e rifai il deploy; su Render, se
+   è acceso, mettilo in pausa, perché due server sullo stesso database farebbero girare
+   due volte bot e saghe.
+4. Apri la UI: la riga in fondo deve dire "server online".
+5. Entra come presentatore con il codice, apri la Regia e poi la sala di controllo sul
+   proiettore.
+6. Bot acceso, simulatore spento: lo accendi solo se la sala è tranquilla.
+7. Prepara un QR code con l'indirizzo della UI.
+
+**Durante**
+- Fai entrare tutti, poi mostra in sala: chi entra, i bonifici con la saga, l'ultimo
+  pezzo conteso, la coda e il bot che la serve, il guasto simulato con il rimborso, un
+  view model ricostruito, e alla fine qualcuno che chiude il conto e il suo nickname
+  che diventa `[forgotten]`.
+- Se il portatile non risponde più: riavvia il container, i dati sono su Supabase. Se
+  è la rete, riattiva Render e rimetti il suo indirizzo in `VITE_API_URL`: con 0,1 CPU
+  regge pochi partecipanti, quindi lascia giocare un gruppo alla volta.
+
+**Dopo**
+- `pnpm workshop:reset` se vuoi cancellare i dati della sessione. I nickname di chi ha
+  chiuso il conto sono già illeggibili.
 
 ## 7. Rischi
 
 | Rischio | Contromisura |
 |---|---|
-| Render free: 512 MB, CPU piccola, si spegne dopo 15 minuti | Prova di carico in fase 9; sveglia prima di iniziare; gli stream aperti lo tengono acceso; piano B col tunnel |
+| Render free: 0,1 CPU non regge una sala | Il workshop gira sul portatile col tunnel; Render free resta per la demo pubblica |
+| Il portatile o il suo Wi-Fi cadono | Cavo o hotspot del telefono per il portatile; `docker run` riparte in secondi e i dati sono su Supabase; in extremis Render free con pochi partecipanti |
 | Riavvio del server a metà workshop | Tutto si ricostruisce dal log; i comandi delle saghe sono idempotenti; test dedicato in fase 4 |
 | Supabase in pausa dopo 7 giorni | Riattivarlo il giorno prima |
 | Abusi in una demo aperta | Tetti alle ricariche, limiti di richiesta, reset dalla sala di controllo |

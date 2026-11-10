@@ -4,5 +4,5 @@
   "installCommand": "pnpm install --frozen-lockfile",
   "buildCommand": "pnpm build:workshop",
   "outputDirectory": "examples/workshop/ui/dist",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- examples/workshop src package.json pnpm-lock.yaml vercel.json"
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- examples/workshop examples/devtools examples/bank-ui/src/components/ui.tsx src package.json pnpm-lock.yaml vercel.json"
 }

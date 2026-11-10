@@ -17,10 +17,22 @@ import {
   shopperId,
   Simulator
 } from "../examples/workshop/domain/automation.ts"
-import { Accounts, BankLive, ParticipantsStore } from "../examples/workshop/domain/bank.ts"
-import { Orders, OrdersStore, Products, reasons, seedCatalog, ShopLive } from "../examples/workshop/domain/shop.ts"
+import { Accounts, bankViews, ParticipantsStore, Transfers } from "../examples/workshop/domain/bank.ts"
+import {
+  Orders,
+  OrderSagas,
+  OrdersStore,
+  Products,
+  ProductSagas,
+  reasons,
+  seedCatalog,
+  shopViews
+} from "../examples/workshop/domain/shop.ts"
+import { WorkshopLive } from "../examples/workshop/domain/workshop.ts"
 import * as Auth from "../examples/workshop/server/auth.ts"
 import { Handlers, StoreKind } from "../examples/workshop/server/http.ts"
+import * as Limits from "../examples/workshop/server/limits.ts"
+import { asyncApiDocument, Live, LiveLive, makeSpans, metrics, Spans } from "../examples/workshop/server/live.ts"
 
 const adminCode = "presenter"
 
@@ -35,11 +47,12 @@ const Keys = PersonalData.layerMemory().pipe(Layer.provide(PersonalData.layerMas
 const serverWith = (bot: BotSettings) =>
   Layer.mergeAll(Handlers, HttpServer.layerServices, Layer.effectDiscard(seedCatalog)).pipe(
     Layer.provide(Tokens),
+    Layer.provide(Limits.layer),
+    Layer.provideMerge(Layer.mergeAll(LiveLive, Layer.sync(Spans, () => makeSpans()))),
     Layer.provideMerge(
       Layer.mergeAll(Layer.effect(Bot, makeBot(bot)), Layer.effect(Simulator, makeSimulator(defaultSimulatorSettings)))
     ),
-    Layer.provideMerge(ShopLive),
-    Layer.provideMerge(BankLive),
+    Layer.provideMerge(WorkshopLive),
     Layer.provideMerge(Keys),
     Layer.provideMerge(EventStore.layerMemory),
     Layer.provide(Layer.succeed(StoreKind, "sqlite"))
@@ -359,6 +372,15 @@ describe("workshop shop", () => {
     }).pipe(Effect.provide(Server), quiet), 30_000)
 })
 
+describe("workshop wiring", () => {
+  // A saga is a view model: one named like a view model would share its checkpoint,
+  // and each would move the other's position.
+  it("gives every view model and saga a name of its own", () => {
+    const names = [...bankViews, ...shopViews, Transfers, OrderSagas, ProductSagas].map(({ name }) => name)
+    assert.strictEqual(new Set(names).size, names.length, names.join(", "))
+  })
+})
+
 describe("workshop automation", () => {
   it("plans restocks for low shelves and waiting orders", () => {
     const product = (id: string, available: number, queue: ReadonlyArray<number> = []) => ({
@@ -452,6 +474,129 @@ describe("workshop automation", () => {
         assert.isAtLeast((yield* products.readModel(id)).available, 0)
       }
     }).pipe(Effect.provide(Server), quiet, Random.withSeed("workshop")))
+})
+
+describe("workshop live", () => {
+  it.effect("hides personal fields from the room and shows them to the control room", () =>
+    Effect.gen(function*() {
+      const live = yield* Live
+      const alice = yield* participant("Alice", 30)
+      yield* waitFor(live.recent, (recent) => recent.some((v) => v.public.type === "MoneyDeposited"))
+      const recent = yield* live.recent
+      const opened = recent.find((v) => v.public.type === "AccountOpened" && v.public.aggregateId === alice.user.id)!
+
+      assert.deepStrictEqual((opened.public.payload as { nickname: string }).nickname, "[personal]")
+      assert.deepStrictEqual((opened.control.payload as { nickname: string }).nickname, "Alice")
+      const stored = (opened.control.stored as { nickname: string }).nickname
+      assert.notStrictEqual(stored, "Alice")
+      assert.notInclude(JSON.stringify(opened.public), "Alice")
+      // Commands sent through the API are signed by the caller.
+      const deposit = recent.find((v) => v.public.type === "MoneyDeposited")!
+      assert.strictEqual(deposit.public.actor, alice.user.id)
+
+      yield* alice.client.me.close()
+      yield* waitFor(live.recent, (list) => list.some((v) => v.public.type === "SubjectForgotten"))
+      const after = yield* live.recent
+      const forgottenOpen = after.find((v) =>
+        v.public.type === "AccountOpened" && v.public.aggregateId === alice.user.id
+      )
+      // What was sent before stays as it was: new readers see the replacement.
+      assert.strictEqual((forgottenOpen!.control.payload as { nickname: string }).nickname, "Alice")
+    }).pipe(Effect.provide(Server), quiet))
+
+  it.effect("counts who is in the room until their stream closes", () =>
+    Effect.gen(function*() {
+      const live = yield* Live
+      const user = { id: "u1", nickname: "Ada", role: "participant" as const }
+      yield* Effect.scoped(Effect.gen(function*() {
+        yield* live.join(user)
+        yield* live.join(user)
+        const presence = yield* live.presence
+        assert.deepStrictEqual(presence.online.map(({ connections, nickname }) => [nickname, connections]), [[
+          "Ada",
+          2
+        ]])
+      }))
+      const presence = yield* live.presence
+      assert.deepStrictEqual(presence.online, [])
+      assert.deepStrictEqual(presence.changes.map(({ kind }) => kind), ["left", "joined"])
+    }).pipe(Effect.provide(Server), quiet))
+
+  it.live("measures the books and finds them in balance", () =>
+    Effect.gen(function*() {
+      const anna = yield* participant("Anna", 100)
+      const bruno = yield* participant("Bruno", 50)
+      yield* anna.client.me.transfer({ payload: { to: bruno.user.id, amount: 20 } })
+      const { position } = yield* anna.client.shop.order({
+        payload: { productId: "caffe", quantity: 2, backorder: false }
+      })
+      yield* waitLive(anna.client.me.orders({ query: { position } }), (list) => list[0]?.status === "fulfilled")
+
+      const measured = yield* waitLive(metrics, (m) => m.invariant === "ok" && m.balances === 144)
+      assert.deepStrictEqual(measured.books.deposited, 150)
+      assert.deepStrictEqual(measured.books.purchases, 6)
+      assert.strictEqual(measured.orders.fulfilled, 1)
+      assert.isTrue(measured.viewModels.some((vm) => vm.name === "ledger"))
+      assert.isTrue(measured.commands.some((c) => c.command === "deposit" && c.outcome === "success"))
+    }).pipe(Effect.provide(Server), quiet), 30_000)
+
+  it.live("breaks an order after payment on request, and the saga gives the money back", () =>
+    Effect.gen(function*() {
+      const presenter = yield* participant("Presenter", 0, adminCode)
+      const buyer = yield* participant("Buyer", 50)
+      const { pending } = yield* presenter.client.admin.breakNextOrder()
+      assert.strictEqual(pending, 1)
+
+      const { orderId } = yield* buyer.client.shop.order({
+        payload: { productId: "caffe", quantity: 1, backorder: false }
+      })
+      const orders = yield* Orders
+      yield* waitLive(orders.readModel(orderId), (state) => state.status === "rejected")
+      const accounts = yield* Accounts
+      const history = yield* accounts.history(buyer.user.id, { payload: true })
+      assert.deepStrictEqual(history.map(({ type }) => type).slice(-2), ["PurchasePaid", "PurchaseRefunded"])
+      assert.strictEqual((yield* accounts.readModel(buyer.user.id)).balance, 50)
+
+      // Only that one: the next order goes through.
+      const next = yield* buyer.client.shop.order({ payload: { productId: "caffe", quantity: 1, backorder: false } })
+      yield* waitLive(orders.readModel(next.orderId), (state) => state.status === "fulfilled")
+    }).pipe(Effect.provide(Server), quiet), 30_000)
+
+  it.live("rebuilds a view model from the log", () =>
+    Effect.gen(function*() {
+      const presenter = yield* participant("Presenter", 40, adminCode)
+      const before = yield* presenter.client.bank.participants({ query: {} })
+      const replayed = yield* presenter.client.admin.replay({ payload: { viewModel: "participants" } })
+      assert.deepStrictEqual(replayed.viewModels, ["participants"])
+      assert.isAbove(replayed.eventCount, 0)
+      const after = yield* waitLive(presenter.client.bank.participants({ query: {} }), (list) =>
+        list.length === before.length)
+      assert.deepStrictEqual(after, before)
+    }).pipe(Effect.provide(Server), quiet), 30_000)
+
+  it.effect("limits deposits to 10 a minute per participant", () =>
+    Effect.gen(function*() {
+      const eager = yield* participant("Eager", 0)
+      for (let i = 0; i < 10; i++) yield* eager.client.me.deposit({ payload: { amount: 1 } })
+      const refused = yield* Effect.flip(eager.client.me.deposit({ payload: { amount: 1 } }))
+      assert.strictEqual(refused._tag, "TooManyRequests")
+      // Someone else isn't affected, and a minute later Eager can go on.
+      yield* (yield* participant("Calm", 0)).client.me.deposit({ payload: { amount: 1 } })
+      yield* TestClock.adjust("61 seconds")
+      assert.strictEqual((yield* eager.client.me.deposit({ payload: { amount: 1 } })).balance, 11)
+    }).pipe(Effect.provide(Server), quiet))
+
+  it("documents the events and the live streams in AsyncAPI", () => {
+    const document = asyncApiDocument() as {
+      asyncapi: string
+      channels: Record<string, { address: string }>
+      components: { messages: Record<string, { "x-personal-fields"?: ReadonlyArray<string> }> }
+    }
+    assert.strictEqual(document.asyncapi, "3.0.0")
+    assert.strictEqual(document.channels["live.events"]?.address, "/stream/events")
+    assert.deepStrictEqual(document.components.messages["account.AccountOpened"]?.["x-personal-fields"], ["nickname"])
+    assert.isDefined(document.components.messages["order.OrderPlaced"])
+  })
 })
 
 /** Repeats `self` until `done` holds, moving the test clock so the saga's fibers run. */

@@ -22,17 +22,19 @@
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { PgClient } from "@effect/sql-pg"
 import { SqliteClient } from "@effect/sql-sqlite-node"
-import { Config, Effect, Layer, Option, Redacted } from "effect"
+import { Config, Effect, Layer, Option, Redacted, Tracer } from "effect"
 import { PersonalData, PostgresEventStore, SqliteEventStore } from "effect-cqrs"
 import { HttpRouter } from "effect/http"
 import { HttpApiBuilder, HttpApiSwagger } from "effect/http-api"
 import { createServer } from "node:http"
 import { Api } from "../api.ts"
 import { AutomationLive } from "../domain/automation.ts"
-import { BankLive } from "../domain/bank.ts"
-import { seedCatalog, ShopLive } from "../domain/shop.ts"
+import { seedCatalog } from "../domain/shop.ts"
+import { WorkshopLive } from "../domain/workshop.ts"
 import * as Auth from "./auth.ts"
 import { Handlers, StoreKind } from "./http.ts"
+import * as Limits from "./limits.ts"
+import { LiveLive, makeSpans, Spans, tracerFor } from "./live.ts"
 
 const isProduction = Config.String("NODE_ENV").pipe(
   Config.withDefault("development"),
@@ -81,11 +83,14 @@ const Keys = PersonalData.layerSql().pipe(Layer.provide(MasterKey))
 // Lists the products the shop opens with. Products already listed stay as they are.
 const Seed = Layer.effectDiscard(seedCatalog)
 
-const Workshop = Seed.pipe(
+// Every span that ends is kept for the control room, which streams them.
+const spans = makeSpans()
+const Tracing = Layer.mergeAll(Layer.succeed(Spans, spans), Layer.succeed(Tracer.Tracer, tracerFor(spans)))
+
+const Workshop = Layer.mergeAll(Seed, LiveLive).pipe(
   // The restock bot starts with the server; the simulated shoppers wait for the presenter.
   Layer.provideMerge(AutomationLive),
-  Layer.provideMerge(ShopLive),
-  Layer.provideMerge(BankLive),
+  Layer.provideMerge(WorkshopLive),
   Layer.provideMerge(Keys),
   Layer.provideMerge(Storage)
 )
@@ -109,9 +114,19 @@ const Routes = Layer.mergeAll(
 
 const HttpLive = Layer.unwrap(Effect.gen(function*() {
   const port = yield* Config.Port("PORT").pipe(Config.withDefault(3000))
-  return HttpRouter.serve(Routes).pipe(Layer.provide(NodeHttpServer.layer(createServer, { port })))
+  // A line per request costs real time on a tenth of a CPU, and the control room shows them anyway.
+  const quiet = yield* isProduction
+  return HttpRouter.serve(Routes).pipe(
+    Layer.provide(NodeHttpServer.layer(createServer, { port })),
+    quiet ? Layer.provide(HttpRouter.disableLogger) : (layer) => layer
+  )
 }))
 
-const Main = HttpLive.pipe(Layer.provide(Auth.layerConfig), Layer.provide(Workshop))
+const Main = HttpLive.pipe(
+  Layer.provide(Auth.layerConfig),
+  Layer.provide(Limits.layer),
+  Layer.provide(Workshop),
+  Layer.provide(Tracing)
+)
 
 Layer.launch(Main).pipe(NodeRuntime.runMain)

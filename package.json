@@ -63,6 +63,8 @@
     "example": "node examples/todo/main.ts",
     "example:server": "node examples/server/main.ts",
     "workshop": "node examples/workshop/server/main.ts",
+    "workshop:load": "node examples/workshop/load.ts",
+    "workshop:reset": "node examples/workshop/reset.ts",
     "tutorial": "node examples/tutorial/main.ts",
     "ui": "vite examples/bank-ui",
     "ui:shop": "vite examples/shop-ui",

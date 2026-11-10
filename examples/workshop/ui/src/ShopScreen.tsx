@@ -4,6 +4,7 @@ import type { Me, Session } from "../../api.ts"
 import type { BotStatus } from "../../domain/automation.ts"
 import { type CatalogProduct, maxQuantity, type ShopOrder } from "../../domain/shop.ts"
 import { call, type Outcome } from "./client.ts"
+import { useLiveRefresh } from "./live.ts"
 import { Button, Card, credits } from "./ui.tsx"
 
 interface Data {
@@ -51,12 +52,8 @@ export const ShopScreen = ({ session: current }: { readonly session: Session }) 
     else setNotice({ tone: "error", text: outcome.message })
   }, [])
 
-  // Orders move on their own, through the saga: poll often enough to watch them.
-  useEffect(() => {
-    void refresh()
-    const timer = setInterval(() => void refresh(), 1500)
-    return () => clearInterval(timer)
-  }, [refresh])
+  // Orders move on their own, through the saga: each step is an event that moves the log.
+  useLiveRefresh(refresh)
 
   const run = async (command: () => Promise<Outcome<{ readonly position: number }>>, success: string) => {
     setBusy(true)
