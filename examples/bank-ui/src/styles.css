@@ -9,14 +9,19 @@
   --color-line: #1d1d2c;
 }
 
-html, body, #root { height: 100%; }
+html, body, #root { min-height: 100%; }
+
+html { scroll-behavior: smooth; scrollbar-width: thin; scrollbar-color: #2a2a3d transparent; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
 
 body {
   background: var(--color-ink);
   color: #e7e7f0;
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;
 }
 
 .bg-aurora {

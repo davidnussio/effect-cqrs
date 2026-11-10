@@ -240,7 +240,7 @@ const StatusPoll = Layer.effectDiscard(Effect.gen(function*() {
 
 const { MetricNames } = AggregateService
 
-/** Folds the series `AggregateService` records into what the metrics tab shows. */
+/** Folds the series `AggregateService` records into what the metrics section shows. */
 const summarize = (snapshots: ReadonlyArray<Metric.Metric.Snapshot>): AggregateMetrics => {
   const ours = snapshots.filter((snapshot) => snapshot.attributes?.aggregate === Account.name)
   const of = (id: string, attributes: Record<string, string> = {}) =>
@@ -352,7 +352,7 @@ const AccountState = Schema.Struct({
   received: Schema.Array(Schema.String)
 })
 
-// Only four accounts stay in memory, so the metrics tab shows loads from snapshots too.
+// Only four accounts stay in memory, so the metrics section shows loads from snapshots too.
 const BankService = Layer.effect(
   Bank,
   AggregateService.make(Account, { stateCacheSize: 4, snapshots: { every: 5, schema: AccountState } })
@@ -368,7 +368,7 @@ const Main = Layer.mergeAll(Bridge, TransferSaga, StatusPoll, MetricsPoll, Autop
   Layer.provide(Metadata.layer({ appVersion })),
   // A registry of its own, so a reset counts from zero.
   Layer.provideMerge(Layer.sync(Metric.MetricRegistry, () => new Map())),
-  // Every span reports to the devtools' trace tab as it starts, changes and ends.
+  // Every span reports to the devtools' trace section as it starts, changes and ends.
   Layer.provideMerge(Layer.succeed(Tracer.Tracer, makeRecordingTracer(devstore.span)))
 )
 // #endregion
@@ -433,7 +433,7 @@ export const engine = {
   /**
    * Forgets the owner of an account: the key that encrypts their name is
    * destroyed. Stored events stay as they were, view models erase the name in
-   * `onForget`, and the events tab decodes the log again to show the replacement.
+   * `onForget`, and the event store section decodes the log again to show the replacement.
    */
   forget: (subject: string) =>
     runtime.runPromise(Effect.gen(function*() {

@@ -22,93 +22,95 @@ const templates: ReadonlyArray<{ label: string; command: unknown }> = [
   { label: "✗ no account", command: { aggregateId: "mallory", type: "deposit", payload: { amount: 10 } } }
 ]
 
-export const CommandsTab = () => {
-  const settings = useSnapshot((s) => s.settings)
+/** The bus, newest first: each command's stages and how it ended. */
+export const CommandBus = () => {
   const commands = useSnapshot((s) => s.commands)
+  return (
+    <div className="space-y-1.5">
+      <AnimatePresence initial={false}>
+        {commands.map((command) => <CommandRow key={command.id} command={command} />)}
+      </AnimatePresence>
+      {commands.length === 0 && (
+        <div className="rounded-xl border border-dashed border-white/10 px-4 py-6 text-center text-xs text-white/35">
+          No commands yet. Press <span className="font-mono text-emerald-300">+25</span>{" "}
+          on a card, drag one card onto another, or turn the autopilot on.
+        </div>
+      )}
+    </div>
+  )
+}
+
+export const Speed = () => {
+  const settings = useSnapshot((s) => s.settings)
 
   return (
-    <div className="space-y-5">
-      <div className="glass space-y-4 rounded-2xl p-4">
-        <SectionTitle
-          right={
-            <div className="flex gap-1.5">
-              <Button
-                tone={settings.paused ? "primary" : "default"}
-                onClick={() => engine.setPaused(!settings.paused)}
-              >
-                {settings.paused ? "▶ Resume" : "❚❚ Pause"}
-              </Button>
-              <Button onClick={engine.step} disabled={!settings.paused} title="Advance one stage">
-                Step ▸
-              </Button>
-            </div>
-          }
-        >
-          Speed
-        </SectionTitle>
-        <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-          <Slider
-            label="Command latency per stage"
-            value={settings.commandDelay}
-            min={0}
-            max={2000}
-            step={50}
-            onChange={(commandDelay) => devstore.settings({ commandDelay })}
-            hint="Slow motion through validate → load → decide → append"
-          />
-          <Slider
-            label="Projection latency per event"
-            value={settings.projectionDelay}
-            min={0}
-            max={2000}
-            step={50}
-            color="#38bdf8"
-            onChange={(projectionDelay) => devstore.settings({ projectionDelay })}
-            hint="How far read models trail the event store"
-          />
-          <Slider
-            label="Replay speed per event"
-            value={settings.replayDelay}
-            min={0}
-            max={400}
-            step={10}
-            color="#34d399"
-            onChange={(replayDelay) => devstore.settings({ replayDelay })}
-          />
-          <div className="space-y-2.5">
-            <Toggle
-              on={settings.autopilot}
-              onChange={(autopilot) => devstore.settings({ autopilot })}
-              label={
-                <span>
-                  Autopilot <span className="text-white/35">random customers</span>
-                </span>
-              }
-              color="#fbbf24"
-            />
-            <Slider
-              label="Every"
-              value={settings.autopilotEvery}
-              min={200}
-              max={4000}
-              step={100}
-              color="#fbbf24"
-              onChange={(autopilotEvery) => devstore.settings({ autopilotEvery })}
-            />
+    <div className="glass space-y-4 rounded-2xl p-4">
+      <SectionTitle
+        right={
+          <div className="flex gap-1.5">
+            <Button
+              tone={settings.paused ? "primary" : "default"}
+              onClick={() => engine.setPaused(!settings.paused)}
+            >
+              {settings.paused ? "▶ Resume" : "❚❚ Pause"}
+            </Button>
+            <Button onClick={engine.step} disabled={!settings.paused} title="Advance one stage">
+              Step ▸
+            </Button>
           </div>
-        </div>
-      </div>
-
-      <Console />
-
-      <div>
-        <SectionTitle right={<span className="font-mono text-[10px] text-white/35">newest first</span>}>
-          Command bus
-        </SectionTitle>
-        <div className="space-y-1.5">
-          <AnimatePresence initial={false}>
-            {commands.map((command) => <CommandRow key={command.id} command={command} />)}
-          </AnimatePresence>
+        }
+      >
+        Speed
+      </SectionTitle>
+      <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2">
+        <Slider
+          label="Command latency per stage"
+          value={settings.commandDelay}
+          min={0}
+          max={2000}
+          step={50}
+          onChange={(commandDelay) => devstore.settings({ commandDelay })}
+          hint="Slow motion through validate → load → decide → append"
+        />
+        <Slider
+          label="Projection latency per event"
+          value={settings.projectionDelay}
+          min={0}
+          max={2000}
+          step={50}
+          color="#38bdf8"
+          onChange={(projectionDelay) => devstore.settings({ projectionDelay })}
+          hint="How far read models trail the event store"
+        />
+        <Slider
+          label="Replay speed per event"
+          value={settings.replayDelay}
+          min={0}
+          max={400}
+          step={10}
+          color="#34d399"
+          onChange={(replayDelay) => devstore.settings({ replayDelay })}
+        />
+        <div className="space-y-2.5">
+          <Toggle
+            on={settings.autopilot}
+            onChange={(autopilot) => devstore.settings({ autopilot })}
+            label={
+              <span>
+                Autopilot <span className="text-white/35">random customers</span>
+              </span>
+            }
+            color="#fbbf24"
+          />
+          <Slider
+            label="Every"
+            value={settings.autopilotEvery}
+            min={200}
+            max={4000}
+            step={100}
+            color="#fbbf24"
+            onChange={(autopilotEvery) => devstore.settings({ autopilotEvery })}
+          />
         </div>
       </div>
     </div>
@@ -201,7 +203,7 @@ const OutcomeLine = ({ outcome }: { outcome: Outcome }) => (
   </motion.div>
 )
 
-const Console = () => {
+export const Console = () => {
   const [text, setText] = useState(JSON.stringify(templates[0]!.command, null, 2))
   const [result, setResult] = useState<Outcome | { parse: string } | undefined>(undefined)
   const [busy, setBusy] = useState(false)

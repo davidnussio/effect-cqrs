@@ -13,8 +13,9 @@ import { demoUrl, docsUrl } from "../source.ts"
     <h2 id="demo-title">A bank, running in your browser</h2>
     <p>
       Accounts are aggregates, three view models project them, and a saga moves money between them. The
-      customer app on the left only shows read models, so you can watch them trail the store. The devtools
-      on the right slow every stage down, pause and step commands, crash a projection, and replay the log.
+      customer app only shows read models, so you can watch them trail the store, while the live pipeline
+      beside it follows each command. Further down, slow every stage down, crash a projection, and replay
+      the log.
     </p>
     <div class="cq-demo-actions">
       <LinkButton href={demoUrl}>Open the demo</LinkButton>

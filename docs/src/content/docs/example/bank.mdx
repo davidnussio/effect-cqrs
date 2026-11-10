@@ -23,9 +23,10 @@ The demo is the classic event sourcing example, a bank, built on the framework a
 the same sources the tests run, bundled for the browser. Bank accounts are aggregates,
 three view models project them, and a saga moves money between accounts.
 
-On the left, a customer app renders only the read models, so their lag behind the event
-store is visible. On the right, devtools slow each stage down, pause the command bus and
-step it, crash a projection, and travel back through the log.
+At the top, a customer app renders only the read models, so their lag behind the event
+store is visible, and beside it the live pipeline shows each command on its way through the
+bus. Below them the page follows a command through the framework, a section at a time: slow
+each stage down, read the log, crash a projection, and travel back through the history.
 
 To run it locally:
 
@@ -87,7 +88,7 @@ it has already applied:
 
 <Code code={region(views, "accounts-view")} lang="ts" title={viewsFile} />
 
-`bank-totals` has a switch in the devtools that makes its handler fail. Turn it on and the
+`bank-totals` has a switch in the **Projections** section that makes its handler fail. Turn it on and the
 view model stalls on that event and retries with backoff, while the other two carry on.
 Turn it off and it catches up, without skipping anything.
 
@@ -104,17 +105,17 @@ The whole engine is a layer: the in-memory store, checkpoints and snapshots, the
 the view models, and the background fibers that mirror events to the devtools, run the
 saga, poll the view models' status and the service's metrics, and send random traffic. The
 service keeps only four accounts in memory and saves a snapshot every five events, so with
-more accounts open the **Metrics** tab shows commands starting from snapshots and replays.
+more accounts open the **Trace & metrics** section shows commands starting from snapshots and replays.
 
 <Code code={region(engine, "wiring")} lang="ts" title={engineFile} />
 
-A `ManagedRuntime` runs it, and React reaches it through plain functions. **Reset store**
+A `ManagedRuntime` runs it, and React reaches it through plain functions. **Reset**
 disposes the runtime and starts a new one.
 
 ## Forgetting an owner
 
 The owner's name is [personal data](../../guides/personal-data/): `AccountOpened` stores it
-encrypted with a key of the account's own, which the **Event store** tab shows as a
+encrypted with a key of the account's own, which the **Event store** section shows as a
 `$personal` block. **forget** on a card destroys that key:
 
 <Code code={region(engine, "forget")} lang="ts" title={engineFile} />
@@ -125,14 +126,17 @@ commands on the account still work, since deposits hold no personal data.
 
 ## The devtools
 
-| Tab | What you can do |
+Everything is on one page, in the order a command goes through the framework, and the
+header links to each section.
+
+| Section | What you can do |
 | --- | --- |
-| Commands | Watch each command through validating, loading, deciding and appending. Slow those stages down, pause the bus and step it, run the autopilot, and send raw JSON to `dispatch` |
+| Bank | Send commands from the cards, and watch each one go through validating, loading, deciding and appending in the live pipeline beside them. Pause the bus and step it, or turn the autopilot on |
+| Commands | Slow the stages and the projections down, and send raw JSON to `dispatch` |
 | Event store | Read the log as it grows |
 | Projections | See each view model's checkpoint and lag, crash `bank-totals`, and rebuild one |
 | Time travel | Scrub through the log: the customer app becomes a preview, where each account is its events up to the cursor folded with the aggregate's projection. Replay view models up to a chosen event, or entirely |
-| Trace | Follow every span Effect opens, recorded by a `Tracer` of the demo's own: each command on the bus with the stages it waited in, the aggregate's span and `EventStore.append`, and for a transfer the saga's workflow and its activities |
-| Metrics | Watch the service's [metrics](../../guides/commands/#metrics): where each load found its state, the events it read, the states in memory and those dropped, the snapshots saved, and how long each command took by outcome |
+| Trace & metrics | Follow every span Effect opens, recorded by a `Tracer` of the demo's own: each command on the bus with the stages it waited in, the aggregate's span and `EventStore.append`, and for a transfer the saga's workflow and its activities. Beside the trace, watch the service's [metrics](../../guides/commands/#metrics): where each load found its state, the events it read, the states in memory and those dropped, the snapshots saved, and how long each command took by outcome |
 
 <Aside>
 Replaying up to an event uses the `finishTime` of `viewModels.replay`, since the replay

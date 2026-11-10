@@ -9,7 +9,7 @@ const time = (millis: number) => {
   return `${date.toLocaleTimeString("en-GB")}.${String(date.getMilliseconds()).padStart(3, "0")}`
 }
 
-export const EventsTab = ({ travel }: { travel: number | undefined }) => {
+export const EventStore = ({ travel }: { travel: number | undefined }) => {
   const events = useSnapshot((s) => s.events)
   const [stream, setStream] = useState<string | undefined>(undefined)
   const [open, setOpen] = useState<number | undefined>(undefined)
@@ -26,7 +26,7 @@ export const EventsTab = ({ travel }: { travel: number | undefined }) => {
   )
 
   return (
-    <div className="space-y-5">
+    <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <div>
         <SectionTitle right={<span className="font-mono text-[10px] text-white/35">one stream per aggregate id</span>}>
           Streams
@@ -80,9 +80,9 @@ export const EventsTab = ({ travel }: { travel: number | undefined }) => {
             </button>
           )}
         >
-          Log · append only
+          Log · append only · newest first
         </SectionTitle>
-        <div className="space-y-1">
+        <div className="scroll-thin max-h-[560px] space-y-1 overflow-y-auto pr-1">
           <AnimatePresence initial={false}>
             {visible.map((event) => (
               <motion.div
@@ -138,6 +138,9 @@ export const EventsTab = ({ travel }: { travel: number | undefined }) => {
               </motion.div>
             ))}
           </AnimatePresence>
+          {visible.length === 0 && (
+            <div className="glass rounded-xl py-6 text-center text-xs text-white/30">Nothing appended yet</div>
+          )}
         </div>
       </div>
     </div>

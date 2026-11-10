@@ -41,8 +41,8 @@ of the setup, and [SECURITY.md](SECURITY.md) says how to report a vulnerability.
 `pnpm ui` serves an interactive demo at http://localhost:5173, also published at
 https://davidnussio.github.io/effect-cqrs/demo/. It runs the framework
 in the browser on the in-memory store: a bank whose accounts are aggregates, three
-view models, and a saga for transfers. Its devtools slow commands and projections
-down, pause and step the command bus, crash a projection, scrub through the log and
+view models, and a saga for transfers. The page shows each command on its way through the bus,
+and its devtools slow commands and projections down, pause and step the command bus, crash a projection, scrub through the log and
 replay view models up to a chosen event.
 
 ## Define an aggregate

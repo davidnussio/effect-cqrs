@@ -6,17 +6,12 @@ import { engine } from "../engine.ts"
 import { eventColor, head, money, signed, useSnapshot } from "../hooks.ts"
 import { AnimatedNumber, Button, Code, Pill, Toggle } from "./ui.tsx"
 
-export const ProjectionsTab = () => {
+export const Projections = () => {
   const views = useSnapshot((s) => s.views)
   const breakTotals = useSnapshot((s) => s.settings.breakTotals)
 
   return (
-    <div className="space-y-4">
-      <p className="text-xs leading-relaxed text-white/50">
-        Three view models read the same events, each from its own checkpoint, and fold them into the shape a screen
-        needs. They are disposable: a replay wipes one and rebuilds it from the log.
-      </p>
-
+    <div className="grid items-start gap-4 lg:grid-cols-3">
       <ViewCard name="accounts" view={views.accounts}>
         <div className="space-y-1">
           <AnimatePresence initial={false}>
@@ -120,10 +115,12 @@ export const ViewCard = (
       className="glass rounded-2xl p-4"
       animate={{ boxShadow: view.error ? "0 0 0 1px rgba(251,113,133,0.5)" : "0 0 0 0px rgba(0,0,0,0)" }}
     >
-      <div className="flex items-center gap-2">
-        <Code>{viewModelNames[name]}</Code>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="whitespace-nowrap">
+          <Code>{viewModelNames[name]}</Code>
+        </span>
         <Pill color={status.color}>{status.label}</Pill>
-        <span className="font-mono text-[9.5px] text-white/30">latency ×{lagFactor[name]}</span>
+        <span className="font-mono text-[9.5px] whitespace-nowrap text-white/30">latency ×{lagFactor[name]}</span>
         <div className="ml-auto flex items-center gap-2">
           {extra}
           <Button onClick={() => void engine.replay([name])} disabled={view.replaying}>↻ Rebuild</Button>

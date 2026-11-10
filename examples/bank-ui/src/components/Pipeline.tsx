@@ -1,92 +1,57 @@
 import { AnimatePresence, motion } from "motion/react"
-import { useState } from "react"
-import type { Pulse, Stage } from "../devstore.ts"
+import { devstore, type Pulse, type Stage } from "../devstore.ts"
+import { engine } from "../engine.ts"
 import { useSnapshot } from "../hooks.ts"
-import { CommandsTab } from "./CommandsTab.tsx"
-import { EventsTab } from "./EventsTab.tsx"
-import { MetricsTab } from "./MetricsTab.tsx"
-import { ProjectionsTab } from "./ProjectionsTab.tsx"
-import { TimeTravelTab } from "./TimeTravelTab.tsx"
-import { TraceTab } from "./TraceTab.tsx"
+import { CommandBus } from "./Commands.tsx"
+import { Button, SectionTitle, Toggle } from "./ui.tsx"
 
-const tabs = ["Commands", "Event store", "Projections", "Time travel", "Trace", "Metrics"] as const
-type Tab = (typeof tabs)[number]
-
-export const DevTools = (
-  { travel, onTravel }: { travel: number | undefined; onTravel: (position: number | undefined) => void }
-) => {
-  const [tab, setTab] = useState<Tab>("Commands")
+/**
+ * What runs beside the bank: the path every command takes, the controls of the bus,
+ * and the bus itself, so a click on a card shows its effect without scrolling.
+ */
+export const Pipeline = () => {
+  const settings = useSnapshot((s) => s.settings)
   const pending = useSnapshot((s) => s.commands.filter((c) => c.outcome === undefined).length)
-  const eventCount = useSnapshot((s) => s.events.length)
-  const stalled = useSnapshot((s) => Object.values(s.views).some((view) => view.error !== undefined))
 
   return (
-    <aside className="flex min-h-0 flex-col border-l border-white/[0.07] bg-[#0a0a12]/80 backdrop-blur-xl">
-      <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 pt-3 pb-2">
+    <aside className="glass flex min-h-0 flex-col overflow-hidden rounded-2xl xl:sticky xl:top-[84px] xl:max-h-[calc(100vh-104px)]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-white/[0.06] px-4 py-2.5">
         <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-300/80">
-          ◆ CQRS devtools
+          ◆ Live pipeline
         </span>
+        <div className="ml-auto flex items-center gap-2">
+          <Toggle
+            on={settings.autopilot}
+            onChange={(autopilot) => devstore.settings({ autopilot })}
+            label="Autopilot"
+            color="#fbbf24"
+          />
+          <Button tone={settings.paused ? "primary" : "default"} onClick={() => engine.setPaused(!settings.paused)}>
+            {settings.paused ? "▶ Resume" : "❚❚ Pause"}
+          </Button>
+          <Button onClick={engine.step} disabled={!settings.paused} title="Advance the bus by one stage">
+            Step ▸
+          </Button>
+        </div>
       </div>
       <FlowStrip />
-      <nav className="flex gap-1 border-b border-white/[0.06] px-3">
-        {tabs.map((name) => (
-          <button
-            key={name}
-            onClick={() => setTab(name)}
-            className={`relative px-3 py-2.5 text-xs font-medium transition-colors ${
-              tab === name ? "text-white" : "text-white/45 hover:text-white/80"
-            }`}
-          >
-            {name}
-            {name === "Commands" && <Badge color="#fbbf24" hidden={pending === 0}>{pending}</Badge>}
-            {name === "Event store" && <Badge color="#a78bfa">{eventCount}</Badge>}
-            {name === "Projections" && <Badge color="#fb7185" hidden={!stalled}>!</Badge>}
-            {name === "Time travel" && <Badge color="#38bdf8" hidden={travel === undefined}>#{travel ?? 0}</Badge>}
-            {tab === name && (
-              <motion.span
-                layoutId="tab-underline"
-                className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-gradient-to-r from-violet-400 to-fuchsia-400"
-              />
-            )}
-          </button>
-        ))}
-      </nav>
-      <div className="scroll-thin relative min-h-0 flex-1 overflow-y-auto">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={tab}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.18 }}
-            className="p-4"
-          >
-            {tab === "Commands" && <CommandsTab />}
-            {tab === "Event store" && <EventsTab travel={travel} />}
-            {tab === "Projections" && <ProjectionsTab />}
-            {tab === "Time travel" && <TimeTravelTab travel={travel} onTravel={onTravel} />}
-            {tab === "Trace" && <TraceTab />}
-            {tab === "Metrics" && <MetricsTab />}
-          </motion.div>
-        </AnimatePresence>
+      <div className="px-4 pt-3">
+        <SectionTitle
+          right={
+            <span className="font-mono text-[10px] text-white/35">
+              {pending > 0 && <span className="text-amber-300">{pending} in flight ·{" "}</span>}newest first
+            </span>
+          }
+        >
+          Command bus
+        </SectionTitle>
+      </div>
+      <div className="scroll-thin max-h-[420px] min-h-0 flex-1 overflow-y-auto px-4 pb-4 xl:max-h-none">
+        <CommandBus />
       </div>
     </aside>
   )
 }
-
-// A hidden badge still takes its space, so the tabs don't move when it comes and goes.
-const Badge = ({ color, hidden = false, children }: { color: string; hidden?: boolean; children: React.ReactNode }) => (
-  <motion.span
-    key={hidden ? "hidden" : String(children)}
-    initial={{ scale: hidden ? 1 : 1.5 }}
-    animate={{ scale: 1 }}
-    aria-hidden={hidden}
-    className={`ml-1.5 rounded-full px-1.5 py-px font-mono text-[9px] font-semibold ${hidden ? "invisible" : ""}`}
-    style={{ background: `${color}26`, color }}
-  >
-    {children}
-  </motion.span>
-)
 
 // ---------------------------------------------------------------------------
 // Flow strip: where each command and event is right now.

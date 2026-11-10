@@ -28,7 +28,7 @@ const rowsAt = (events: ReadonlyArray<EventEntry>, position: number): Record<str
   return rows
 }
 
-export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; onExitTravel: () => void }) => {
+export const BankApp = ({ travel }: { travel: number | undefined }) => {
   const events = useSnapshot((s) => s.events)
   const accountsView = useSnapshot((s) => s.views.accounts)
   const totalsView = useSnapshot((s) => s.views.totals)
@@ -45,30 +45,10 @@ export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; 
   const storeHead = head(events)
 
   return (
-    <section className="scroll-thin relative min-h-0 overflow-y-auto px-6 py-5">
-      <AnimatePresence>
-        {!live && (
-          <motion.div
-            initial={{ opacity: 0, y: -12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -12 }}
-            className="sticky top-0 z-30 mb-4 flex items-center gap-3 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2.5 text-xs text-sky-100 backdrop-blur-xl"
-          >
-            <motion.span animate={{ rotate: -360 }} transition={{ duration: 3, repeat: Infinity, ease: "linear" }}>
-              ⏪
-            </motion.span>
-            <div>
-              <b>Time travel preview at #{travel}.</b> These cards are a pure fold of events 1…{travel}{" "}
-              with the aggregate's projection. Nothing was replayed and no read model changed.
-            </div>
-            <Button tone="primary" onClick={onExitTravel}>Back to live</Button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="mb-5 flex items-end justify-between gap-4">
+    <div className="relative min-w-0">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">Customer app</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">The customer app</div>
           <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
           <p className="mt-1 max-w-md text-xs text-white/45">
             {live
@@ -78,7 +58,7 @@ export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; 
                   view model, never from the aggregate. Buttons send commands; drag a card onto another to transfer.
                 </>
               )
-              : "Read only while time travelling."}
+              : `A preview of the accounts at event #${travel}, folded from the log. Read only.`}
           </p>
         </div>
         {live && (
@@ -128,7 +108,7 @@ export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; 
           />
         )}
       </AnimatePresence>
-    </section>
+    </div>
   )
 }
 
@@ -138,7 +118,7 @@ const Freshness = (
   const behind = Math.max(0, head - position)
   const color = replaying ? "#38bdf8" : behind === 0 ? "#34d399" : "#fbbf24"
   return (
-    <div className="flex items-center gap-2 rounded-full bg-white/[0.04] py-1 pr-3 pl-1.5 font-mono text-[10px] ring-1 ring-white/[0.06]">
+    <div className="flex items-center gap-2 rounded-full bg-white/[0.04] py-1 pr-3 pl-1.5 font-mono text-[10px] whitespace-nowrap ring-1 ring-white/[0.06]">
       <span className="relative flex h-2 w-2">
         {behind > 0 && (
           <span
@@ -166,7 +146,7 @@ const Vault = (
     </div>
     <motion.div
       layout
-      className="glass relative grid grid-cols-4 gap-px overflow-hidden rounded-2xl"
+      className="glass relative grid grid-cols-2 gap-px overflow-hidden rounded-2xl sm:grid-cols-4"
     >
       {[
         { label: "Money in bank", value: totals.moneyInBank, color: "#e9e7ff" },

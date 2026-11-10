@@ -156,7 +156,7 @@ export interface Snapshot {
   readonly settings: Settings
   readonly pulses: ReadonlyArray<Pulse>
   readonly metrics: AggregateMetrics
-  /** Every span the tracer saw, for the trace tab. */
+  /** Every span the tracer saw, for the trace section. */
   readonly spans: ReadonlyArray<SpanEntry>
   readonly epoch: number
 }
