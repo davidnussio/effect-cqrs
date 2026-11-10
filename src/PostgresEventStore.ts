@@ -149,11 +149,21 @@ const storeError = (operation: string) => (cause: unknown) => new EventStore.Eve
 /**
  * Applies the migrations of one table in a transaction. The advisory lock keeps
  * processes that start together from creating the same table at once.
+ *
+ * A table that is already there may have writers. The statements take stronger
+ * locks on it as they go, and a lock taken on top of a weaker one deadlocks with an
+ * append that holds its own and waits for more. So the strongest is taken first,
+ * while the migration holds nothing an append needs: it then waits for the appends
+ * in progress, and those that come after wait for it.
  */
 const migrate = (sql: SqlClient.SqlClient, options: Options | undefined, table: "events" | "checkpoints") => {
   const tables = tableNames(options)
   return Effect.gen(function*() {
     yield* sql`SELECT pg_advisory_xact_lock(hashtext(${`effect-cqrs ${tables[table]}`}))`
+    const [existing] = yield* sql<{ readonly exists: boolean }>`
+      SELECT to_regclass(${tables[table]}) IS NOT NULL AS "exists"
+    `
+    if (existing?.exists === true) yield* sql.unsafe(`LOCK TABLE ${tables[table]} IN ACCESS EXCLUSIVE MODE`)
     for (const step of steps) {
       if (step.table !== table) continue
       for (const statement of step.statements(tables)) yield* sql.unsafe(statement)
