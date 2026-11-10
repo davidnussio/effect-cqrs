@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Schema } from "effect"
-import { Aggregate, type AggregateService, EventVersions, Fixture, ViewModel } from "effect-cqrs"
-import { Todo, type TodoAlreadyCreated } from "../examples/todo/aggregate.ts"
+import { Aggregate, type AggregateService, type EventStore, EventVersions, Fixture, ViewModel } from "effect-cqrs"
+import { Todo, type TodoAlreadyCreated, type TodoAlreadyDeleted, type TodoNotFound } from "../examples/todo/aggregate.ts"
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
 
@@ -52,6 +52,33 @@ describe("types", () => {
     const context: Equals<Aggregate.Context<typeof Todo>, never> = true
 
     assert.isTrue(names && payload && error && context)
+  })
+
+  it("types the errors and options of commands", () => {
+    type Todos = AggregateService.AggregateService<typeof Todo>
+    type CreateError = Effect.Error<ReturnType<Todos["commands"]["createTodo"]>>
+    type DispatchError = Effect.Error<ReturnType<Todos["dispatch"]>>
+
+    const create: Equals<CreateError, TodoAlreadyCreated | AggregateService.CommandFailure> = true
+    const dispatch: Equals<
+      DispatchError,
+      | TodoAlreadyCreated
+      | TodoNotFound
+      | TodoAlreadyDeleted
+      | AggregateService.CommandFailure
+      | AggregateService.UnknownCommand
+    > = true
+    const wrongVersion: AggregateService.WrongExpectedVersion extends CreateError ? true : false = true
+    const conflict: EventStore.ConcurrencyConflict extends CreateError ? true : false = true
+
+    void ((todos: Todos) => {
+      todos.commands.createTodo("todo-1", { title: "Buy Milk" })
+      todos.commands.createTodo("todo-1", { title: "Buy Milk" }, { commandId: "c1", expectedVersion: 0 })
+      // @ts-expect-error the expected version is a number
+      todos.commands.createTodo("todo-1", { title: "Buy Milk" }, { expectedVersion: "0" })
+    })
+
+    assert.isTrue(create && dispatch && wrongVersion && conflict)
   })
 
   it("only accepts view model handlers for events of its aggregates", () => {

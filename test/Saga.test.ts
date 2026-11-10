@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, Context, Effect, Exit, Layer, Ref, Schema, Stream } from "effect"
 import { WorkflowEngine } from "effect/workflow"
-import { AggregateService, Checkpoints, EventStore, PersonalData, Saga, ViewModel } from "effect-cqrs"
+import { AggregateService, Checkpoints, EventStore, Ids, PersonalData, Saga, ViewModel } from "effect-cqrs"
 import { Account, AccountNotOpen } from "../examples/bank-ui/src/domain/account.ts"
 
 class Bank extends Context.Service<Bank, AggregateService.AggregateService<typeof Account>>()("test/Bank") {}
@@ -86,6 +86,21 @@ describe("Saga", () => {
       assert.strictEqual(received!.correlationId, sent.correlationId)
       assert.strictEqual(received!.causationId, EventStore.eventId({ ...sent, aggregateName: Account.name }))
     }).pipe(Effect.provide(Background)))
+
+  it.effect("starts its own correlation with the current IdGenerator outside any causation", () =>
+    Effect.gen(function*() {
+      const bank = yield* Bank
+      yield* open("alice", 100)
+      yield* open("bob", 0)
+
+      yield* Saga.start(Transfer, { transferId: "t1", from: "alice", to: "bob", amount: 30 }).pipe(
+        Effect.provideService(Ids.IdGenerator, Ids.sequential("saga"))
+      )
+      yield* next("TransferReceived")
+
+      const [received] = (yield* bank.history("bob")).filter((entry) => entry.type === "TransferReceived")
+      assert.strictEqual(received!.correlationId, "saga-1")
+    }).pipe(Effect.provide(Base)))
 
   it.effect("compensates when a step fails with a domain error", () =>
     Effect.gen(function*() {

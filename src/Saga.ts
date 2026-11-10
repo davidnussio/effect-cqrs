@@ -15,8 +15,9 @@
  * `ClusterWorkflowEngine` from `effect/cluster` with durable ones.
  *
  * An activity that is cut off before its result is saved runs again, so the
- * commands a saga runs should be idempotent, for instance by recording the id of
- * the transfer they belong to.
+ * commands a saga runs should be idempotent: give each a `commandId` made from the
+ * execution id and the step, so that running it again returns the first result,
+ * or record the id of the transfer it belongs to.
  */
 import { Effect, Layer, Schedule, Schema } from "effect"
 import { Activity, Workflow } from "effect/workflow"
@@ -24,6 +25,7 @@ import type { WorkflowEngine } from "effect/workflow"
 import type * as Aggregate from "./Aggregate.ts"
 import type { CommandResult } from "./AggregateService.ts"
 import * as Causation from "./Causation.ts"
+import * as Ids from "./Ids.ts"
 import type { Checkpoints } from "./Checkpoints.ts"
 import type { EventStore, EventStoreError } from "./EventStore.ts"
 import * as ViewModel from "./ViewModel.ts"
@@ -101,11 +103,12 @@ export const start = <Tag extends string, Fields extends Schema.Struct.Fields, S
   self: SagaWorkflow<Tag, Fields, Success, Error>,
   payload: Schema.Struct.MakeIn<Fields>
 ): Effect.Effect<string, never, WorkflowEngine.WorkflowEngine> =>
-  Causation.CurrentCausation.use((current) => {
-    const id = crypto.randomUUID()
-    const causation = current ?? { correlationId: id, causationId: id }
-    return self.execute({ ...payload, causation } as never, { discard: true })
-  }) as any
+  Causation.CurrentCausation.use((current) =>
+    current !== undefined
+      ? self.execute({ ...payload, causation: current } as never, { discard: true })
+      : Effect.flatMap(Ids.next, (id) =>
+        self.execute({ ...payload, causation: { correlationId: id, causationId: id } } as never, { discard: true }))
+  ) as any
 
 /**
  * The trigger of a saga: a view model whose handlers start workflows with

@@ -28,10 +28,13 @@ Runs an aggregate against the event store. <a href={sourceUrl("src/AggregateServ
 
 | Export | What it is |
 | --- | --- |
-| `make(aggregate, { maxRetries, stateCacheSize, snapshots })` | The service: `commands`, `dispatch`, `readModel`, `history` |
+| `make(aggregate, { maxRetries, stateCacheSize, commandIdsPerStream, snapshots })` | The service: `commands`, `dispatch`, `readModel`, `history` |
 | `SnapshotOptions` | `every`, `schema` and `version` of the snapshots |
+| `CommandOptions` | `commandId` and `expectedVersion`, the last argument of a typed command |
 | `CommandResult`, `HistoryEntry` | What a command and `history` return |
-| `UnknownCommand`, `InvalidCommand`, `EventDecodeError` | Its errors, besides the store's |
+| `UnknownCommand`, `InvalidCommand`, `WrongExpectedVersion`, `EventDecodeError` | Its errors, besides the store's |
+| `CommandFailure`, `ReadError` | What every command, and every read, can fail with |
+| `commandIdKey` | The metadata key that records a command's [`commandId`](../../guides/commands/#retries-and-command-ids) |
 | `makeEventDecoder(aggregate, keys)`, `makeEventEncoder(aggregate, keys)` | Convert between stored JSON and an aggregate's events, decrypting and encrypting personal fields with `keys` |
 | `MetricNames` | The names of the [metrics](../../guides/commands/#metrics) the service records |
 
@@ -68,6 +71,16 @@ Why events were recorded. <a href={sourceUrl("src/Causation.ts")}>Source</a>
 | `withCausation(causation)` | Runs an effect whose commands record these ids |
 | `causedBy(stored)`, `fromEvent(stored)` | Makes a stored event the cause of the commands an effect runs |
 | `CurrentCausation` | The reference that holds them, `undefined` outside any |
+
+## Ids
+
+The ids the framework makes up, such as new correlations. <a href={sourceUrl("src/Ids.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `IdGenerator` | The reference that makes them, `crypto.randomUUID()` by default |
+| `next` | A new id from the current generator |
+| `sequential(prefix)` | A generator of `prefix-1`, `prefix-2` and so on, for tests |
 
 ## Metadata
 

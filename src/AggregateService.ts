@@ -32,6 +32,7 @@ import {
   type StoredEvent
 } from "./EventStore.ts"
 import * as EventVersions from "./EventVersions.ts"
+import { IdGenerator } from "./Ids.ts"
 import { CurrentMetadata, Metadata } from "./Metadata.ts"
 import * as PersonalData from "./PersonalData.ts"
 
@@ -59,6 +60,18 @@ export class EventDecodeError extends Schema.TaggedError<EventDecodeError>()("Ev
   message: Schema.String
 }) {}
 
+/**
+ * The caller's `expectedVersion` is not the aggregate's version: someone else
+ * changed it since the caller read it. Unlike a `ConcurrencyConflict`, this is
+ * not retried, as deciding again would overwrite a change the caller hasn't seen.
+ */
+export class WrongExpectedVersion extends Schema.TaggedError<WrongExpectedVersion>()("WrongExpectedVersion", {
+  aggregateName: Schema.String,
+  aggregateId: Schema.String,
+  expectedVersion: Schema.Int,
+  actualVersion: Schema.Int
+}) {}
+
 /** How reading events can fail. `PersonalDataError` comes from aggregates with personal fields, see `PersonalData`. */
 export type ReadError = EventStoreError | EventDecodeError | PersonalData.PersonalDataError
 
@@ -66,7 +79,29 @@ export type ReadError = EventStoreError | EventDecodeError | PersonalData.Person
  * How a command can fail, on top of the errors its own handler declares.
  * `SubjectForgotten` means an event would record personal data of a forgotten subject.
  */
-export type CommandFailure = ConcurrencyConflict | InvalidCommand | ReadError | PersonalData.SubjectForgotten
+export type CommandFailure =
+  | ConcurrencyConflict
+  | InvalidCommand
+  | WrongExpectedVersion
+  | ReadError
+  | PersonalData.SubjectForgotten
+
+/** What a typed command takes besides the aggregate id and the payload. */
+export interface CommandOptions {
+  /**
+   * Identifies the command, so that running it again on the same aggregate
+   * returns the first result instead of deciding again. See {@link commandIdKey}.
+   */
+  readonly commandId?: string | undefined
+  /** The version the caller based its command on. If the aggregate is at another, the command fails with `WrongExpectedVersion`. */
+  readonly expectedVersion?: number | undefined
+}
+
+/**
+ * The metadata key that records the `commandId` on the events a command writes.
+ * It is reserved: metadata given under this key is dropped.
+ */
+export const commandIdKey = "cqrs.commandId"
 
 export interface CommandResult<Event> {
   readonly aggregateName: string
@@ -96,10 +131,15 @@ export interface AggregateService<A extends Aggregate.Any> {
   readonly commands: {
     readonly [K in Aggregate.CommandName<A>]: (
       aggregateId: string,
-      payload: Aggregate.Payload<A, K>
+      payload: Aggregate.Payload<A, K>,
+      options?: CommandOptions
     ) => Effect.Effect<CommandResult<Aggregate.Event<A>>, Aggregate.CommandError<A, K> | CommandFailure>
   }
-  /** Runs a `{ aggregateId, type, payload }` envelope received as JSON from outside the process. */
+  /**
+   * Runs a `{ aggregateId, type, payload }` envelope received as JSON from outside
+   * the process. It can also carry `commandId` and `expectedVersion`, see `CommandOptions`,
+   * `correlationId`, `causationId` and `metadata`.
+   */
   readonly dispatch: (
     input: unknown
   ) => Effect.Effect<CommandResult<Aggregate.Event<A>>, Aggregate.CommandError<A> | CommandFailure | UnknownCommand>
@@ -127,7 +167,10 @@ const CommandEnvelope = Schema.Struct({
   correlationId: Schema.optional(Schema.String),
   causationId: Schema.optional(Schema.String),
   /** Recorded on top of the current metadata, see `Metadata`. */
-  metadata: Schema.optional(Metadata)
+  metadata: Schema.optional(Metadata),
+  /** See `CommandOptions`. */
+  commandId: Schema.optional(Schema.NonEmptyString),
+  expectedVersion: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
 })
 
 const versionsOf = (aggregate: Aggregate.Any) =>
@@ -295,7 +338,23 @@ export interface Options {
   readonly maxRetries?: number | undefined
   /** How many aggregates keep their state in memory between commands. Defaults to 10,000. */
   readonly stateCacheSize?: number | undefined
+  /**
+   * How many of its latest command ids each aggregate remembers, so that a command
+   * run again with one of them returns its first result. Defaults to 100.
+   */
+  readonly commandIdsPerStream?: number | undefined
 }
+
+/** A command that wrote events with a `commandId`: the versions of its first and last event. */
+interface RecentCommand {
+  readonly id: string
+  readonly first: number
+  readonly last: number
+}
+
+const RecentCommand = Schema.Struct({ id: Schema.String, first: Schema.Int, last: Schema.Int })
+
+const noCommands: ReadonlyArray<RecentCommand> = []
 
 interface Loaded<State> {
   readonly state: State
@@ -305,6 +364,8 @@ interface Loaded<State> {
   readonly snapshotVersion: number
   /** The subjects whose personal data the state may hold, see `PersonalData`. */
   readonly subjects: ReadonlyArray<string>
+  /** The latest commands that carried a `commandId`, oldest first. */
+  readonly commands: ReadonlyArray<RecentCommand>
 }
 
 /** Adds subjects, keeping the same array when there is nothing new. */
@@ -478,35 +539,48 @@ const makeSnapshots = <State>(
   aggregateName: string,
   options: SnapshotOptions<State>,
   metrics: Metrics,
-  keys: PersonalData.Keys["Service"] | undefined
+  keys: PersonalData.Keys["Service"] | undefined,
+  commandIdsPerStream: number
 ) =>
   Effect.gen(function*() {
     const keyValueStore = yield* KeyValueStore.KeyValueStore
     const key = (aggregateId: string) =>
       `effect-cqrs/snapshot/${JSON.stringify([aggregateName, String(options.version ?? 1), aggregateId])}`
 
+    // Recent command ids are kept beside the state, outside the sealed part: the
+    // events hold them in plain text too. Snapshots from before them have none.
+    const commands = Schema.optional(Schema.Array(RecentCommand))
+    const recent = (saved: ReadonlyArray<RecentCommand> | undefined) =>
+      saved === undefined || saved.length === 0 || commandIdsPerStream <= 0
+        ? noCommands
+        : saved.slice(-commandIdsPerStream)
+
     let read: (aggregateId: string) => Effect.Effect<Option.Option<Loaded<State>>, unknown>
     let write: (aggregateId: string, loaded: Loaded<State>) => Effect.Effect<void, unknown>
     if (keys === undefined) {
       const store = KeyValueStore.toSchemaStore(
         keyValueStore,
-        Schema.Struct({ version: Schema.Int, position: Schema.Int, state: options.schema })
+        Schema.Struct({ version: Schema.Int, position: Schema.Int, state: options.schema, commands })
       )
       read = (aggregateId) =>
         store.get(key(aggregateId)).pipe(
-          Effect.map(Option.map((snapshot): Loaded<State> => ({
-            ...snapshot,
-            snapshotVersion: snapshot.version,
-            subjects: noSubjects
+          Effect.map(Option.map(({ commands, position, state, version }): Loaded<State> => ({
+            state,
+            version,
+            position,
+            snapshotVersion: version,
+            subjects: noSubjects,
+            commands: recent(commands)
           })))
         )
-      write = (aggregateId, { position, state, version }) => store.set(key(aggregateId), { version, position, state })
+      write = (aggregateId, { commands, position, state, version }) =>
+        store.set(key(aggregateId), { version, position, state, commands })
     } else {
       // The state of an aggregate with personal fields is sealed with the key of
       // every subject it holds data of, so forgetting any of them destroys it.
       const store = KeyValueStore.toSchemaStore(
         keyValueStore,
-        Schema.Struct({ version: Schema.Int, position: Schema.Int, sealed: PersonalData.Sealed })
+        Schema.Struct({ version: Schema.Int, position: Schema.Int, sealed: PersonalData.Sealed, commands })
       )
       const stateText = Schema.fromJsonString(Schema.toCodecJson(options.schema))
       const purpose = (aggregateId: string) => `snapshot ${JSON.stringify([aggregateName, aggregateId])}`
@@ -515,7 +589,7 @@ const makeSnapshots = <State>(
           Effect.flatMap((found): Effect.Effect<Option.Option<Loaded<State>>, unknown> =>
             Option.match(found, {
             onNone: () => Effect.succeed(Option.none<Loaded<State>>()),
-            onSome: ({ position, sealed, version }) =>
+            onSome: ({ commands, position, sealed, version }) =>
               PersonalData.openText(keys, sealed, purpose(aggregateId)).pipe(
                 Effect.flatMap((text): Effect.Effect<Option.Option<Loaded<State>>, unknown> =>
                   Option.match(text, {
@@ -528,16 +602,17 @@ const makeSnapshots = <State>(
                         version,
                         position,
                         snapshotVersion: version,
-                        subjects: sealed.subjects.map(({ subject }) => subject)
+                        subjects: sealed.subjects.map(({ subject }) => subject),
+                        commands: recent(commands)
                       }))
                 }))
               )
           }))
         )
-      write = (aggregateId, { position, state, subjects, version }) =>
+      write = (aggregateId, { commands, position, state, subjects, version }) =>
         Schema.encodeEffect(stateText)(state).pipe(
           Effect.flatMap((text) => PersonalData.sealText(keys, subjects, text, purpose(aggregateId))),
-          Effect.flatMap((sealed) => store.set(key(aggregateId), { version, position, sealed }))
+          Effect.flatMap((sealed) => store.set(key(aggregateId), { version, position, sealed, commands }))
         )
     }
 
@@ -589,7 +664,15 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   const builtWith = Context.get(context as Context.Context<never>, CurrentMetadata)
   const mergeMetadata = (current: Metadata, given: Metadata | undefined): Metadata =>
     current === builtWith && given === undefined ? builtWith : { ...builtWith, ...current, ...given }
+  // The command id key is reserved, so a command without one records none.
+  const withCommandId = (metadata: Metadata, commandId: string | undefined): Metadata => {
+    if (commandId !== undefined) return { ...metadata, [commandIdKey]: commandId }
+    if (!Object.hasOwn(metadata, commandIdKey)) return metadata
+    const { [commandIdKey]: _, ...rest } = metadata
+    return rest
+  }
   const maxRetries = options?.maxRetries ?? 5
+  const commandIdsPerStream = options?.commandIdsPerStream ?? 100
   const aggregateName = aggregate.name
   const keys = personalFieldsOf(aggregate) === undefined
     ? undefined
@@ -605,7 +688,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   const metrics = makeMetrics(aggregateName)
   const snapshots = options?.snapshots === undefined
     ? undefined
-    : yield* makeSnapshots<Aggregate.State<A>>(aggregateName, options.snapshots, metrics, keys)
+    : yield* makeSnapshots<Aggregate.State<A>>(aggregateName, options.snapshots, metrics, keys, commandIdsPerStream)
 
   const replay = <Acc>(
     stream: Stream.Stream<StoredEvent, EventStoreError>,
@@ -633,6 +716,21 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     range?: Pick<EventFilter, "startTime" | "finishTime" | "afterPosition" | "afterVersion">
   ) => store.read({ aggregateNames: [aggregateName], aggregateIds: [aggregateId], ...range })
 
+  // The events of one command are appended together and carry the same id, so an
+  // event continuing the last command extends it rather than adding another.
+  const addCommand = (commands: ReadonlyArray<RecentCommand>, stored: StoredEvent): ReadonlyArray<RecentCommand> => {
+    const id = stored.metadata[commandIdKey]
+    if (!Predicate.isString(id) || commandIdsPerStream <= 0) return commands
+    const last = commands[commands.length - 1]
+    if (last !== undefined && last.id === id && last.last === stored.version - 1) {
+      return [...commands.slice(0, -1), { id, first: last.first, last: stored.version }]
+    }
+    const kept = commands.length < commandIdsPerStream
+      ? commands
+      : commands.slice(commands.length - commandIdsPerStream + 1)
+    return [...kept, { id, first: stored.version, last: stored.version }]
+  }
+
   const fold = (
     acc: Loaded<Aggregate.State<A>>,
     { event, subjects }: Decoded<Aggregate.Event<A>>,
@@ -642,7 +740,8 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     version: stored.version,
     position: stored.position,
     snapshotVersion: acc.snapshotVersion,
-    subjects: addSubjects(acc.subjects, subjects)
+    subjects: addSubjects(acc.subjects, subjects),
+    commands: addCommand(acc.commands, stored)
   })
 
   const replayFrom = (
@@ -661,7 +760,8 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     version: 0,
     position: 0,
     snapshotVersion: 0,
-    subjects: noSubjects
+    subjects: noSubjects,
+    commands: noCommands
   }
 
   // Remembered states come first, as they are the most recent. Without one the
@@ -753,15 +853,59 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       Effect.ignore
     )
 
+  // The result of a command that ran before, read back from the events it wrote.
+  const previousResult = (aggregateId: string, previous: RecentCommand, correlationId: string) =>
+    replay(
+      streamOf(aggregateId, { afterVersion: previous.first - 1 }).pipe(
+        Stream.takeWhile((stored) => stored.version <= previous.last)
+      ),
+      [] as Array<readonly [Aggregate.Event<A>, StoredEvent]>,
+      (acc, { event }, stored) => {
+        acc.push([event, stored])
+        return acc
+      }
+    ).pipe(
+      Effect.map((written): CommandResult<Aggregate.Event<A>> => {
+        const last = written[written.length - 1]?.[1]
+        return {
+          aggregateName,
+          aggregateId,
+          version: last?.version ?? previous.last,
+          position: last?.position ?? 0,
+          events: written.map(([event]) => event),
+          correlationId: written[0]?.[1].correlationId ?? correlationId
+        }
+      })
+    )
+
+  const findCommand = (commands: ReadonlyArray<RecentCommand>, id: string) => {
+    for (let index = commands.length - 1; index >= 0; index--) {
+      if (commands[index]!.id === id) return commands[index]
+    }
+    return undefined
+  }
+
   const decide = Effect.fnUntraced(function*(
     type: string,
     aggregateId: string,
     payload: unknown,
     causation: { readonly correlationId: string; readonly causationId: string },
-    metadata: Metadata
+    metadata: Metadata,
+    options: CommandOptions | undefined
   ) {
     const loaded = yield* load(aggregateId)
     const { position, state, version } = loaded
+    // A command that ran before is answered first: its own events moved the
+    // version past the one it expected.
+    const commandId = options?.commandId
+    if (commandId !== undefined) {
+      const previous = findCommand(loaded.commands, commandId)
+      if (previous !== undefined) return yield* previousResult(aggregateId, previous, causation.correlationId)
+    }
+    const expectedVersion = options?.expectedVersion
+    if (expectedVersion !== undefined && expectedVersion !== version) {
+      return yield* new WrongExpectedVersion({ aggregateName, aggregateId, expectedVersion, actualVersion: version })
+    }
     const { handler } = aggregate.commands[type]!
     const events: ReadonlyArray<Aggregate.Event<A>> = Arr.ensure(yield* handler(state, payload, { aggregateId, version }))
     const { correlationId } = causation
@@ -789,7 +933,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     type: string,
     aggregateId: string,
     payload: unknown,
-    given?: {
+    given?: CommandOptions & {
       readonly correlationId?: string | undefined
       readonly causationId?: string | undefined
       readonly metadata?: Metadata | undefined
@@ -801,10 +945,14 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       const correlationId = given?.correlationId ?? current?.correlationId
       const causationId = given?.causationId ?? current?.causationId
       // Without a cause the command starts its own correlation.
-      const id = correlationId ?? causationId ?? crypto.randomUUID()
+      const id = correlationId ?? causationId ?? Context.get(callerContext, IdGenerator)()
       const causation = { correlationId: correlationId ?? id, causationId: causationId ?? id }
-      const metadata = mergeMetadata(Context.get(callerContext, CurrentMetadata), given?.metadata)
-      return decide(type, aggregateId, payload, causation, metadata).pipe(
+      const commandId = given?.commandId
+      const metadata = withCommandId(
+        mergeMetadata(Context.get(callerContext, CurrentMetadata), given?.metadata),
+        commandId
+      )
+      return decide(type, aggregateId, payload, causation, metadata, given).pipe(
         Effect.tapError((error) =>
           error instanceof ConcurrencyConflict ? Metric.update(metrics.conflicts, 1) : Effect.void
         ),
@@ -818,7 +966,13 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
         (decided) => Effect.andThen(timeSlice, decided),
         timed(type),
         Effect.withSpan(`${aggregateName}.${type}`, {
-          attributes: { "aggregate.id": aggregateId, "cqrs.correlation_id": causation.correlationId }
+          attributes: commandId === undefined
+            ? { "aggregate.id": aggregateId, "cqrs.correlation_id": causation.correlationId }
+            : {
+              "aggregate.id": aggregateId,
+              "cqrs.correlation_id": causation.correlationId,
+              "cqrs.command_id": commandId
+            }
         })
       )
     })
@@ -831,9 +985,9 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   const commands = Object.fromEntries(
     Object.entries(aggregate.commands).map(([type, command]) => [
       type,
-      (aggregateId: string, payload: unknown) =>
+      (aggregateId: string, payload: unknown, options?: CommandOptions) =>
         decodePayload(type, Schema.toType(command.payload), payload).pipe(
-          Effect.flatMap((decoded) => execute(type, aggregateId, decoded))
+          Effect.flatMap((decoded) => execute(type, aggregateId, decoded, options))
         )
     ])
   )

@@ -2,7 +2,8 @@ import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, DateTime, Duration, Effect, Exit, Fiber, Layer, Ref, Schema, Stream } from "effect"
 import { TestClock } from "effect/testing"
-import { Aggregate, AggregateService, EventStore, SqliteEventStore } from "effect-cqrs"
+import { Aggregate, AggregateService, EventStore, Ids, SqliteEventStore } from "effect-cqrs"
+import { postgresUrl, storage } from "../bench/common.ts"
 import { Todo, TodoEvent } from "../examples/todo/aggregate.ts"
 
 const makeTodos = AggregateService.make(Todo)
@@ -354,6 +355,230 @@ describe("AggregateService", () => {
         assert.strictEqual(error._tag, "TodoNotFound")
       }).pipe(Effect.provide(EventStore.layerMemory)))
   })
+
+  describe("command ids", () => {
+    const Events = Schema.TaggedUnion({ Deposited: { amount: Schema.Number }, Fee: { amount: Schema.Number } })
+    const Account = Aggregate.make<number>()({
+      name: "account",
+      events: Events,
+      initial: 0,
+      projection: {
+        Deposited: (balance, { amount }) => balance + amount,
+        Fee: (balance, { amount }) => balance - amount
+      }
+    }).command("deposit", {
+      payload: Schema.Struct({ amount: Schema.Number }),
+      handler: Effect.fnUntraced(function*(_, { amount }) {
+        yield* Effect.yieldNow
+        return [Events.cases.Deposited.make({ amount }), Events.cases.Fee.make({ amount: 1 })]
+      })
+    }).command("check", {
+      payload: Schema.Struct({}),
+      handler: () => Effect.succeed([])
+    })
+
+    it.effect("return the first result when a command comes again", () =>
+      Effect.gen(function*() {
+        const accounts = yield* AggregateService.make(Account)
+        const store = yield* EventStore.EventStore
+
+        const first = yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
+        const again = yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
+
+        assert.deepStrictEqual(again, first)
+        assert.strictEqual(again.version, 2)
+        assert.strictEqual(yield* store.head, 2)
+        assert.strictEqual(yield* accounts.readModel("a"), 9)
+        const stored = yield* Stream.runCollect(store.read())
+        assert.deepStrictEqual(stored.map((event) => event.metadata[AggregateService.commandIdKey]), ["c1", "c1"])
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("work through dispatch", () =>
+      Effect.gen(function*() {
+        const accounts = yield* AggregateService.make(Account)
+        const envelope = { aggregateId: "a", type: "deposit", payload: { amount: 10 }, commandId: "c1" }
+
+        const first = yield* accounts.dispatch(envelope)
+        const again = yield* accounts.dispatch(envelope)
+
+        assert.deepStrictEqual(again, first)
+        assert.strictEqual(yield* accounts.readModel("a"), 9)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("are rebuilt from the log by another process", () =>
+      Effect.gen(function*() {
+        const first = yield* AggregateService.make(Account)
+        const written = yield* first.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
+        yield* first.commands.deposit("a", { amount: 5 })
+
+        const second = yield* AggregateService.make(Account)
+        const again = yield* second.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
+
+        assert.deepStrictEqual(again, written)
+        assert.strictEqual(yield* second.readModel("a"), 13)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("belong to one aggregate", () =>
+      Effect.gen(function*() {
+        const accounts = yield* AggregateService.make(Account)
+
+        yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
+        const other = yield* accounts.commands.deposit("b", { amount: 10 }, { commandId: "c1" })
+
+        assert.strictEqual(other.aggregateId, "b")
+        assert.strictEqual(yield* accounts.readModel("b"), 9)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("are remembered up to commandIdsPerStream per aggregate", () =>
+      Effect.gen(function*() {
+        const accounts = yield* AggregateService.make(Account, { commandIdsPerStream: 2 })
+        for (const commandId of ["c1", "c2", "c3"]) {
+          yield* accounts.commands.deposit("a", { amount: 10 }, { commandId })
+        }
+
+        yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c3" })
+        yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c2" })
+        assert.strictEqual(yield* accounts.readModel("a"), 27)
+
+        // c1 has been forgotten, so it runs again.
+        yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
+        assert.strictEqual(yield* accounts.readModel("a"), 36)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("aren't recorded for commands that write no events", () =>
+      Effect.gen(function*() {
+        const accounts = yield* AggregateService.make(Account)
+
+        const checked = yield* accounts.commands.check("a", {}, { commandId: "c1" })
+        const deposited = yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
+
+        assert.strictEqual(checked.version, 0)
+        assert.strictEqual(deposited.version, 2)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("drop metadata given under their reserved key", () =>
+      Effect.gen(function*() {
+        const accounts = yield* AggregateService.make(Account)
+        const store = yield* EventStore.EventStore
+
+        yield* accounts.dispatch({
+          aggregateId: "a",
+          type: "deposit",
+          payload: { amount: 10 },
+          metadata: { [AggregateService.commandIdKey]: "c1", userId: "u1" }
+        })
+
+        const stored = yield* Stream.runCollect(store.read())
+        assert.deepStrictEqual(stored[0]?.metadata, { userId: "u1" })
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    // Two services on one store stand in for two processes retrying the same request.
+    for (const backend of ["memory", "sqlite-memory", ...(postgresUrl === undefined ? [] : ["postgres" as const])] as const) {
+      it.live(`let only one of two processes run the same command on ${backend}`, () =>
+        Effect.gen(function*() {
+          const first = yield* AggregateService.make(Account)
+          const second = yield* AggregateService.make(Account)
+          const store = yield* EventStore.EventStore
+
+          const results = yield* Effect.all(
+            [first, second, first, second].map((service) =>
+              service.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
+            ),
+            { concurrency: "unbounded" }
+          )
+
+          assert.strictEqual(yield* store.head, 2)
+          assert.isTrue(results.every((result) => result.version === 2 && result.events.length === 2))
+        }).pipe(Effect.provide(storage(backend))))
+    }
+  })
+
+  describe("expected version", () => {
+    const Events = Schema.TaggedUnion({ Renamed: { name: Schema.String } })
+    const Doc = Aggregate.make<string>()({
+      name: "doc",
+      events: Events,
+      initial: "",
+      projection: { Renamed: (_, { name }) => name }
+    }).command("rename", {
+      payload: Schema.Struct({ name: Schema.String }),
+      handler: (_, { name }) => Effect.succeed(Events.cases.Renamed.make({ name }))
+    })
+
+    it.effect("lets a command through when the aggregate is still at that version", () =>
+      Effect.gen(function*() {
+        const docs = yield* AggregateService.make(Doc)
+        yield* docs.commands.rename("d", { name: "a" }, { expectedVersion: 0 })
+
+        const result = yield* docs.commands.rename("d", { name: "b" }, { expectedVersion: 1 })
+
+        assert.strictEqual(result.version, 2)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("fails without retrying when the aggregate has moved on", () =>
+      Effect.gen(function*() {
+        const store = yield* EventStore.EventStore
+        let appends = 0
+        const docs = yield* AggregateService.make(Doc).pipe(
+          Effect.provideService(
+            EventStore.EventStore,
+            EventStore.EventStore.of({
+              ...store,
+              append: (input) => Effect.suspend(() => (appends++, store.append(input)))
+            })
+          )
+        )
+        yield* docs.commands.rename("d", { name: "a" })
+        yield* docs.commands.rename("d", { name: "b" })
+
+        const error = yield* Effect.flip(docs.commands.rename("d", { name: "c" }, { expectedVersion: 1 }))
+
+        assert.instanceOf(error, AggregateService.WrongExpectedVersion)
+        assert.deepInclude(error, { aggregateId: "d", expectedVersion: 1, actualVersion: 2 })
+        assert.strictEqual(appends, 2)
+        assert.strictEqual(yield* docs.readModel("d"), "b")
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("is read from the dispatch envelope", () =>
+      Effect.gen(function*() {
+        const docs = yield* AggregateService.make(Doc)
+        yield* docs.commands.rename("d", { name: "a" })
+
+        const stale = yield* Effect.flip(
+          docs.dispatch({ aggregateId: "d", type: "rename", payload: { name: "b" }, expectedVersion: 0 })
+        )
+        const invalid = yield* Effect.flip(
+          docs.dispatch({ aggregateId: "d", type: "rename", payload: { name: "b" }, expectedVersion: -1 })
+        )
+
+        assert.strictEqual(stale._tag, "WrongExpectedVersion")
+        assert.strictEqual(invalid._tag, "InvalidCommand")
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("doesn't stop a command that comes again with its id", () =>
+      Effect.gen(function*() {
+        const docs = yield* AggregateService.make(Doc)
+        const options = { commandId: "c1", expectedVersion: 0 }
+
+        const first = yield* docs.commands.rename("d", { name: "a" }, options)
+        const again = yield* docs.commands.rename("d", { name: "a" }, options)
+
+        assert.deepStrictEqual(again, first)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+  })
+
+  it.effect("makes correlation ids with the current IdGenerator", () =>
+    Effect.gen(function*() {
+      const todos = yield* makeTodos
+
+      const first = yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" })
+      const second = yield* todos.commands.createTodo("todo-2", { title: "Buy Eggs" })
+
+      assert.deepStrictEqual([first.correlationId, second.correlationId], ["id-1", "id-2"])
+    }).pipe(
+      Effect.provide(EventStore.layerMemory),
+      Effect.provideService(Ids.IdGenerator, Ids.sequential())
+    ))
 
   describe("read models", () => {
     it.effect("returns the initial state for an aggregate without events", () =>

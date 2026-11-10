@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest"
 import { Effect, Latch, Layer, References, Schema } from "effect"
 import { KeyValueStore } from "effect/persistence"
-import { Aggregate, AggregateService, EventStore } from "effect-cqrs"
+import { Aggregate, AggregateService, EventStore, PersonalData } from "effect-cqrs"
 
 const Events = Schema.TaggedUnion({ Incremented: {} })
 const Counter = Aggregate.make<{ readonly total: number }>()({
@@ -123,6 +123,66 @@ describe("snapshots", () => {
       yield* second.counters.readModel("c")
       assert.deepStrictEqual(second.reads, [3])
     }).pipe(Effect.provide(Storage)))
+
+  it.effect("keep the latest command ids, so a new process still knows them", () =>
+    Effect.gen(function*() {
+      const first = yield* Effect.scoped(Effect.flatMap(start(), ({ counters }) =>
+        Effect.gen(function*() {
+          const written = yield* counters.commands.increment("c", {}, { commandId: "x" })
+          yield* increment(counters, 2)
+          return written
+        })))
+
+      // The snapshot at version 3 holds the id, so the new process starts there and answers from it.
+      const second = yield* start()
+      const again = yield* second.counters.commands.increment("c", {}, { commandId: "x" })
+      assert.deepStrictEqual(again, first)
+      assert.deepStrictEqual(second.reads, [3, 0])
+      assert.deepStrictEqual(yield* second.counters.readModel("c"), { total: 3 })
+    }).pipe(Effect.provide(Storage)))
+
+  it.effect("keep the latest command ids when they are sealed", () =>
+    Effect.gen(function*() {
+      const Opened = Schema.TaggedUnion({ Opened: { owner: PersonalData.field(Schema.String, { redacted: "?" }) } })
+      const Account = Aggregate.make<string>()({
+        name: "account",
+        events: Opened,
+        initial: "",
+        projection: { Opened: (_, { owner }) => owner }
+      }).command("open", {
+        payload: Schema.Struct({ owner: Schema.String }),
+        handler: (_, { owner }) => Effect.succeed(Opened.cases.Opened.make({ owner }))
+      })
+      const snapshots = { every: 1, schema: Schema.String }
+
+      const first = yield* Effect.scoped(Effect.flatMap(
+        AggregateService.make(Account, { snapshots }),
+        (accounts) => accounts.commands.open("alice", { owner: "Alice" }, { commandId: "x" })
+      ))
+
+      const store = yield* EventStore.EventStore
+      const reads: Array<number> = []
+      const second = yield* AggregateService.make(Account, { snapshots }).pipe(
+        Effect.provideService(
+          EventStore.EventStore,
+          EventStore.EventStore.of({
+            ...store,
+            read: (filter) => {
+              reads.push(filter?.afterVersion ?? 0)
+              return store.read(filter)
+            }
+          })
+        )
+      )
+      const again = yield* second.commands.open("alice", { owner: "Alice" }, { commandId: "x" })
+      assert.deepStrictEqual(again, first)
+      assert.deepStrictEqual(reads, [1, 0])
+    }).pipe(
+      Effect.provide(Layer.mergeAll(
+        Storage,
+        PersonalData.layerMemory().pipe(Layer.provide(PersonalData.layerMasterKeyEphemeral))
+      ))
+    ))
 
   it.effect("never fail a command when they can't be saved", () =>
     Effect.gen(function*() {

@@ -27,7 +27,9 @@ const program = Effect.gen(function*() {
 ## Running a command
 
 `todos.commands` has one function per command, typed from the aggregate. Each takes the
-aggregate's id and the payload, and returns a `CommandResult`:
+aggregate's id, the payload and optionally a `commandId` and an `expectedVersion`, see
+[retries](#retries-and-command-ids) and [expected version](#expected-version). It returns a
+`CommandResult`:
 
 | Field | What it is |
 | --- | --- |
@@ -41,7 +43,18 @@ aggregate's id and the payload, and returns a `CommandResult`:
 `unknown`. It checks the envelope and decodes the payload with the command's JSON codec, so
 an ISO string becomes a `DateTime`. This is the entry point to wire into an HTTP or RPC
 layer. The envelope can also carry a `correlationId` and a `causationId`, to continue a
-correlation the caller started, and a `metadata` object, see [metadata](#metadata).
+correlation the caller started, a `metadata` object, see [metadata](#metadata), and a
+`commandId` and an `expectedVersion`:
+
+```ts
+yield* todos.dispatch({
+  aggregateId: "todo-1",
+  type: "completeTodo",
+  payload: {},
+  commandId: "6f1c…", // the same on every retry of this request
+  expectedVersion: 1 // the version the caller saw
+})
+```
 
 ## Errors
 
@@ -51,6 +64,7 @@ A command fails with the errors its handler declares, plus:
 | --- | --- |
 | `InvalidCommand` | The payload, or for `dispatch` the envelope, doesn't match its schema |
 | `UnknownCommand` | `dispatch` names a command the aggregate doesn't have |
+| `WrongExpectedVersion` | The aggregate isn't at the caller's `expectedVersion`. It carries `expectedVersion` and `actualVersion` |
 | `ConcurrencyConflict` | Another process kept winning the race for this aggregate |
 | `EventStoreError` | The store failed |
 | `EventDecodeError` | A stored event doesn't match the schema of its [version](../aggregates/#evolving-events) |
@@ -74,6 +88,53 @@ with the version its decision was based on, and if another process got there fir
 backs off, reloads the state and decides again. After `maxRetries` attempts, 5 by default,
 it fails with `ConcurrencyConflict`.
 
+## Retries and command ids
+
+A client that times out doesn't know whether its command ran, and sending it again could
+record the same deposit twice. Give the command a `commandId`, the same on every attempt,
+and the service runs it only once:
+
+```ts
+const first = yield* accounts.commands.deposit("alice", { amount: 100 }, { commandId: requestId })
+const again = yield* accounts.commands.deposit("alice", { amount: 100 }, { commandId: requestId })
+// `again` equals `first`: same version, position, events and correlationId, and nothing new is stored
+```
+
+The id is recorded in the metadata of the events the command writes, under the reserved key
+`cqrs.commandId` (`AggregateService.commandIdKey`). Each aggregate remembers the ids of its
+latest commands, rebuilt from those events when its stream is replayed and kept in
+[snapshots](#snapshots). When an id comes again, the service reads the events it wrote back
+from the store and returns them as the first result, without running the handler.
+
+- **Ids are per aggregate.** The same id on another aggregate is another command.
+- **Only commands that write events are remembered.** One that writes none leaves nothing to
+  find, so it runs again, which is harmless as long as it still decides to write nothing.
+- **The window is bounded.** Each aggregate remembers its last `commandIdsPerStream`
+  commands, 100 by default. An older id runs again.
+- **Only the id is compared.** Another command or payload under a known id gets the first
+  result. Make ids unique per request, such as a UUID the client makes once.
+- **Metadata given under `cqrs.commandId` is dropped**, so the key only holds real ids.
+
+Two processes running the same command at once are covered too: the one that loses the race
+reloads, finds the id and returns the winner's result.
+
+## Expected version
+
+A user who edits what they read a minute ago can overwrite a change made in between. Pass
+the version they read as `expectedVersion`, like HTTP's `If-Match`, and the command fails
+with `WrongExpectedVersion` if the aggregate has moved since:
+
+```ts
+yield* docs.commands.rename("doc-1", { title }, { expectedVersion: versionShown }).pipe(
+  Effect.catchTag("WrongExpectedVersion", ({ actualVersion }) => reloadAndAskAgain(actualVersion))
+)
+```
+
+It is checked before the handler runs, and it isn't retried: unlike a `ConcurrencyConflict`
+between two processes, deciding again would act on a state the user hasn't seen. A command
+that comes again with its `commandId` returns its first result rather than failing, although
+its own events moved the version on.
+
 ## Remembered state
 
 The service keeps the state of the aggregates it used recently, including the events its
@@ -85,7 +146,8 @@ After a restart, the first command on an aggregate replays its whole stream, unl
 ```ts
 const todos = yield* AggregateService.make(Todo, {
   maxRetries: 5, // re-decisions after losing to another process
-  stateCacheSize: 10_000 // aggregates kept in memory, 0 to turn it off
+  stateCacheSize: 10_000, // aggregates kept in memory, 0 to turn it off
+  commandIdsPerStream: 100 // command ids each aggregate remembers
 })
 ```
 
@@ -121,6 +183,8 @@ files, any `effect/sql` database and the browser's `localStorage`.
   for it. The service needs a `Scope`, which `Layer.effect` provides, and closing it waits
   for the saves still running.
 - `readModel` with a `finishTime` always replays from the start.
+- They keep the aggregate's latest [command ids](#retries-and-command-ids) beside the state,
+  unsealed, as the events hold them in plain text too.
 
 ## Metrics
 
@@ -188,7 +252,17 @@ yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" }).pipe(
 )
 ```
 
-The command's span carries the correlation as `cqrs.correlation_id`.
+The command's span carries the correlation as `cqrs.correlation_id`, and its `commandId`, if
+any, as `cqrs.command_id`.
+
+New correlations get a random UUID from `Ids.IdGenerator`, a reference a test can replace to
+get ids it can compare:
+
+```ts
+import { Ids } from "effect-cqrs"
+
+program.pipe(Effect.provideService(Ids.IdGenerator, Ids.sequential("id"))) // id-1, id-2, …
+```
 
 ## Metadata
 
