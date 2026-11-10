@@ -101,7 +101,8 @@ const again = yield* accounts.commands.deposit("alice", { amount: 100 }, { comma
 ```
 
 The id is recorded in the metadata of the events the command writes, under the reserved key
-`cqrs.commandId` (`AggregateService.commandIdKey`). Each aggregate remembers the ids of its
+`cqrs.commandId` (`AggregateService.commandIdKey`), with the command's name under
+`cqrs.command` (`AggregateService.commandTypeKey`). Each aggregate remembers the ids of its
 latest commands, rebuilt from those events when its stream is replayed and kept in
 [snapshots](#snapshots). When an id comes again, the service reads the events it wrote back
 from the store and returns them as the first result, without running the handler.
@@ -111,9 +112,12 @@ from the store and returns them as the first result, without running the handler
   find, so it runs again, which is harmless as long as it still decides to write nothing.
 - **The window is bounded.** Each aggregate remembers its last `commandIdsPerStream`
   commands, 100 by default. An older id runs again.
-- **Only the id is compared.** Another command or payload under a known id gets the first
-  result. Make ids unique per request, such as a UUID the client makes once.
-- **Metadata given under `cqrs.commandId` is dropped**, so the key only holds real ids.
+- **Another command under a known id fails** with `CommandIdReused`, rather than getting a
+  result it didn't ask for. The payload isn't compared: the same command with another payload
+  under a known id gets the first result. Make ids unique per request, such as a UUID the
+  client makes once. Ids recorded before the command's name was have nothing to compare.
+- **Metadata given under `cqrs.commandId` or `cqrs.command` is dropped**, so the keys only
+  hold what the service recorded.
 
 Two processes running the same command at once are covered too: the one that loses the race
 reloads, finds the id and returns the winner's result.

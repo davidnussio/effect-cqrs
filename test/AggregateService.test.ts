@@ -378,6 +378,21 @@ describe("AggregateService", () => {
   })
 
   describe("command ids", () => {
+    it.effect("refuses an id that another command ran with", () =>
+      Effect.gen(function*() {
+        const todos = yield* makeTodos
+        yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" }, { commandId: "request-1" })
+
+        const error = yield* Effect.flip(todos.commands.completeTodo("todo-1", {}, { commandId: "request-1" }))
+
+        assert.strictEqual(error._tag, "CommandIdReused")
+        assert.deepStrictEqual(error._tag === "CommandIdReused" && [error.previous, error.command], [
+          "createTodo",
+          "completeTodo"
+        ])
+        assert.strictEqual((yield* todos.history("todo-1")).length, 1)
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
     it.effect("returns only the events of the command run again, later in its stream", () =>
       Effect.gen(function*() {
         const todos = yield* makeTodos

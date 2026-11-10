@@ -75,6 +75,21 @@ export class WrongExpectedVersion extends Schema.TaggedError<WrongExpectedVersio
   actualVersion: Schema.Int
 }) {}
 
+/**
+ * A `commandId` that already identifies another command on the aggregate. Running a
+ * command again returns the first result only for the same command: a client that
+ * reuses an id for another one gets this rather than a result it didn't ask for.
+ */
+export class CommandIdReused extends Schema.TaggedError<CommandIdReused>()("CommandIdReused", {
+  aggregateName: Schema.String,
+  aggregateId: Schema.String,
+  commandId: Schema.String,
+  /** The command that ran with the id first. */
+  previous: Schema.String,
+  /** The command that came with it now. */
+  command: Schema.String
+}) {}
+
 /** How reading events can fail. `PersonalDataError` comes from aggregates with personal fields, see `PersonalData`. */
 export type ReadError = EventStoreError | EventDecodeError | PersonalData.PersonalDataError
 
@@ -88,6 +103,7 @@ export type CommandFailure =
   | WrongExpectedVersion
   | ReadError
   | PersonalData.SubjectForgotten
+  | CommandIdReused
 
 /** What a typed command takes besides the aggregate id and the payload. */
 export interface CommandOptions {
@@ -105,6 +121,12 @@ export interface CommandOptions {
  * It is reserved: metadata given under this key is dropped.
  */
 export const commandIdKey = "cqrs.commandId"
+
+/**
+ * The metadata key that records, beside the {@link commandIdKey}, which command
+ * wrote the events. It is reserved too.
+ */
+export const commandTypeKey = "cqrs.command"
 
 export interface CommandResult<Event> {
   readonly aggregateName: string
@@ -381,11 +403,18 @@ export interface Options {
 /** A command that wrote events with a `commandId`: the versions of its first and last event. */
 interface RecentCommand {
   readonly id: string
+  /** The command, unknown for events written before it was recorded. */
+  readonly type?: string | undefined
   readonly first: number
   readonly last: number
 }
 
-const RecentCommand = Schema.Struct({ id: Schema.String, first: Schema.Int, last: Schema.Int })
+const RecentCommand = Schema.Struct({
+  id: Schema.String,
+  type: Schema.optional(Schema.String),
+  first: Schema.Int,
+  last: Schema.Int
+})
 
 const noCommands: ReadonlyArray<RecentCommand> = []
 
@@ -698,11 +727,11 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
   const builtWith = Context.get(context as Context.Context<never>, CurrentMetadata)
   const mergeMetadata = (current: Metadata, given: Metadata | undefined): Metadata =>
     current === builtWith && given === undefined ? builtWith : { ...builtWith, ...current, ...given }
-  // The command id key is reserved, so a command without one records none.
-  const withCommandId = (metadata: Metadata, commandId: string | undefined): Metadata => {
-    if (commandId !== undefined) return { ...metadata, [commandIdKey]: commandId }
-    if (!Object.hasOwn(metadata, commandIdKey)) return metadata
-    const { [commandIdKey]: _, ...rest } = metadata
+  // The command id keys are reserved, so a command without an id records neither.
+  const withCommandId = (metadata: Metadata, commandId: string | undefined, type: string): Metadata => {
+    if (commandId !== undefined) return { ...metadata, [commandIdKey]: commandId, [commandTypeKey]: type }
+    if (!Object.hasOwn(metadata, commandIdKey) && !Object.hasOwn(metadata, commandTypeKey)) return metadata
+    const { [commandIdKey]: _, [commandTypeKey]: __, ...rest } = metadata
     return rest
   }
   const maxRetries = options?.maxRetries ?? 5
@@ -768,12 +797,16 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     if (!Predicate.isString(id) || commandIdsPerStream <= 0) return commands
     const last = commands[commands.length - 1]
     if (last !== undefined && last.id === id && last.last === stored.version - 1) {
-      return [...commands.slice(0, -1), { id, first: last.first, last: stored.version }]
+      return [...commands.slice(0, -1), { ...last, last: stored.version }]
     }
     const kept = commands.length < commandIdsPerStream
       ? commands
       : commands.slice(commands.length - commandIdsPerStream + 1)
-    return [...kept, { id, first: stored.version, last: stored.version }]
+    const type = stored.metadata[commandTypeKey]
+    const command: RecentCommand = Predicate.isString(type)
+      ? { id, type, first: stored.version, last: stored.version }
+      : { id, first: stored.version, last: stored.version }
+    return [...kept, command]
   }
 
   const fold = (
@@ -945,6 +978,15 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     const commandId = options?.commandId
     if (commandId !== undefined) {
       const previous = findCommand(loaded.commands, commandId)
+      if (previous?.type !== undefined && previous.type !== type) {
+        return yield* new CommandIdReused({
+          aggregateName,
+          aggregateId,
+          commandId,
+          previous: previous.type,
+          command: type
+        })
+      }
       if (previous !== undefined) return yield* previousResult(aggregateId, previous, causation.correlationId)
     }
     const expectedVersion = options?.expectedVersion
@@ -997,7 +1039,8 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       const commandId = given?.commandId
       const metadata = withCommandId(
         mergeMetadata(Context.get(callerContext, CurrentMetadata), given?.metadata),
-        commandId
+        commandId,
+        type
       )
       return decide(type, aggregateId, payload, causation, metadata, given).pipe(
         Effect.tapError((error) =>
