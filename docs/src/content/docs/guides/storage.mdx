@@ -80,6 +80,11 @@ of its own, so view models and subscribers in every process wake up on every app
   `PgClient` needs a `pollInterval` too.
 - A `pollInterval` next to listening is a safety net. The store already reads the head again
   whenever it reconnects, so a notification sent while it was away isn't lost.
+- An append inside a transaction of your own, with `sql.withTransaction`, is written there
+  and then, so it commits or rolls back with your other writes. It holds the counter row
+  until that transaction ends, and every other writer of the store waits for it meanwhile,
+  in this process and in others. Keep such transactions short, and do the slow work before
+  them.
 - After a bulk load, run `ANALYZE`. Until autovacuum gets to a new table, reads for view
   models are slow.
 

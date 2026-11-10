@@ -12,6 +12,10 @@
  * statement that checks each stream's version, takes positions for the appends that
  * pass and inserts their events. An append that fails its check fails alone.
  *
+ * An append inside a transaction of the caller's is written there and then, and holds
+ * the counter row until that transaction ends: every other writer of the store waits
+ * for it meanwhile, so such transactions should be short.
+ *
  * The statement also sends a notification with the new head on a channel named
  * after the events table. A store on a `PgClient` listens to it, so view models in
  * every process wake up on every append.
@@ -305,7 +309,8 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
   const grouped = yield* EventStore.groupCommit(appendGroup)
 
   // An append in the caller's transaction must use its connection, and a savepoint
-  // keeps a conflict from aborting the rest of that transaction.
+  // keeps a conflict from aborting the rest of that transaction. It holds the counter
+  // row until the caller commits, which is the price of committing with its writes.
   const append = (input: EventStore.AppendInput) =>
     Effect.flatMap(
       Effect.serviceOption(sql.transactionService),
