@@ -5,7 +5,7 @@ import { defineConfig } from "astro/config"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import starlightLlmsTxt from "starlight-llms-txt"
-import starlightTypeDoc, { typeDocSidebarGroup } from "starlight-typedoc"
+import starlightTypeDoc from "starlight-typedoc"
 import { baseLinks } from "./src/links.ts"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
@@ -43,9 +43,10 @@ export default defineConfig({
           entryPoints: [join(root, "src/*.ts")],
           tsconfig: join(root, "tsconfig.build.json"),
           output: "reference/api",
-          sidebar: { label: "API", collapsed: true },
           typeDoc: {
             name: "API reference",
+            // The list of modules is the index of the directory, so the sidebar puts it first.
+            entryFileName: "index",
             // index.ts only gathers the modules into namespaces.
             exclude: ["**/index.ts"],
             // One page per module.
@@ -150,8 +151,9 @@ export default defineConfig({
             "reference/moleculer-cqrs",
             "reference/performance",
             "reference/limitations",
-            // Generated from the TSDoc comments, a page per module.
-            typeDocSidebarGroup
+            // Generated from the TSDoc comments, a page per module. The group starlight-typedoc
+            // makes has a subgroup per module, which stays empty when a module is one page.
+            { label: "API", collapsed: true, items: [{ autogenerate: { directory: "reference/api" } }] }
           ]
         }
       ]
