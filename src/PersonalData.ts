@@ -176,6 +176,13 @@ const collect = (ast: SchemaAST.AST, path: ReadonlyArray<string>, fields: Array<
     }
     return
   }
+  // Fields are found by their decoded keys and sealed in the encoded payload, so a
+  // struct whose encoded form differs, as with `encodeKeys`, would hide them.
+  if (node.encoding !== undefined && mentionsPersonal(node)) {
+    throw new Error(
+      `${where}: personal fields can't be in a struct that changes its shape when encoded, as ${describe(path)} does`
+    )
+  }
   const before = fields.length
   for (const property of node.propertySignatures) {
     if (!Predicate.isString(property.name)) {

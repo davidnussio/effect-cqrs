@@ -527,6 +527,22 @@ describe("PersonalData", () => {
       assert.throws(() => PersonalData.fieldsByTag(InArray, "list"), /names is a Arrays/)
     })
 
+    it("rejects personal fields in a struct that renames its keys when encoded", () => {
+      const Opened = Schema.Struct({
+        _tag: Schema.tag("Opened"),
+        owner: PersonalData.field(Schema.String, { redacted: "x" })
+      }).pipe(Schema.encodeKeys({ owner: "owner_name" }))
+      assert.throws(() => PersonalData.fieldsByTag(Schema.Union([Opened]), "renamed"), /changes its shape/)
+      const Nested = Schema.TaggedUnion({
+        Opened: {
+          holder: Schema.Struct({ name: PersonalData.field(Schema.String, { redacted: "x" }) }).pipe(
+            Schema.encodeKeys({ name: "full_name" })
+          )
+        }
+      })
+      assert.throws(() => PersonalData.fieldsByTag(Nested, "nested"), /changes its shape/)
+    })
+
     it("rejects a subject that isn't a sibling", () => {
       const Missing = Schema.TaggedUnion({
         Sent: { name: PersonalData.field(Schema.String, { redacted: "", subject: "to" }) }
