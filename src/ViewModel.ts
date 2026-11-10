@@ -243,6 +243,13 @@ const retryDelay = (attempt: number) => Duration.millis(Math.min(100 * 2 ** atte
 
 const describeFailure = (cause: unknown) => Cause.pretty(Cause.fail(cause))
 
+const movedElsewhere = (viewModel: string) =>
+  new ViewModelError({
+    viewModel,
+    position: 0,
+    cause: new Error(`Another process moved the checkpoint of view model ${viewModel}`)
+  })
+
 const notHeld = (viewModel: string) =>
   new ViewModelError({
     viewModel,
@@ -388,11 +395,20 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
       Effect.catchDefect((defect) => Effect.fail(fail(at)(defect)))
     )
 
-  const save = (to: number) =>
-    checkpoints.set(name, to).pipe(
-      Effect.mapError(fail(0)),
-      Effect.andThen(Ref.set(saved, to))
-    )
+  // Moves the checkpoint on from where this process last saved it. Another process
+  // that moved it meanwhile runs the view model too, and this one must neither move
+  // it back nor commit a batch that one may have committed already.
+  const advanceCheckpoint = checkpoints.advance
+  const writeCheckpoint = (to: number) =>
+    advanceCheckpoint === undefined
+      ? Effect.mapError(checkpoints.set(name, to), fail(0))
+      : Ref.get(saved).pipe(
+        Effect.flatMap((from) => advanceCheckpoint(name, from, to)),
+        Effect.mapError(fail(0)),
+        Effect.flatMap((moved) => moved ? Effect.void : Effect.fail(movedElsewhere(name)))
+      )
+
+  const save = (to: number) => Effect.andThen(writeCheckpoint(to), Ref.set(saved, to))
 
   const advance = (to: number) =>
     Ref.get(saved).pipe(
@@ -409,7 +425,7 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
     if (transaction === undefined) return Effect.andThen(handleAll, advance(last))
     // A failed commit belongs to no event in particular, so it is never parked.
     return transactional(
-      Effect.andThen(handleAll, checkpoints.set(name, last).pipe(Effect.mapError(fail(0)))),
+      Effect.andThen(handleAll, writeCheckpoint(last)),
       0
     ).pipe(
       Effect.andThen(Ref.set(saved, last)),

@@ -592,3 +592,20 @@ describe("SqliteEventStore", () => {
       }))
   })
 })
+
+describe("Checkpoints.advance", () => {
+  for (
+    const backend of ["memory", "sqlite-memory", ...(postgresUrl === undefined ? [] : ["postgres" as const])] as const
+  ) {
+    it.live(`moves a checkpoint only from where it is, on ${backend}`, () =>
+      Effect.gen(function*() {
+        const checkpoints = yield* Checkpoints.Checkpoints
+        const advance = checkpoints.advance!
+        assert.isTrue(yield* advance("view", 0, 5))
+        assert.isFalse(yield* advance("view", 0, 9))
+        assert.strictEqual(yield* checkpoints.get("view"), 5)
+        assert.isTrue(yield* advance("view", 5, 2))
+        assert.strictEqual(yield* checkpoints.get("view"), 2)
+      }).pipe(Effect.provide(storage(backend))))
+  }
+})

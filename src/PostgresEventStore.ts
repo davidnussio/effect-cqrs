@@ -391,6 +391,17 @@ export const layerCheckpoints = (
           `.pipe(
             Effect.asVoid,
             Effect.mapError(storeError("checkpoint"))
+          ),
+        // A row that doesn't exist yet stands for `0`, and is inserted whatever `from` is.
+        advance: (viewModel, from, to) =>
+          sql<{ readonly position: number }>`
+            INSERT INTO ${table} (view_model, position) VALUES (${viewModel}, ${to})
+            ON CONFLICT (view_model) DO UPDATE SET position = excluded.position
+            WHERE ${table}.position = ${from}
+            RETURNING position
+          `.pipe(
+            Effect.map((rows) => rows.length > 0),
+            Effect.mapError(storeError("checkpoint"))
           )
       })
     })

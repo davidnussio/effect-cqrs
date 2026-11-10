@@ -272,6 +272,16 @@ export const layer = <const Os extends ReadonlyArray<Any>>(
               Effect.mapError((cause) => new EventStoreError({ operation: "outbox", cause })),
               Effect.andThen(checkpoints.set(name, position))
             )
+        },
+        advance: checkpoints.advance === undefined ? undefined : (name, from, to) => {
+          const runner = byName.get(name)
+          const advance = checkpoints.advance!(name, from, to)
+          return runner === undefined
+            ? advance
+            : runner.flush.pipe(
+              Effect.mapError((cause) => new EventStoreError({ operation: "outbox", cause })),
+              Effect.andThen(advance)
+            )
         }
       })
 
