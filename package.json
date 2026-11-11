@@ -1,6 +1,6 @@
 {
   "name": "effect-cqrs",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CQRS and event sourcing for Effect v4, a port of moleculer-cqrs",
   "keywords": [
     "effect",
