@@ -56,6 +56,34 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
       assert.deepStrictEqual(yield* positions, [1])
     }).pipe(Effect.provide(storage)))
 
+  it.live("announces an append in the caller's transaction once it commits, and not if it rolls back", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      const store = yield* EventStore.EventStore
+      const following = yield* store.subscribe().pipe(Stream.take(3), Stream.runCollect, Effect.forkChild)
+      yield* Effect.sleep("20 millis")
+
+      // The subscriber gets to look while each transaction is still open.
+      const open = Effect.sleep("20 millis")
+      yield* Effect.exit(
+        append("lost", 0, "Lost").pipe(
+          Effect.andThen(open),
+          Effect.andThen(Effect.fail("rolled back")),
+          sql.withTransaction
+        )
+      )
+      yield* Effect.sleep("20 millis")
+      yield* append("a", 0, "A").pipe(Effect.andThen(open), sql.withTransaction)
+      yield* append("b", 0, "B")
+      yield* append("c", 0, "C")
+
+      const seen = yield* Fiber.join(following).pipe(Effect.timeoutOption("2 seconds"))
+      assert.deepStrictEqual(
+        Option.map(seen, (events) => events.map((event) => event.type)),
+        Option.some(["A", "B", "C"])
+      )
+    }).pipe(Effect.provide(Layer.suspend(temporaryPostgres))))
+
   it.live("gives the position back when a transaction fails", () =>
     Effect.gen(function*() {
       yield* append("a", 0, "A")

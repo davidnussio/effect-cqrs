@@ -302,7 +302,9 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
     Effect.mapError(storeError("head"))
   )
 
-  return yield* EventStore.make({ append, readBatch, head }, { pollInterval: options?.pollInterval })
+  return yield* EventStore.make({ append, readBatch, head, afterCommit: sql.afterCommit }, {
+    pollInterval: options?.pollInterval
+  })
 })
 
 export const layer = (

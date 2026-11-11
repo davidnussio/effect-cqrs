@@ -371,7 +371,9 @@ export const make = Effect.fnUntraced(function*(options?: Options) {
       Stream.mapError((error) => error._tag === "EventStoreError" ? error : storeError("listen")(error))
     )
 
-  return yield* EventStore.make({ append, readBatch, head, changes }, { pollInterval: options?.pollInterval })
+  return yield* EventStore.make({ append, readBatch, head, changes, afterCommit: sql.afterCommit }, {
+    pollInterval: options?.pollInterval
+  })
 })
 
 export const layer = (

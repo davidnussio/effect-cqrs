@@ -352,6 +352,33 @@ describe("EventStore.groupCommit", () => {
       assert.deepStrictEqual(groups, [["a"], ["c"]])
     }).pipe(Effect.scoped))
 
+  it.effect("writes the others of a group whose writer is interrupted", () =>
+    Effect.gen(function*() {
+      const { append, groups, latch } = yield* recording
+      // A write that others waited for makes the next writer take company.
+      const first = yield* Effect.forkChild(append(input("a")))
+      yield* Effect.yieldNow
+      const second = yield* Effect.forkChild(append(input("b")))
+      yield* Effect.yieldNow
+      yield* latch.open
+      yield* Fiber.join(first)
+      yield* Fiber.join(second)
+      yield* latch.close
+
+      const writer = yield* Effect.forkChild(append(input("c")))
+      const other = yield* Effect.forkChild(append(input("d")))
+      yield* Effect.yieldNow
+      yield* Effect.yieldNow
+      const interrupting = yield* Effect.forkChild(Fiber.interrupt(writer))
+      yield* Effect.yieldNow
+      yield* latch.open
+      yield* Fiber.join(interrupting)
+
+      assert.deepStrictEqual(yield* Fiber.join(other), [])
+      assert.isTrue(Exit.isFailure(yield* Fiber.await(writer)))
+      assert.deepStrictEqual(groups, [["a"], ["b"], ["c", "d"]])
+    }).pipe(Effect.scoped))
+
   it.effect("keeps a second append to a stream, or one past maxEvents, for the next group", () =>
     Effect.gen(function*() {
       const { append, groups, latch } = yield* recording
@@ -436,6 +463,36 @@ describe("EventStore pagination", () => {
 })
 
 describe("SqliteEventStore", () => {
+  it.live("announces an append in the caller's transaction once it commits, and not if it rolls back", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      const store = yield* EventStore.EventStore
+      const following = yield* store.subscribe().pipe(Stream.take(3), Stream.runCollect, Effect.forkChild)
+      yield* Effect.sleep("20 millis")
+
+      // The subscriber gets to look while each transaction is still open.
+      const open = Effect.sleep("20 millis")
+      yield* Effect.exit(
+        append("lost", 0, "Lost").pipe(
+          Effect.andThen(open),
+          Effect.andThen(Effect.fail("rolled back")),
+          sql.withTransaction
+        )
+      )
+      yield* Effect.sleep("20 millis")
+      yield* append("a", 0, "A").pipe(Effect.andThen(open), sql.withTransaction)
+      yield* append("b", 0, "B")
+      yield* append("c", 0, "C")
+
+      const seen = yield* Fiber.join(following).pipe(Effect.timeoutOption("2 seconds"))
+      assert.deepStrictEqual(
+        Option.map(seen, (events) => events.map((event) => event.type)),
+        Option.some(["A", "B", "C"])
+      )
+    }).pipe(
+      Effect.provide(SqliteEventStore.layer().pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))))
+    ))
+
   it.effect("keeps events and checkpoints across restarts", () =>
     Effect.gen(function*() {
       const filename = join(mkdtempSync(join(tmpdir(), "effect-cqrs-")), "events.sqlite")

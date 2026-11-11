@@ -169,6 +169,13 @@ export interface Backend {
    * missed. When it fails or ends, the store logs it and runs it again a second later.
    */
   readonly changes?: Stream.Stream<number, EventStoreError> | undefined
+  /**
+   * Runs an effect once an append made now can be read by everyone: at once, or when
+   * the caller's transaction commits, and never if it rolls back. `SqlClient.afterCommit`
+   * is one. Without it appends are announced as soon as they return, which makes
+   * subscribers skip those of a transaction that is still open.
+   */
+  readonly afterCommit?: (<R>(effect: Effect.Effect<void, never, R>) => Effect.Effect<void, never, R>) | undefined
 }
 
 export interface MakeOptions {
@@ -222,15 +229,16 @@ export const make = Effect.fnUntraced(function*(backend: Backend, options?: Make
 const assemble = Effect.fnUntraced(function*(backend: Backend, options?: MakeOptions) {
   const batchSize = options?.batchSize ?? 500
   const latest = yield* SubscriptionRef.make(yield* backend.head)
+  const afterCommit = backend.afterCommit
 
   const append = Effect.fn("EventStore.append")((input: AppendInput) =>
     backend.append(input).pipe(
       Effect.tap((stored) => {
         const last = stored.at(-1)
-        return last === undefined
-          ? Effect.void
-          : SubscriptionRef.updateSome(latest, (position) =>
-            last.position > position ? Option.some(last.position) : Option.none())
+        if (last === undefined) return Effect.void
+        const announce = SubscriptionRef.updateSome(latest, (position) =>
+          last.position > position ? Option.some(last.position) : Option.none())
+        return afterCommit === undefined ? announce : afterCommit(announce)
       })
     )
   )
@@ -310,6 +318,7 @@ interface Pending {
  * fiber of the `Scope`. An append interrupted while it waits is not written, while
  * one interrupted once its group is being written may be: a caller that times out
  * should retry with a `commandId`, which finds the first result if there is one.
+ * The others in its group are written and answered as if nothing happened.
  */
 export const groupCommit = Effect.fnUntraced(function*(
   appendGroup: (inputs: ReadonlyArray<AppendInput>) => Effect.Effect<ReadonlyArray<AppendExit>>,
@@ -414,7 +423,9 @@ export const groupCommit = Effect.fnUntraced(function*(
       Effect.andThen(Effect.suspend(() => {
         const group = nextGroup()
         lastGroup = group.length
-        return writeGroup(group)
+        // The others in the group were not interrupted, so a writer that is finishes
+        // their write first: stopping it would fail them all with its interrupt.
+        return group.length > 1 ? Effect.uninterruptible(writeGroup(group)) : writeGroup(group)
       })),
       Effect.andThen(Deferred.await(result))
     )
