@@ -55,6 +55,7 @@ import { SqlClient } from "effect/sql"
 import { CurrentCausation } from "./Causation.ts"
 import { EventStore, type EventStoreError, type Migration } from "./EventStore.ts"
 import * as Ids from "./Ids.ts"
+import { migrateTable } from "./internal/migrate.ts"
 import { CurrentMetadata } from "./Metadata.ts"
 
 export class SubjectForgotten extends Schema.TaggedError<SubjectForgotten>()("SubjectForgotten", {
@@ -744,9 +745,9 @@ export const makeSqlBackend = Effect.fnUntraced(function*(options?: SqlOptions) 
   const sqlError = (operation: string, subject: string) => failure(operation, subject, "The key store failed")
 
   if (options?.migrate !== false) {
-    for (const { statements } of migrations({ table: tableName })) {
-      for (const statement of statements) yield* sql.unsafe(statement).pipe(Effect.mapError(sqlError("migrate", "")))
-    }
+    yield* migrateTable(sql, tableName, migrations({ table: tableName }).flatMap(({ statements }) => statements)).pipe(
+      Effect.mapError(sqlError("migrate", ""))
+    )
   }
 
   const get = (subject: string) =>

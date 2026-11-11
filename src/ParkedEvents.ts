@@ -10,6 +10,7 @@
 import { Context, Effect, Layer, Schema } from "effect"
 import { SqlClient } from "effect/sql"
 import { EventStoreError, type Migration } from "./EventStore.ts"
+import { migrateTable } from "./internal/migrate.ts"
 
 export const ParkedEvent = Schema.Struct({
   viewModel: Schema.String,
@@ -98,13 +99,11 @@ export const makeSql = Effect.fnUntraced(function*(options?: SqlOptions) {
   const table = sql(options?.table ?? "cqrs_parked_events")
 
   if (options?.migrate ?? true) {
-    yield* Effect.forEach(
-      migrations(options).flatMap(({ statements }) => statements),
-      (statement) => sql.unsafe(statement),
-      { discard: true }
-    ).pipe(
-      Effect.mapError(storeError("initialize"))
-    )
+    yield* migrateTable(
+      sql,
+      options?.table ?? "cqrs_parked_events",
+      migrations(options).flatMap(({ statements }) => statements)
+    ).pipe(Effect.mapError(storeError("initialize")))
   }
 
   // `BIGINT` comes back from PostgreSQL as text, so it is converted on the way out.
