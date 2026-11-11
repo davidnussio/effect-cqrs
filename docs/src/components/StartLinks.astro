@@ -15,12 +15,19 @@ const links = [
   { label: "Getting started", id: "getting-started", section: "getting-started" },
   { label: "Tutorial", id: "tutorial/shop", section: "tutorial/" }
 ]
+
+// The demos are apps of their own next to the site, so no page of it is ever theirs.
+const demos = [
+  { label: "Bank demo", path: "demo" },
+  { label: "Shop demo", path: "shop-demo" }
+]
 ---
 
 <nav class:list={["cq-start-links", Astro.props.class]} aria-label="Start here">
   {links.map(({ id, label, section }) => (
     <a href={`${base}/${id}/`} aria-current={current.startsWith(section) ? "page" : undefined}>{label}</a>
   ))}
+  {demos.map(({ label, path }) => <a class="cq-demo-link" href={`${base}/${path}/`}>{label}</a>)}
 </nav>
 
 <style>
@@ -48,6 +55,13 @@ const links = [
   .cq-start-links a[aria-current="page"] {
     color: var(--sl-color-accent-high);
     background: var(--sl-color-accent-low);
+  }
+
+  /* Where the header has no room for them, the demos stay in the hero and the sidebar. */
+  @media (max-width: 72rem) {
+    .cq-demo-link {
+      display: none;
+    }
   }
 
   /* On a phone the header also holds the title, search and menu buttons. */

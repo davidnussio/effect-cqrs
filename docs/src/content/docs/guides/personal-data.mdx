@@ -68,7 +68,7 @@ const Keys = PersonalData.layerSql().pipe(
 | `layerMasterKeyConfig()` | 32 bytes in base64 from `PERSONAL_DATA_MASTER_KEY`, with its id in `PERSONAL_DATA_MASTER_KEY_ID` |
 | `layerMasterKey({ keyId, key, previous })` | A key you load yourself. Keys wrapped by older master keys stay readable while they are in `previous`. |
 | `layerMasterKeyEphemeral` | A random key for tests and demos |
-| Your own `MasterKey` | A KMS such as AWS KMS, Google Cloud KMS or HashiCorp Vault, which keeps the master key out of the process |
+| Your own `MasterKey` | A KMS such as AWS KMS, [Google Cloud KMS](#on-google-cloud-kms) or HashiCorp Vault, which keeps the master key out of the process |
 
 A `MasterKey` is two functions, `wrap` and `unwrap`, so implementing one on a KMS is a
 call to its encrypt and decrypt endpoints.
@@ -95,6 +95,81 @@ Unwrapped keys stay in memory for `cacheTtl`, up to `cacheSize` subjects, 10,000
 default. Requests for a subject that isn't in memory share one read of the store and one
 call to the master key, and writers racing for a new subject create a single key, so a KMS
 is called once rather than once per writer.
+
+### On Google Cloud KMS
+
+With [`@google-cloud/kms`](https://www.npmjs.com/package/@google-cloud/kms), the master key is a
+symmetric crypto key that never leaves Cloud KMS. `wrap` and `unwrap` call its `encrypt` and
+`decrypt`. [effect-cqrs-kms](https://github.com/davidnussio/effect-cqrs-kms) runs this code
+against your own Cloud KMS, with the steps to set it up, rotate the key and forget a subject:
+
+```ts
+import { KeyManagementServiceClient } from "@google-cloud/kms"
+import { Config, Effect, Layer } from "effect"
+import { PersonalData } from "effect-cqrs"
+
+/**
+ * Wraps subject keys with a symmetric Cloud KMS key, named like
+ * `projects/acme/locations/europe-west6/keyRings/app/cryptoKeys/personal-data`.
+ */
+const layerGoogleKms = (keyName: string) =>
+  Layer.effect(
+    PersonalData.MasterKey,
+    Effect.gen(function*() {
+      const client = yield* Effect.acquireRelease(
+        Effect.sync(() => new KeyManagementServiceClient()),
+        (client) => Effect.promise(() => client.close())
+      )
+      // Binds a wrapped key to its subject and id, so it can't be swapped for another.
+      const context = (subject: string, keyId: string) => Buffer.from(JSON.stringify([subject, keyId]))
+      const call = <A>(operation: "wrap" | "unwrap", subject: string, request: () => Promise<A>) =>
+        Effect.tryPromise({
+          try: request,
+          catch: (cause) =>
+            new PersonalData.PersonalDataError({ operation, subject, message: "Cloud KMS call failed", cause })
+        })
+      return PersonalData.MasterKey.of({
+        keyId: keyName,
+        wrap: (dataKey, { keyId, subject }) =>
+          call("wrap", subject, () =>
+            client.encrypt({
+              name: keyName,
+              plaintext: dataKey,
+              additionalAuthenticatedData: context(subject, keyId)
+            })).pipe(Effect.map(([{ ciphertext }]) => new Uint8Array(ciphertext as Uint8Array))),
+        // Keys wrapped by an earlier crypto key name it as `masterKeyId`.
+        unwrap: (wrapped, { keyId, masterKeyId, subject }) =>
+          call("unwrap", subject, () =>
+            client.decrypt({
+              name: masterKeyId,
+              ciphertext: wrapped,
+              additionalAuthenticatedData: context(subject, keyId)
+            })).pipe(Effect.map(([{ plaintext }]) => new Uint8Array(plaintext as Uint8Array)))
+      })
+    })
+  )
+
+const Keys = PersonalData.layerSql().pipe(
+  Layer.provide(Layer.unwrap(Effect.map(Config.String("PERSONAL_DATA_KMS_KEY"), layerGoogleKms))),
+  Layer.provide(SqliteClient.layer({ filename: "./data/keys.sqlite" }))
+)
+```
+
+- **Access.** The client signs in with Application Default Credentials. The service account
+  needs `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the key, and nothing else in Cloud KMS.
+- **Rotation.** Rotate the key in Cloud KMS as often as you like: `decrypt` uses the version a
+  key was wrapped with, so nothing changes here. Moving to another crypto key only takes a new
+  `PERSONAL_DATA_KMS_KEY`. Keys wrapped by the old one record its name as `masterKeyId`, and
+  stay readable while the service account may still use it.
+- **Calls.** Cloud KMS bills each operation: one `encrypt` for each new subject, and one
+  `decrypt` each time a subject's key isn't in memory, see `cacheTtl` above.
+- **Forgetting** deletes the subject's wrapped key from the key store, so Cloud KMS has nothing
+  left to decrypt. Disabling or destroying the crypto key does the opposite: every subject
+  becomes unreadable at once.
+
+Google also recommends checking each request's CRC32C, with `plaintextCrc32c` and
+`ciphertextCrc32c`, to catch data corrupted on the way. Add those fields to the requests if
+you want that check.
 
 ### On Node
 
