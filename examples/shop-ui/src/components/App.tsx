@@ -1,6 +1,6 @@
 import { motion } from "motion/react"
-import { AnimatedNumber, Button } from "../../../bank-ui/src/components/ui.tsx"
 import { useState } from "react"
+import { AnimatedNumber, Button } from "../../../bank-ui/src/components/ui.tsx"
 import { NarrowBar, pane, type View } from "../../../devtools/NarrowView.tsx"
 import { engine } from "../engine.ts"
 import { useSnapshot } from "../hooks.ts"
