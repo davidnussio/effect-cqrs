@@ -83,7 +83,7 @@ export const Todo = Aggregate.make<TodoState>()({
 ```
 
 - Events are a `Schema.TaggedUnion`. Build them with `TodoEvent.cases.X.make({ ... })`,
-  which fills in `_tag`.
+  which fills in `_tag`. A `Schema.Union` of `Schema.TaggedClass` events works too.
 - `Aggregate.make<State>()({ ... })` is curried and takes the state type explicitly, so
   literal fields such as `status: "open"` don't widen to `string`.
 - The projection has one function per event tag, `(state, event, meta) => state`, and
@@ -243,6 +243,8 @@ const TransferSaga = Saga.layer([Transfers]).pipe(
   `step.pipe(Transfer.withCompensation(() => undo))`, on top-level steps of the body.
 - An activity can run twice and a trigger can start a saga twice, so the commands a saga
   runs must be idempotent, for instance by recording the transfer id.
+- `Saga.layer` provides `Saga.Sagas`, with `status`, `parked` and `retryParked` for the
+  triggers, as `ViewModel.ViewModels` has for view models.
 - Pair `WorkflowEngine.layerMemory` with `Checkpoints.layerMemory`, and a durable engine
   such as `ClusterWorkflowEngine` from `effect/cluster` with durable checkpoints.
 - Wait with `DurableClock.sleep` and `DurableDeferred` from `effect/workflow`, never
@@ -277,7 +279,12 @@ yield* PersonalData.forget("alice")
   `redacted` is what the field reads as once the subject is forgotten, and must be a valid
   value of the field.
 - Personal fields can sit in the event, a nested struct, or be optional or nullable, but
-  not in arrays, records or untagged unions.
+  not in arrays, records or untagged unions. Mark the final schema:
+  `PersonalData.field(Schema.String.pipe(Schema.decodeTo(...)), ...)`, not
+  `PersonalData.field(Schema.String, ...).pipe(Schema.decodeTo(...))`, which fails.
+- To rotate the master key, give it a new id, keep the old one in `previous`
+  (`PERSONAL_DATA_MASTER_KEY_PREVIOUS` as `id:base64`), run `PersonalData.rewrap()`, then
+  drop the old one.
 - An aggregate with personal fields needs `PersonalData.Keys`. In tests use
   `PersonalData.layerMemory()` with `PersonalData.layerMasterKeyEphemeral`.
 - After `forget`, commands that would write new personal data of the subject fail with

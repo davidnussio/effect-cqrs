@@ -116,6 +116,9 @@ from the store and returns them as the first result, without running the handler
   result it didn't ask for. The payload isn't compared: the same command with another payload
   under a known id gets the first result. Make ids unique per request, such as a UUID the
   client makes once. Ids recorded before the command's name was have nothing to compare.
+  Comparing payloads would mean keeping a fingerprint of each one beside the id, in plain
+  text, where it would outlive [forgetting](../personal-data/) a subject whose personal data
+  it was made from.
 - **Metadata given under `cqrs.commandId` or `cqrs.command` is dropped**, so the keys only
   hold what the service recorded.
 

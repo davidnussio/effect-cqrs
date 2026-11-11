@@ -155,10 +155,16 @@ const storeError = (operation: string) => (cause: unknown) => new EventStore.Eve
  * append that holds its own and waits for more. So the strongest is taken first,
  * while the migration holds nothing an append needs: it then waits for the appends
  * in progress, and those that come after wait for it.
+ *
+ * Waiting for them is only worth it when there is something to change. Every
+ * statement takes its lock before finding it has nothing to do, and a lock request
+ * that waits behind a long transaction makes every append and read wait behind it.
+ * So a schema that is already current is left alone, without a lock.
  */
 const migrate = (sql: SqlClient.SqlClient, options: Options | undefined, table: "events" | "checkpoints") => {
   const tables = tableNames(options)
   return Effect.gen(function*() {
+    if (yield* isCurrent(sql, tables, table)) return
     yield* sql`SELECT pg_advisory_xact_lock(hashtext(${`effect-cqrs ${tables[table]}`}))`
     const [existing] = yield* sql<{ readonly exists: boolean }>`
       SELECT to_regclass(${tables[table]}) IS NOT NULL AS "exists"
@@ -170,6 +176,29 @@ const migrate = (sql: SqlClient.SqlClient, options: Options | undefined, table: 
     }
   }).pipe(sql.withTransaction, Effect.mapError(storeError("migrate")))
 }
+
+// What the last of `steps` leaves behind. A step added there adds to this.
+const eventsColumns = ["schema_version", "correlation_id", "causation_id", "metadata"]
+
+/** Whether every step of a table has been applied, read from the catalog without locking anything. */
+const isCurrent = (sql: SqlClient.SqlClient, tables: Tables, table: "events" | "checkpoints") =>
+  table === "checkpoints"
+    ? Effect.map(
+      sql<{ readonly current: boolean }>`SELECT to_regclass(${tables.checkpoints}) IS NOT NULL AS "current"`,
+      ([row]) => row?.current === true
+    )
+    : Effect.map(
+      sql<{ readonly current: boolean }>`
+        SELECT to_regclass(${tables.events}) IS NOT NULL
+          AND to_regclass(${tables.head}) IS NOT NULL
+          AND to_regclass(${tables.typeIndex}) IS NOT NULL
+          AND (
+            SELECT COUNT(*) FROM pg_attribute
+            WHERE attrelid = to_regclass(${tables.events}) AND attname IN ${sql.in(eventsColumns)} AND NOT attisdropped
+          ) = ${eventsColumns.length} AS "current"
+      `,
+      ([row]) => row?.current === true
+    )
 
 const decodeRows = Schema.decodeUnknownEffect(Schema.Array(EventStore.StoredEvent))
 

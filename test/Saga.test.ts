@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Cause, Context, Effect, Exit, Layer, Ref, Schema, Stream } from "effect"
+import { Cause, Context, Effect, Exit, Layer, Ref, References, Schema, Stream } from "effect"
 import { AggregateService, Checkpoints, EventStore, Ids, PersonalData, Saga, ViewModel } from "effect-cqrs"
 import { WorkflowEngine } from "effect/workflow"
 import { Account, AccountNotOpen } from "./fixtures/account.ts"
@@ -163,4 +163,47 @@ describe("Saga", () => {
       assert.deepStrictEqual(yield* Ref.get(compensated), ["deposit"])
       assert.strictEqual((yield* Bank.use((bank) => bank.readModel("alice"))).balance, 0)
     }).pipe(Effect.provide(App)))
+})
+
+describe("Saga.layer", () => {
+  it.live("parks a trigger event that keeps failing, and retries it through Sagas", () =>
+    Effect.gen(function*() {
+      const broken = yield* Ref.make(true)
+      const Flaky = Saga.make({
+        name: "flaky",
+        aggregates: [Account],
+        onFailure: ViewModel.park({ attempts: 1 }),
+        handlers: {
+          TransferSent: ({ amount, to, transferId }, stored) =>
+            Effect.flatMap(
+              Ref.get(broken),
+              (failing) =>
+                failing
+                  ? Effect.fail("not yet")
+                  : Effect.asVoid(Saga.start(Transfer, { transferId, from: stored.aggregateId, to, amount }))
+            )
+        }
+      })
+
+      yield* Effect.gen(function*() {
+        const sagas = yield* Saga.Sagas
+        const bank = yield* Bank
+        yield* open("alice", 100)
+        yield* open("bob", 0)
+        const sent = yield* bank.commands.sendTransfer("alice", { transferId: "t1", to: "bob", amount: 30 })
+
+        yield* sagas.caughtUp(sent.position)
+        const parked = yield* sagas.parked("flaky")
+        assert.deepStrictEqual(parked.map(({ position }) => position), [sent.position])
+
+        yield* Ref.set(broken, false)
+        const retried = yield* sagas.retryParked({ viewModel: "flaky" })
+        assert.deepStrictEqual(retried.succeeded, [sent.position])
+        yield* next("TransferReceived")
+        assert.strictEqual((yield* bank.readModel("bob")).balance, 30)
+      }).pipe(
+        Effect.provide(Saga.layer([Flaky]).pipe(Layer.provideMerge(Base))),
+        Effect.provideService(References.MinimumLogLevel, "None")
+      )
+    }))
 })

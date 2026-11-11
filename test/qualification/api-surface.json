@@ -134,6 +134,7 @@
     "migrations",
     "open",
     "openText",
+    "rewrap",
     "seal",
     "sealText",
     "streamName",
@@ -154,6 +155,7 @@
   "Saga": [
     "CausationSchema",
     "CommandOutcome",
+    "Sagas",
     "command",
     "layer",
     "make",

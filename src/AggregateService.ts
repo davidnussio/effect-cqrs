@@ -109,7 +109,8 @@ export type CommandFailure =
 export interface CommandOptions {
   /**
    * Identifies the command, so that running it again on the same aggregate
-   * returns the first result instead of deciding again. See {@link commandIdKey}.
+   * returns the first result instead of deciding again. The payload isn't
+   * compared, so an id belongs to one request. See {@link commandIdKey}.
    */
   readonly commandId?: string | undefined
   /** The version the caller based its command on. If the aggregate is at another, the command fails with `WrongExpectedVersion`. */
@@ -193,6 +194,12 @@ export interface AggregateService<A extends Aggregate.Any> {
     options?: HistoryOptions
   ) => Effect.Effect<ReadonlyArray<HistoryEntry<Aggregate.Event<A>>>, ReadError>
 }
+
+/** The options a command takes, checked as `dispatch` checks those of an envelope. */
+const CommandOptionsSchema = Schema.Struct({
+  commandId: Schema.optional(Schema.NonEmptyString),
+  expectedVersion: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)))
+})
 
 const CommandEnvelope = Schema.Struct({
   aggregateId: Schema.NonEmptyString,
@@ -873,7 +880,7 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
 
   // Returns the state as remembered, with the version of a snapshot it just started.
   // `read` is how many events the load read from the store, when one did.
-  const remember = (aggregateId: string, loaded: Loaded<Aggregate.State<A>>, read?: number) =>
+  const keep = (aggregateId: string, loaded: Loaded<Aggregate.State<A>>, read?: number) =>
     (snapshots === undefined ? Effect.succeed(loaded) : snapshots.save(aggregateId, loaded)).pipe(
       Effect.tap((remembered) =>
         Effect.contextWith((context: Context.Context<never>) => {
@@ -885,6 +892,18 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
         })
       )
     )
+
+  // In the caller's transaction, a command reads and writes events that a rollback
+  // can still undo, so they are remembered, and snapshotted, once it commits. Outside
+  // one, the store runs this at once.
+  const afterCommit = store.afterCommit
+  const remember = (aggregateId: string, loaded: Loaded<Aggregate.State<A>>, read?: number) =>
+    afterCommit === undefined ? keep(aggregateId, loaded, read) : Effect.suspend(() => {
+      let remembered = loaded
+      return afterCommit(Effect.asVoid(Effect.map(keep(aggregateId, loaded, read), (kept) => {
+        remembered = kept
+      }))).pipe(Effect.map(() => remembered))
+    })
 
   // Streams only grow, so a remembered state plus what came after it is the current
   // state, even if another process wrote those events. Versions have no gaps, so the
@@ -1072,11 +1091,19 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       Effect.mapError((error) => new InvalidCommand({ aggregateName, type, message: error.message }))
     )
 
+  // An `expectedVersion` of 1.5 compiles, and would otherwise only fail deep inside.
+  const decodeOptions = Schema.decodeUnknownEffect(CommandOptionsSchema)
+  const checkOptions = (type: string, options: CommandOptions | undefined) =>
+    options === undefined ? Effect.void : decodeOptions(options).pipe(
+      Effect.mapError((error) => new InvalidCommand({ aggregateName, type, message: error.message }))
+    )
+
   const commands = Object.fromEntries(
     Object.entries(aggregate.commands).map(([type, command]) => [
       type,
       (aggregateId: string, payload: unknown, options?: CommandOptions) =>
-        decodePayload(type, Schema.toType(command.payload), payload).pipe(
+        checkOptions(type, options).pipe(
+          Effect.andThen(decodePayload(type, Schema.toType(command.payload), payload)),
           Effect.flatMap((decoded) => execute(type, aggregateId, decoded, options))
         )
     ])

@@ -64,8 +64,11 @@ the engine has the run, so the trigger never waits for a saga to finish.
 
 `Saga.layer` runs triggers in the background. Workflows run commands, so they sit on top of
 the command side; keeping triggers out of `ViewModel.layer` avoids providing the view
-models to the commands they depend on. A trigger can still go in `ViewModel.layer`, where
-`replay` starts every saga again and `caughtUp` waits until the sagas have started.
+models to the commands they depend on. It provides `Saga.Sagas`, which manages the triggers
+as `ViewModel.ViewModels` manages view models: `status`, `caughtUp`, and, for a trigger
+made with `onFailure: ViewModel.park(...)`, the events it parked and `retryParked`. A
+trigger can still go in `ViewModel.layer`, where `replay` starts every saga again and
+`caughtUp` waits until the sagas have started.
 
 ## The workflow
 

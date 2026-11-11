@@ -164,6 +164,9 @@ describe("CommandApi over HTTP", () => {
         "if-match": "abc"
       })
       assert.strictEqual(malformed.status, 400)
+
+      const any = yield* post(handler, "/todo/a/deleteTodo", JSON.stringify({ message: "x" }), { "if-match": "*" })
+      assert.strictEqual(any.status, 200)
     }))
 
   it.live("answers a lost race with 409", () =>

@@ -15,11 +15,12 @@
  *
  * @module
  */
-import { DateTime, Effect, FileSystem, JsonSchema, Predicate, Result, Schema, type SchemaAST, Stream } from "effect"
+import { DateTime, Effect, FileSystem, JsonSchema, Predicate, Result, Schema, Stream } from "effect"
 import type * as Aggregate from "./Aggregate.ts"
 import { makeEventDecoder } from "./AggregateService.ts"
 import { EventStore, type EventStoreError, type StoredEvent } from "./EventStore.ts"
 import type * as EventVersions from "./EventVersions.ts"
+import { membersOf } from "./internal/events.ts"
 import * as PersonalData from "./PersonalData.ts"
 
 // ---------------------------------------------------------------------------
@@ -63,22 +64,9 @@ const standalone = (schema: Schema.Top): JsonSchema.JsonSchema => {
   }
 }
 
-const tagOf = (ast: SchemaAST.Objects): string | undefined => {
-  const tag = ast.propertySignatures.find(({ name }) => name === "_tag")?.type
-  return tag?._tag === "Literal" && Predicate.isString(tag.literal) ? tag.literal : undefined
-}
-
 /** The current schema of each event, by tag. */
-const eventSchemas = (aggregate: Aggregate.Any): ReadonlyArray<readonly [string, Schema.Top]> => {
-  const found: Array<readonly [string, Schema.Top]> = []
-  const visit = (ast: SchemaAST.AST): void => {
-    if (ast._tag === "Union") return ast.types.forEach(visit)
-    const tag = ast._tag === "Objects" ? tagOf(ast) : undefined
-    if (tag !== undefined) found.push([tag, Schema.make(ast)])
-  }
-  visit(aggregate.events.ast)
-  return found
-}
+const eventSchemas = (aggregate: Aggregate.Any): ReadonlyArray<readonly [string, Schema.Top]> =>
+  membersOf(aggregate.events.ast).flatMap(({ ast, tag }) => tag === undefined ? [] : [[tag, Schema.make(ast)] as const])
 
 const versionsOf = (aggregate: Aggregate.Any, tag: string): EventVersions.Any | undefined =>
   (aggregate.versions as Record<string, EventVersions.Any | undefined>)[tag]

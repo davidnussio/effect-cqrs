@@ -36,14 +36,15 @@ import { Metadata } from "./Metadata.ts"
 /**
  * `Idempotency-Key` becomes the command id, so a client retrying after a timeout
  * gets the first result back, and `If-Match` the version the client based its
- * command on, as `3` or `"3"`. A malformed `If-Match` fails as an invalid command.
+ * command on, as `3` or `"3"`. `If-Match: *` asks for no version in particular. A
+ * malformed `If-Match` fails as an invalid command.
  */
 const retryHeaders = (headers: Readonly<Record<string, string | undefined>>) => {
   const commandId = headers["idempotency-key"]
   const ifMatch = headers["if-match"]?.replace(/^W\//, "").replaceAll("\"", "").trim()
   return {
     ...(commandId === undefined || commandId === "" ? {} : { commandId }),
-    ...(ifMatch === undefined || ifMatch === "" ? {} : { expectedVersion: Number(ifMatch) })
+    ...(ifMatch === undefined || ifMatch === "" || ifMatch === "*" ? {} : { expectedVersion: Number(ifMatch) })
   }
 }
 

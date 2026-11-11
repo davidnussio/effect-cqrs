@@ -215,7 +215,11 @@ for (const configuration of configurations) {
       () =>
         Effect.gen(function*() {
           const store = yield* EventStore.EventStore
-          assert.deepStrictEqual(Object.keys(store).sort(), ["append", "changes", "head", "read", "subscribe"])
+          // `afterCommit`, on stores with transactions, only defers work until a commit.
+          assert.deepStrictEqual(
+            Object.keys(store).filter((key) => key !== "afterCommit").sort(),
+            ["append", "changes", "head", "read", "subscribe"]
+          )
 
           yield* append("a", 0, "A1", "A2")
           yield* append("b", 0, "B1")

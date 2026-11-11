@@ -26,7 +26,7 @@
  *
  * @module
  */
-import { Schema, SchemaGetter } from "effect"
+import { Predicate, Schema, SchemaGetter } from "effect"
 
 /** A schema that decodes and encodes without services, as stored payloads need. */
 export type VersionSchema = Schema.Top & {
@@ -94,10 +94,11 @@ export const decoders = (tag: string, versions: Any): ReadonlyArray<Schema.Decod
         chain.pipe(Schema.decodeTo(Schema.toType(next), {
           // Adding the tag lets the last step decode into the tagged event, and a
           // schema in between without one drops it again.
-          decode: SchemaGetter.transform((previous) => ({
-            ...(versions.upcasts[index + step]!(previous) as object),
-            _tag: tag
-          })),
+          decode: SchemaGetter.transform((previous) => {
+            const value = { ...(versions.upcasts[index + step]!(previous) as object), _tag: tag }
+            // A class only takes its own instances.
+            return next.ast._tag === "Declaration" && Predicate.isFunction(next) ? new (next as any)(value) : value
+          }),
           // A payload is only ever written in its current version.
           encode: SchemaGetter.forbidden(() => `${tag} can only be written in its current version`)
         })),

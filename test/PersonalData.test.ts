@@ -9,6 +9,7 @@ import {
   EventVersions,
   Fixture,
   PersonalData,
+  SqliteEventStore,
   ViewModel
 } from "effect-cqrs"
 import * as PersonalDataNode from "effect-cqrs/PersonalDataNode"
@@ -170,6 +171,40 @@ describe("PersonalData", () => {
         [{ aggregateId: "alice", type: PersonalData.subjectForgottenType, payload: {} }]
       )
     }).pipe(Effect.provide(Storage)))
+
+  it.live("records the request even when the store fails at first, and again when called again", () =>
+    Effect.gen(function*() {
+      const memory = yield* EventStore.makeMemory
+      const failures = yield* Ref.make(1)
+      const failing = EventStore.EventStore.of({
+        ...memory,
+        append: (input) =>
+          Effect.flatMap(Ref.getAndUpdate(failures, (n) => n - 1), (left) =>
+            left > 0
+              ? Effect.fail(new EventStore.EventStoreError({ operation: "append", cause: new Error("down") }))
+              : memory.append(input))
+      })
+      const forget = (subject: string) =>
+        PersonalData.forget(subject).pipe(
+          Effect.provideService(EventStore.EventStore, failing)
+        )
+      const recorded = Stream.runCollect(memory.read({ aggregateNames: [PersonalData.streamName] })).pipe(
+        Effect.map((events) => Array.from(events, ({ aggregateId }) => aggregateId))
+      )
+
+      yield* forget("alice")
+      assert.deepStrictEqual(yield* recorded, ["alice"])
+
+      // A store that stays down fails `forget` after the key is gone, and a later call records it.
+      yield* Ref.set(failures, 10)
+      yield* Effect.flip(forget("bob"))
+      const keys = yield* PersonalData.Keys
+      assert.isTrue(yield* keys.isForgotten("bob"))
+      assert.deepStrictEqual(yield* recorded, ["alice"])
+      yield* Ref.set(failures, 0)
+      yield* forget("bob")
+      assert.deepStrictEqual(yield* recorded, ["alice", "bob"])
+    }).pipe(Effect.provide(Keys)))
 
   it.effect("refuses to record personal data of a forgotten subject", () =>
     Effect.gen(function*() {
@@ -357,6 +392,35 @@ describe("PersonalData", () => {
         assert.notInclude(Cause.pretty(exit.cause), secret)
         assert.notInclude(JSON.stringify(exit.cause), secret)
       }
+    }))
+
+  it.effect("read earlier master keys from configuration", () =>
+    Effect.gen(function*() {
+      const bytes = () => crypto.getRandomValues(new Uint8Array(32))
+      const base64 = (key: Uint8Array) => Buffer.from(key).toString("base64")
+      const [first, second, current] = [bytes(), bytes(), bytes()]
+      const backend = PersonalData.makeMemoryBackend()
+
+      const old = yield* PersonalData.make(backend).pipe(
+        Effect.provide(PersonalData.layerMasterKey({ keyId: "m1", key: Redacted.make(new Uint8Array(first)) }))
+      )
+      const { keyId } = yield* old.encryptionKey("alice")
+
+      const configured = PersonalData.layerMasterKeyConfig({
+        keyId: Config.succeed("m3"),
+        key: Config.succeed(Redacted.make(base64(current))),
+        previous: Config.succeed(Redacted.make(`m1:${base64(first)}, m2:${base64(second)}`))
+      })
+      const keys = yield* PersonalData.make(backend).pipe(Effect.provide(configured))
+      assert.isTrue(Option.isSome(yield* keys.decryptionKey("alice", keyId)))
+
+      const malformed = PersonalData.layerMasterKeyConfig({
+        keyId: Config.succeed("m3"),
+        key: Config.succeed(Redacted.make(base64(current))),
+        previous: Config.succeed(Redacted.make(base64(first)))
+      })
+      const error = yield* Effect.flip(Effect.scoped(Layer.build(malformed)))
+      assert.include(String(error), "id:base64")
     }))
 
   it.effect("read keys wrapped by an earlier master key", () =>
@@ -583,6 +647,17 @@ describe("PersonalData", () => {
       })
       assert.throws(() => PersonalData.fieldsByTag(Missing, "transfer"), /not next to it/)
     })
+
+    it("rejects a subject that isn't always a string", () => {
+      const sent = (to: Schema.Top) =>
+        Schema.TaggedUnion({ Sent: { to, name: PersonalData.field(Schema.String, { redacted: "", subject: "to" }) } })
+      for (const to of [Schema.optional(Schema.String), Schema.Number, Schema.NullOr(Schema.String)]) {
+        assert.throws(() => PersonalData.fieldsByTag(sent(to), "transfer"), /not always a string/)
+      }
+      for (const to of [Schema.String, Schema.NonEmptyString, Schema.Literals(["a", "b"])]) {
+        assert.strictEqual(PersonalData.fieldsByTag(sent(to), "transfer").get("Sent")?.length, 1)
+      }
+    })
   })
 })
 
@@ -705,6 +780,38 @@ describe.each(backends)("PersonalData key store on %s", (_, client) => {
       })
     ))
 
+  it.live("rewraps keys of earlier master keys, so those can be dropped", () =>
+    Effect.scoped(Effect.gen(function*() {
+      const backend = yield* makeBackend(client)
+      const masterKey = (keyId: string) => ({ keyId, key: Redacted.make(crypto.getRandomValues(new Uint8Array(32))) })
+      const first = masterKey("m1")
+      const second = masterKey("m2")
+      const withMasterKey = (options: Parameters<typeof PersonalData.layerMasterKey>[0]) =>
+        Effect.provide(PersonalData.layerMasterKey(options))
+
+      const before = yield* PersonalData.make(backend).pipe(withMasterKey(first))
+      const subjects = Array.from({ length: 5 }, (_, index) => `subject-${index}`)
+      const created = yield* Effect.forEach(subjects, (subject) => before.encryptionKey(subject))
+      yield* before.forget("subject-4")
+
+      const rotated = yield* PersonalData.make(backend).pipe(withMasterKey({ ...second, previous: [first] }))
+      const fresh = yield* rotated.encryptionKey("subject-new")
+      assert.deepStrictEqual(yield* rotated.rewrap({ batchSize: 2 }), { rewrapped: 4 })
+      assert.deepStrictEqual(yield* rotated.rewrap(), { rewrapped: 0 })
+
+      // Without the first master key, every key still opens, and is the one it was.
+      const after = yield* PersonalData.make(backend).pipe(withMasterKey(second))
+      const plain = new TextEncoder().encode("Alice Rossi")
+      const place = new TextEncoder().encode("place")
+      for (const [index, subject] of subjects.slice(0, 4).entries()) {
+        const sealed = yield* before.cipher.encrypt(created[index]!.key, plain, place)
+        const key = yield* after.decryptionKey(subject, created[index]!.keyId)
+        assert.deepStrictEqual(yield* after.cipher.decrypt(Option.getOrThrow(key), sealed, place), plain)
+      }
+      assert.isTrue(Option.isSome(yield* after.decryptionKey("subject-new", fresh.keyId)))
+      assert.isTrue(yield* after.isForgotten("subject-4"))
+    })).pipe(Effect.provide(client ?? (Layer.empty as unknown as Layer.Layer<SqlClient.SqlClient>))))
+
   it.live("gives every racing writer the same key", () =>
     run((backend) =>
       Effect.gen(function*() {
@@ -764,4 +871,34 @@ describe("PersonalData on SQLite", () => {
       yield* PersonalData.forget("alice").pipe(Effect.provide(keys))
       assert.strictEqual((yield* nextRun).owner, "[forgotten]")
     }).pipe(Effect.provide(Layer.merge(EventStore.layerMemory, SqliteClient.layer({ filename: ":memory:" })))))
+
+  it.effect("doesn't keep a key whose creation a caller's transaction rolled back", () =>
+    Effect.gen(function*() {
+      const sql = yield* SqlClient.SqlClient
+      const masterKey = PersonalData.layerMasterKey({
+        keyId: "m1",
+        key: Redacted.make(crypto.getRandomValues(new Uint8Array(32)))
+      })
+      const keys = Layer.fresh(PersonalData.layerSql().pipe(Layer.provide(masterKey)))
+      const keyRows = sql<
+        { readonly n: number }
+      >`SELECT COUNT(*) AS n FROM cqrs_personal_data_keys WHERE subject = 'alice'`
+
+      yield* Effect.gen(function*() {
+        const accounts = yield* AggregateService.make(Account)
+        yield* Effect.exit(openAlice(accounts).pipe(Effect.andThen(Effect.fail("rolled back")), sql.withTransaction))
+        yield* openAlice(accounts)
+      }).pipe(Effect.provide(keys))
+
+      const [rows] = yield* keyRows
+      assert.strictEqual(rows?.n, 1)
+      const owner = yield* Effect.flatMap(AggregateService.make(Account), (accounts) => accounts.readModel("alice"))
+        .pipe(
+          Effect.provide(keys),
+          Effect.map(({ owner }) => owner)
+        )
+      assert.strictEqual(owner, "Alice Rossi")
+    }).pipe(
+      Effect.provide(SqliteEventStore.layer().pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))))
+    ))
 })

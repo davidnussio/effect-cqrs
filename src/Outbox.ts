@@ -28,23 +28,12 @@
  *
  * @module
  */
-import {
-  Context,
-  type DateTime,
-  Duration,
-  Effect,
-  Latch,
-  Layer,
-  Predicate,
-  Schedule,
-  Schema,
-  type SchemaAST,
-  Semaphore
-} from "effect"
+import { Context, type DateTime, Duration, Effect, Latch, Layer, Schedule, Schema, Semaphore } from "effect"
 import type * as Aggregate from "./Aggregate.ts"
 import { Checkpoints } from "./Checkpoints.ts"
 import { eventId, type EventStore, EventStoreError } from "./EventStore.ts"
 import { withoutAmbient } from "./internal/ambient.ts"
+import { membersOf } from "./internal/events.ts"
 import * as ViewModel from "./ViewModel.ts"
 
 /** An integration event, what a publisher sends. */
@@ -96,17 +85,8 @@ export class OutboxError extends Schema.TaggedError<OutboxError>()("OutboxError"
   cause: Schema.Defect()
 }) {}
 
-const tagsOf = (aggregate: Aggregate.Any): ReadonlyArray<string> => {
-  const tags: Array<string> = []
-  const visit = (ast: SchemaAST.AST): void => {
-    if (ast._tag === "Union") return ast.types.forEach(visit)
-    if (ast._tag !== "Objects") return
-    const tag = ast.propertySignatures.find(({ name }) => name === "_tag")?.type
-    if (tag?._tag === "Literal" && Predicate.isString(tag.literal)) tags.push(tag.literal)
-  }
-  visit(aggregate.events.ast)
-  return tags
-}
+const tagsOf = (aggregate: Aggregate.Any): ReadonlyArray<string> =>
+  membersOf(aggregate.events.ast).flatMap(({ tag }) => tag === undefined ? [] : [tag])
 
 /**
  * Defines an outbox. `messages` maps events, by tag, to integration events, and

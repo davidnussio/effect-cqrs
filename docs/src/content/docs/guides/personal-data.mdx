@@ -39,7 +39,9 @@ const AccountEvent = Schema.TaggedUnion({
   defined.
 - **Where a field can be:** a property of the event, of a nested struct, optional or
   nullable. Building an aggregate fails when a personal field sits in an array, a record or
-  an untagged union, or names a subject that isn't next to it.
+  an untagged union, is transformed after being marked, or names a subject that isn't next
+  to it or isn't always a string. Mark the transformed schema instead:
+  `PersonalData.field(Schema.String.pipe(Schema.decodeTo(...)), ...)`.
 
 Schemas stay plain: a personal field is an ordinary string to projections, handlers and
 tests. Encryption happens where `AggregateService` writes to and reads from the store, so
@@ -65,18 +67,13 @@ const Keys = PersonalData.layerSql().pipe(
 
 | Master key | For |
 | --- | --- |
-| `layerMasterKeyConfig()` | 32 bytes in base64 from `PERSONAL_DATA_MASTER_KEY`, with its id in `PERSONAL_DATA_MASTER_KEY_ID` |
+| `layerMasterKeyConfig()` | 32 bytes in base64 from `PERSONAL_DATA_MASTER_KEY`, with its id in `PERSONAL_DATA_MASTER_KEY_ID`, and earlier keys in `PERSONAL_DATA_MASTER_KEY_PREVIOUS` |
 | `layerMasterKey({ keyId, key, previous })` | A key you load yourself. Keys wrapped by older master keys stay readable while they are in `previous`. |
 | `layerMasterKeyEphemeral` | A random key for tests and demos |
 | Your own `MasterKey` | A KMS such as AWS KMS, [Google Cloud KMS](#on-google-cloud-kms) or HashiCorp Vault, which keeps the master key out of the process |
 
 A `MasterKey` is two functions, `wrap` and `unwrap`, so implementing one on a KMS is a
 call to its encrypt and decrypt endpoints.
-
-A new master key needs a new `keyId`, and wraps the keys of subjects created from then on.
-Keys of earlier subjects stay wrapped by the master key that created them, so keep that one
-in `previous` for as long as those subjects exist: nothing rewraps them, and events are never
-rewritten. `layerMasterKeyConfig()` reads a single key, so rotate with `layerMasterKey`.
 
 Keep the key store apart from the events: another database or at least another client, with
 its own permissions and backups. A copy of the keys outlives a forget for as long as the
@@ -95,6 +92,23 @@ Unwrapped keys stay in memory for `cacheTtl`, up to `cacheSize` subjects, 10,000
 default. Requests for a subject that isn't in memory share one read of the store and one
 call to the master key, and writers racing for a new subject create a single key, so a KMS
 is called once rather than once per writer.
+
+### Rotating the master key
+
+A new master key needs a new `keyId`, and wraps the keys of subjects created from then on.
+Keys of earlier subjects stay wrapped by the master key that created them, so that one goes
+in `previous` until they are moved:
+
+1. Deploy the new master key as the current one, with the old one in `previous`. With
+   `layerMasterKeyConfig()`, that is `PERSONAL_DATA_MASTER_KEY_PREVIOUS`, as `id:base64` pairs
+   separated by commas.
+2. Run `PersonalData.rewrap()` once, from any process. It wraps every subject key with the
+   current master key, a page at a time, and returns how many it moved. The keys themselves
+   don't change, so no event is rewritten, and running it again only moves what is left.
+3. Drop the old key from `previous`.
+
+A [KMS](#on-google-cloud-kms) that rotates versions of one key behind the same name needs
+none of this.
 
 ### On Google Cloud KMS
 
@@ -241,6 +255,10 @@ without `onForget` only loses the data when it is replayed.
   use an opaque id rather than an email address.
 - **Deleted bytes.** Databases keep overwritten rows for a while in free pages, dead tuples
   or their write-ahead log, until they are vacuumed.
+- **Copies within a stream.** An encrypted field is bound to its stream, event type, place
+  in the event and subject, so it doesn't decrypt anywhere else. It isn't bound to one
+  event: someone who can write to the store can copy it into another event of the same
+  type in the same stream.
 
 The cost is one AES-GCM operation per personal field on every write and read, see
 [performance](../../reference/performance/).

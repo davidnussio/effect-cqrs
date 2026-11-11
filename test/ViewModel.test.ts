@@ -1,6 +1,19 @@
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
-import { DateTime, Duration, Effect, Latch, Layer, Option, Ref, References, Schedule, Schema, Stream } from "effect"
+import {
+  DateTime,
+  Duration,
+  Effect,
+  Fiber,
+  Latch,
+  Layer,
+  Option,
+  Ref,
+  References,
+  Schedule,
+  Schema,
+  Stream
+} from "effect"
 import { Aggregate, AggregateService, Checkpoints, EventStore, SqliteEventStore, ViewModel } from "effect-cqrs"
 import { SqlClient } from "effect/sql"
 import { TestClock } from "effect/testing"
@@ -347,6 +360,67 @@ describe("ViewModels", () => {
           assert.strictEqual(timedOut._tag, "TimeoutError")
         }).pipe(Effect.provide(ViewModel.layer([Stuck])), Effect.scoped)
       }).pipe(Effect.provide(Storage), Effect.provideService(References.MinimumLogLevel, "None")))
+
+    it.live("parks an event on time while a retry of parked events fails beside it", () =>
+      Effect.gen(function*() {
+        const release = yield* Latch.make()
+        const entered = yield* Latch.make()
+        const calls = yield* Ref.make<ReadonlyArray<string>>([])
+        const Parking = ViewModel.make({
+          name: "parking",
+          aggregates: [Todo],
+          dispose: Effect.void,
+          onFailure: ViewModel.park({ attempts: 1 }),
+          handlers: {
+            TodoCreated: ({ title }) =>
+              Effect.gen(function*() {
+                yield* Ref.update(calls, (all) => [...all, title])
+                if (title === "old") return yield* Effect.fail("always")
+                yield* entered.open
+                yield* release.await
+                return yield* Effect.fail("new")
+              })
+          }
+        })
+        // A store whose change stream takes a moment to stop, as one over a network
+        // can, which gives the retry a turn between the failure and parking it.
+        const SlowStop = Layer.effect(
+          EventStore.EventStore,
+          EventStore.EventStore.use((store) =>
+            Effect.succeed(EventStore.EventStore.of({
+              ...store,
+              changes: store.changes.pipe(Stream.ensuring(Effect.sleep("5 millis")))
+            }))
+          )
+        ).pipe(Layer.provide(EventStore.layerMemory))
+
+        yield* Effect.gen(function*() {
+          const todos = yield* AggregateService.make(Todo)
+          const viewModels = yield* ViewModel.ViewModels
+          const parkedCount = (count: number) =>
+            viewModels.parked().pipe(
+              Effect.repeat({ until: (all) => all.length >= count, schedule: Schedule.spaced("2 millis") }),
+              Effect.timeout("2 seconds")
+            )
+          yield* todos.commands.createTodo("a", { title: "old" })
+          yield* parkedCount(1)
+          yield* todos.commands.createTodo("b", { title: "new" })
+          yield* entered.await
+          const retry = yield* Effect.forkChild(viewModels.retryParked({ viewModel: "parking" }))
+          yield* Effect.sleep("20 millis")
+          yield* release.open
+
+          const parked = yield* parkedCount(2)
+          yield* Fiber.join(retry)
+          assert.deepStrictEqual(parked.find(({ position }) => position === 2)?.attempts, 1)
+          assert.deepStrictEqual((yield* Ref.get(calls)).filter((title) => title === "new"), ["new"])
+        }).pipe(
+          Effect.provide(
+            ViewModel.layer([Parking]).pipe(Layer.provideMerge(Layer.merge(SlowStop, Checkpoints.layerMemory)))
+          ),
+          Effect.scoped
+        )
+      }).pipe(Effect.provideService(References.MinimumLogLevel, "None")))
   })
 
   describe("under load", () => {

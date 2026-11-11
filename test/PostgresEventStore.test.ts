@@ -299,6 +299,40 @@ describe.skipIf(postgresUrl === undefined)("PostgresEventStore", () => {
       }).pipe(Effect.provide(storage))
     }).pipe(Effect.scoped, Effect.provide(Layer.fresh(postgresClient()))))
 
+  it.live("starts on current tables without waiting for a long transaction", () =>
+    Effect.gen(function*() {
+      const name = `lock_${crypto.randomUUID().replaceAll("-", "")}`
+      const sql = yield* SqlClient.SqlClient
+      yield* Effect.addFinalizer(() =>
+        sql.unsafe(`DROP TABLE IF EXISTS ${name}_events, ${name}_events_head, ${name}_checkpoints`).pipe(Effect.ignore)
+      )
+
+      yield* Effect.gen(function*() {
+        yield* append("a", 0, "A")
+
+        // A transaction that read the table and stays open, like a report or a dump.
+        const release = yield* Latch.make()
+        const open = yield* sql.unsafe(`SELECT 1 FROM ${name}_events LIMIT 1`).pipe(
+          Effect.andThen(release.await),
+          sql.withTransaction,
+          Effect.forkChild
+        )
+        yield* Effect.sleep("50 millis")
+
+        // Another process starts on the same tables, while this one goes on.
+        const started = yield* Layer.build(
+          Layer.fresh(postgresStorage(name).pipe(Layer.provide(Layer.fresh(postgresClient()))))
+        ).pipe(Effect.timeoutOption("2 seconds"))
+        assert.isTrue(Option.isSome(started))
+        const appended = yield* append("b", 0, "B").pipe(Effect.timeoutOption("1 second"))
+        assert.isTrue(Option.isSome(appended))
+        assert.deepStrictEqual(yield* positions, [1, 2])
+
+        yield* release.open
+        yield* Fiber.join(open)
+      }).pipe(Effect.provide(postgresStorage(name)))
+    }).pipe(Effect.scoped, Effect.provide(Layer.fresh(postgresClient()))))
+
   it.live("takes a batch larger than one statement can carry", () =>
     Effect.gen(function*() {
       const total = 12_000

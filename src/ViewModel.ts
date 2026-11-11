@@ -362,30 +362,33 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
       ? Effect.succeed(tail.decoded.get(stored))
       : decode(stored).pipe(Effect.tap((event) => Effect.sync(() => void tail.decoded.set(stored, event))))
 
-  const handle = (decodeEvent: (stored: StoredEvent) => Effect.Effect<unknown, unknown>) => (stored: StoredEvent) => {
-    // Remembers which event failed while wrapping the error, rather than in a step of
-    // its own: this runs for every event.
-    const failHere = (cause: unknown) => {
-      failed = stored
-      return fail(stored.position)(cause)
-    }
-    return Effect.gen(function*() {
-      // The filter reads the stream of forgotten subjects only for a view model that erases them.
-      if (isForgetting(stored)) {
-        yield* onForget!(stored.aggregateId, stored).pipe(Causation.causedBy(stored))
-        return
+  // `retryParked` runs beside the view model and must not take the place of the
+  // event it is failing on, which is the one to park, so it doesn't record.
+  const handle =
+    (decodeEvent: (stored: StoredEvent) => Effect.Effect<unknown, unknown>, record = true) => (stored: StoredEvent) => {
+      // Remembers which event failed while wrapping the error, rather than in a step of
+      // its own: this runs for every event.
+      const failHere = (cause: unknown) => {
+        if (record) failed = stored
+        return fail(stored.position)(cause)
       }
-      // The filter crosses names with types, so an event can match without a handler.
-      const handler = viewModel.handlers[stored.type]
-      if (handler === undefined) return
-      const event = yield* decodeEvent(stored)
-      // Commands the handler runs record this event as their cause.
-      yield* handler(event as never, stored).pipe(Causation.causedBy(stored))
-    }).pipe(
-      Effect.mapError(failHere),
-      Effect.catchDefect((defect) => Effect.fail(failHere(defect)))
-    )
-  }
+      return Effect.gen(function*() {
+        // The filter reads the stream of forgotten subjects only for a view model that erases them.
+        if (isForgetting(stored)) {
+          yield* onForget!(stored.aggregateId, stored).pipe(Causation.causedBy(stored))
+          return
+        }
+        // The filter crosses names with types, so an event can match without a handler.
+        const handler = viewModel.handlers[stored.type]
+        if (handler === undefined) return
+        const event = yield* decodeEvent(stored)
+        // Commands the handler runs record this event as their cause.
+        yield* handler(event as never, stored).pipe(Causation.causedBy(stored))
+      }).pipe(
+        Effect.mapError(failHere),
+        Effect.catchDefect((defect) => Effect.fail(failHere(defect)))
+      )
+    }
 
   // Runs handlers in the view model's transaction, when it has one.
   // The handlers' services are provided around it, as they are without a transaction.
@@ -646,7 +649,7 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
         onNone: () => Effect.fail(fail(event.position)(new Error("The event is no longer in the store"))),
         onSome: (stored) =>
           transactional(
-            handle(decode)(stored).pipe(
+            handle(decode, false)(stored).pipe(
               Effect.andThen(parkedEvents.remove(name, event.position).pipe(Effect.mapError(fail(event.position))))
             ),
             event.position

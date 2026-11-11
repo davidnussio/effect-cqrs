@@ -41,6 +41,9 @@ const Routes = Layer.mergeAll(
 )
 ```
 
+[effect-cqrs-http-example](https://github.com/davidnussio/effect-cqrs-http-example) is this
+example as a repository of its own, with a server and SQLite storage, to clone and run.
+
 | Endpoint | Does |
 | --- | --- |
 | `POST /todo/:aggregateId/<command>` | Runs the command with the body as payload, and answers with the `CommandResult` |
@@ -56,9 +59,10 @@ version of the last entry it got.
 
 Two headers reach the command. `Idempotency-Key` becomes its
 [`commandId`](../commands/#retries-and-command-ids), so a client that retries after a
-timeout gets the first result back instead of a second change. `If-Match` is the version
-the client based the command on, as `3` or `"3"`, and a stream that has moved on answers
-`409`.
+timeout gets the first result back instead of a second change. The body sent with a known
+key isn't compared, so a key belongs to one request. `If-Match` is the version the client
+based the command on, as `3` or `"3"`, and a stream that has moved on answers `409`.
+`If-Match: *` asks for no version in particular.
 
 Failures map to status codes:
 

@@ -2,6 +2,7 @@ import { SqliteClient } from "@effect/sql-sqlite-node"
 import { assert, describe, it } from "@effect/vitest"
 import { Cause, DateTime, Duration, Effect, Exit, Fiber, Layer, Ref, Schema, Stream } from "effect"
 import { Aggregate, AggregateService, EventStore, Ids, SqliteEventStore } from "effect-cqrs"
+import { SqlClient } from "effect/sql"
 import { TestClock } from "effect/testing"
 import { postgresUrl, storage } from "../bench/common.ts"
 import { Todo, TodoEvent } from "./fixtures/todo.ts"
@@ -254,6 +255,28 @@ describe("AggregateService", () => {
       payload: Schema.Struct({}),
       handler: () => Effect.succeed(Events.cases.Incremented.make({}))
     })
+
+    it.effect("remembers what a command wrote in the caller's transaction only once it commits", () =>
+      Effect.gen(function*() {
+        const sql = yield* SqlClient.SqlClient
+        const counters = yield* AggregateService.make(Counter)
+        yield* counters.commands.increment("c", {})
+
+        yield* Effect.exit(
+          counters.commands.increment("c", {}).pipe(Effect.andThen(Effect.fail("rolled back")), sql.withTransaction)
+        )
+        assert.strictEqual(yield* counters.readModel("c"), 1)
+        const next = yield* counters.commands.increment("c", {})
+        assert.strictEqual(next.version, 2)
+
+        // Two commands in one transaction see each other, and are remembered on commit.
+        yield* Effect.all([counters.commands.increment("c", {}), counters.commands.increment("c", {})]).pipe(
+          sql.withTransaction
+        )
+        assert.strictEqual(yield* counters.readModel("c"), 4)
+      }).pipe(
+        Effect.provide(SqliteEventStore.layer().pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))))
+      ))
 
     const recordingReads = (options?: { readonly stateCacheSize?: number }) =>
       Effect.gen(function*() {
@@ -603,6 +626,21 @@ describe("AggregateService", () => {
 
         assert.strictEqual(stale._tag, "WrongExpectedVersion")
         assert.strictEqual(invalid._tag, "InvalidCommand")
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("fails as an invalid command when it isn't a version", () =>
+      Effect.gen(function*() {
+        const docs = yield* AggregateService.make(Doc)
+        yield* docs.commands.rename("d", { name: "a" })
+
+        // A failure, not a defect: `flip` would die with it.
+        for (const expectedVersion of [1.5, Number.NaN, -1]) {
+          const error = yield* Effect.flip(docs.commands.rename("d", { name: "b" }, { expectedVersion }))
+          assert.strictEqual(error._tag, "InvalidCommand")
+        }
+        const empty = yield* Effect.flip(docs.commands.rename("d", { name: "b" }, { commandId: "" }))
+        assert.strictEqual(empty._tag, "InvalidCommand")
+        assert.strictEqual(yield* docs.readModel("d"), "a")
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("doesn't stop a command that comes again with its id", () =>

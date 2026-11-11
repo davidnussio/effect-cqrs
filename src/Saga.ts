@@ -21,7 +21,7 @@
  *
  * @module
  */
-import { Effect, Layer, Schedule, Schema } from "effect"
+import { Context, Effect, Layer, Schedule, Schema } from "effect"
 import { Activity, Workflow } from "effect/workflow"
 import type { WorkflowEngine } from "effect/workflow"
 import type * as Aggregate from "./Aggregate.ts"
@@ -137,14 +137,24 @@ export const make = <
 }) => ViewModel.make({ ...options, dispose: Effect.void })
 
 /**
- * Runs triggers in the background for as long as the layer lives, apart from
- * the view models. Workflows usually run commands, so they sit on top of the
- * command side, which view models are often provided to.
+ * The triggers that {@link layer} runs, managed like view models: their status,
+ * the events they parked and retrying those. It is `ViewModel.ViewModels` under
+ * another name, so it doesn't stand in for the view models' own.
  */
-export const layer = <const Sagas extends ReadonlyArray<ViewModel.Any>>(
-  sagas: Sagas
-): Layer.Layer<never, EventStoreError, EventStore | Checkpoints | ViewModel.Context<Sagas[number]>> =>
-  Layer.provide(Layer.empty, ViewModel.layer(sagas))
+export class Sagas extends Context.Service<Sagas, ViewModel.ViewModels["Service"]>()("effect-cqrs/Sagas") {}
+
+/**
+ * Runs triggers in the background for as long as the layer lives, apart from
+ * the view models, and provides {@link Sagas} to manage them. Workflows usually
+ * run commands, so they sit on top of the command side, which view models are
+ * often provided to.
+ */
+export const layer = <const Triggers extends ReadonlyArray<ViewModel.Any>>(
+  sagas: Triggers
+): Layer.Layer<Sagas, EventStoreError, EventStore | Checkpoints | ViewModel.Context<Triggers[number]>> =>
+  Layer.effect(Sagas, ViewModel.ViewModels.use((viewModels) => Effect.succeed(Sagas.of(viewModels)))).pipe(
+    Layer.provide(ViewModel.layer(sagas))
+  )
 
 /** What a saga keeps of a command it ran: enough to wait for view models to see it. */
 export const CommandOutcome = Schema.Struct({

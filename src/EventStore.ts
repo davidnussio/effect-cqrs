@@ -152,6 +152,13 @@ export class EventStore extends Context.Service<EventStore, {
    * store polls for them: see `MakeOptions`.
    */
   readonly changes: Stream.Stream<number>
+  /**
+   * Runs an effect once what was just appended can be read by everyone: at once,
+   * or when the caller's transaction commits, and never if it rolls back. Services
+   * that keep what they read or wrote in memory go through it, so they don't keep
+   * what a rollback undid. Missing on stores without transactions.
+   */
+  readonly afterCommit?: (<R>(effect: Effect.Effect<void, never, R>) => Effect.Effect<void, never, R>) | undefined
 }>()("effect-cqrs/EventStore") {}
 
 /** What a storage adapter implements. {@link make} builds the rest on top. */
@@ -289,7 +296,8 @@ const assemble = Effect.fnUntraced(function*(backend: Backend, options?: MakeOpt
       read,
       subscribe,
       head: backend.head,
-      changes: SubscriptionRef.changes(latest)
+      changes: SubscriptionRef.changes(latest),
+      ...(afterCommit === undefined ? {} : { afterCommit })
     })
   }
 })

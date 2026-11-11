@@ -47,14 +47,16 @@ import {
   Option,
   Predicate,
   Redacted,
+  Schedule,
   Schema,
-  type SchemaAST
+  SchemaAST
 } from "effect"
 import { Base64 } from "effect/encoding"
 import { SqlClient } from "effect/sql"
 import { CurrentCausation } from "./Causation.ts"
 import { EventStore, type EventStoreError, type Migration } from "./EventStore.ts"
 import * as Ids from "./Ids.ts"
+import { membersOf, structOf } from "./internal/events.ts"
 import { migrateTable } from "./internal/migrate.ts"
 import { CurrentMetadata } from "./Metadata.ts"
 
@@ -161,6 +163,23 @@ const mentionsPersonal = (ast: SchemaAST.AST, seen: Set<SchemaAST.AST> = new Set
   }
 }
 
+// A subject is read from the encoded payload, where it has to be a string every time.
+const isStringAlways = (ast: SchemaAST.AST): boolean => {
+  if (SchemaAST.isOptional(ast)) return false
+  const encoded = SchemaAST.toEncoded(ast)
+  switch (encoded._tag) {
+    case "String":
+    case "TemplateLiteral":
+      return true
+    case "Literal":
+      return Predicate.isString(encoded.literal)
+    case "Union":
+      return encoded.types.every(isStringAlways)
+    default:
+      return false
+  }
+}
+
 const describe = (path: ReadonlyArray<string>) => path.length === 0 ? "the top level" : path.join(".")
 
 const collect = (ast: SchemaAST.AST, path: ReadonlyArray<string>, fields: Array<Field>, where: string): void => {
@@ -169,7 +188,9 @@ const collect = (ast: SchemaAST.AST, path: ReadonlyArray<string>, fields: Array<
     fields.push({ path, subject: annotation.subject, redacted: annotation.redacted })
     return
   }
-  const node = unwrapNullable(ast)
+  // A class is stored as the struct of its fields, where its personal fields are.
+  const unwrapped = unwrapNullable(ast)
+  const node = structOf(unwrapped) ?? unwrapped
   // The mark is read from the decoded side, so one left on the encoded side by a
   // later transformation would go unnoticed and the field be stored in plaintext.
   if (node._tag !== "Objects" && node.encoding?.some(({ to }) => mentionsPersonal(to)) === true) {
@@ -219,6 +240,11 @@ const collect = (ast: SchemaAST.AST, path: ReadonlyArray<string>, fields: Array<
         `${where}: ${describe(field.path)} takes its subject from "${field.subject}", which is personal itself`
       )
     }
+    if (!isStringAlways(sibling.type)) {
+      throw new Error(
+        `${where}: ${describe(field.path)} takes its subject from "${field.subject}", which is not always a string`
+      )
+    }
   }
 }
 
@@ -229,26 +255,20 @@ export const fieldsOf = (schema: Schema.Top, where: string): ReadonlyArray<Field
   return fields
 }
 
-const tagOf = (ast: SchemaAST.Objects): string | undefined => {
-  const tag = ast.propertySignatures.find(({ name }) => name === "_tag")?.type
-  return tag?._tag === "Literal" && Predicate.isString(tag.literal) ? tag.literal : undefined
-}
-
 /** The personal fields of each event in a union of tagged events. Events without any are left out. */
 export const fieldsByTag = (schema: Schema.Top, where: string): ReadonlyMap<string, ReadonlyArray<Field>> => {
   const byTag = new Map<string, ReadonlyArray<Field>>()
-  const visit = (ast: SchemaAST.AST): void => {
-    if (ast._tag === "Union") return ast.types.forEach(visit)
-    const tag = ast._tag === "Objects" ? tagOf(ast) : undefined
-    if (tag === undefined) {
-      if (mentionsPersonal(ast)) throw new Error(`${where}: events with personal fields need to be tagged structs`)
-      return
+  for (const { ast, struct, tag } of membersOf(schema.ast)) {
+    if (struct === undefined || tag === undefined) {
+      if (mentionsPersonal(ast)) {
+        throw new Error(`${where}: events with personal fields need to be tagged structs or tagged classes`)
+      }
+      continue
     }
     const fields: Array<Field> = []
-    collect(ast, [], fields, `${where}, ${tag}`)
+    collect(struct, [], fields, `${where}, ${tag}`)
     if (fields.length > 0) byTag.set(tag, fields)
   }
-  visit(schema.ast)
   return byTag
 }
 
@@ -391,6 +411,39 @@ export interface Backend {
   ) => Effect.Effect<KeyRecord, PersonalDataError>
   /** Deletes the key and records that the subject is forgotten, in one step. */
   readonly forget: (subject: string, forgottenAt: number) => Effect.Effect<void, PersonalDataError>
+  /**
+   * Whether a call now joins a transaction of the caller, whose writes a rollback
+   * can still undo. What is read or created there is cached only once it commits.
+   */
+  readonly inTransaction?: Effect.Effect<boolean> | undefined
+  /** Runs an effect when the caller's transaction commits, or at once outside one. */
+  readonly afterCommit?: (<R>(effect: Effect.Effect<void, never, R>) => Effect.Effect<void, never, R>) | undefined
+  /**
+   * Up to `limit` subjects after `afterSubject`, in order, whose key is wrapped by
+   * another master key than `masterKeyId`. With {@link Backend.replaceWrapped}, what
+   * {@link rewrap} needs.
+   */
+  readonly wrappedByOthers?:
+    | ((
+      masterKeyId: string,
+      afterSubject: string,
+      limit: number
+    ) => Effect.Effect<
+      ReadonlyArray<{ readonly subject: string; readonly key: Extract<KeyRecord, { readonly _tag: "Active" }> }>,
+      PersonalDataError
+    >)
+    | undefined
+  /**
+   * Stores a key wrapped anew, if the subject still has the key `from`: not
+   * forgotten, nor wrapped again meanwhile. Returns whether it did.
+   */
+  readonly replaceWrapped?:
+    | ((
+      subject: string,
+      from: { readonly keyId: string; readonly masterKeyId: string },
+      to: { readonly masterKeyId: string; readonly wrapped: Uint8Array<ArrayBuffer> }
+    ) => Effect.Effect<boolean, PersonalDataError>)
+    | undefined
 }
 
 export interface DataKey {
@@ -412,7 +465,19 @@ export class Keys extends Context.Service<Keys, {
   isForgotten(subject: string): Effect.Effect<boolean, PersonalDataError>
   /** Destroys the key of a subject. Prefer {@link forget}, which also records it in the log. */
   forget(subject: string): Effect.Effect<void, PersonalDataError>
+  /** See {@link rewrap}. */
+  rewrap(options?: RewrapOptions): Effect.Effect<RewrapResult, PersonalDataError>
 }>()("effect-cqrs/PersonalData/Keys") {}
+
+export interface RewrapOptions {
+  /** How many keys are read from the store at a time. Defaults to 100. */
+  readonly batchSize?: number | undefined
+}
+
+export interface RewrapResult {
+  /** The keys now wrapped by the current master key. */
+  readonly rewrapped: number
+}
 
 export interface KeysOptions {
   /** How many subjects to keep in memory, with their unwrapped keys. Defaults to 10,000. */
@@ -526,18 +591,47 @@ export const layerMasterKey = (
 /**
  * A master key from configuration: an id, and 32 bytes in base64. By default
  * `PERSONAL_DATA_MASTER_KEY_ID` and `PERSONAL_DATA_MASTER_KEY`.
+ *
+ * Earlier master keys, which keys created before a rotation are still wrapped by,
+ * come from `PERSONAL_DATA_MASTER_KEY_PREVIOUS` by default, as `id:base64` pairs
+ * separated by commas. Leave it unset when there are none, and empty it once
+ * {@link rewrap} has moved every key to the current master key.
  */
 export const layerMasterKeyConfig = (options?: {
   readonly keyId?: Config.Config<string> | undefined
   readonly key?: Config.Config<Redacted.Redacted<string>> | undefined
+  readonly previous?: Config.Config<Redacted.Redacted<string>> | undefined
 }): Layer.Layer<MasterKey, PersonalDataError | Config.ConfigError> =>
   Layer.effect(
     MasterKey,
     Effect.gen(function*() {
       const keyId = yield* (options?.keyId ?? Config.String("PERSONAL_DATA_MASTER_KEY_ID"))
       const key = yield* (options?.key ?? Config.Redacted("PERSONAL_DATA_MASTER_KEY"))
-      const bytes = yield* decodeBase64(Redacted.value(key), "masterKey", "")
-      return yield* Effect.ensuring(makeMasterKey({ keyId, key: Redacted.make(bytes) }), zero(bytes))
+      const previousText = yield* (options?.previous ??
+        Config.withDefault(Config.Redacted("PERSONAL_DATA_MASTER_KEY_PREVIOUS"), Redacted.make("")))
+      const decoded: Array<Uint8Array<ArrayBuffer>> = []
+      const zeroAll = Effect.sync(() => decoded.forEach((bytes) => bytes.fill(0)))
+      return yield* Effect.gen(function*() {
+        const bytes = yield* decodeBase64(Redacted.value(key), "masterKey", "")
+        decoded.push(bytes)
+        const previous: Array<{ readonly keyId: string; readonly key: Redacted.Redacted<Uint8Array> }> = []
+        for (const entry of Redacted.value(previousText).split(",")) {
+          const pair = entry.trim()
+          if (pair === "") continue
+          const separator = pair.indexOf(":")
+          if (separator <= 0) {
+            return yield* new PersonalDataError({
+              operation: "masterKey",
+              subject: "",
+              message: "A previous master key is not written as id:base64"
+            })
+          }
+          const previousBytes = yield* decodeBase64(pair.slice(separator + 1), "masterKey", "")
+          decoded.push(previousBytes)
+          previous.push({ keyId: pair.slice(0, separator), key: Redacted.make(previousBytes) })
+        }
+        return yield* makeMasterKey({ keyId, key: Redacted.make(bytes), previous })
+      }).pipe(Effect.ensuring(zeroAll))
     })
   )
 
@@ -601,6 +695,28 @@ export const make = Effect.fnUntraced(function*(backend: Backend, options?: Keys
     }
   )
 
+  // What a caller's transaction reads or creates may be rolled back, so there the
+  // cache is only read, and filled once the transaction commits.
+  const inTransaction = backend.inTransaction ?? Effect.succeed(false)
+  const afterCommit = backend.afterCommit ?? (<R>(effect: Effect.Effect<void, never, R>) => effect)
+  const remember = (subject: string, known: Known) => afterCommit(Cache.set(subjects, subject, known))
+  const lookup = (subject: string): Effect.Effect<Lookup, PersonalDataError> =>
+    Effect.flatMap(inTransaction, (joined) =>
+      joined
+        ? Effect.flatMap(
+          Cache.getSuccess(subjects, subject),
+          Option.match({
+            onSome: Effect.succeed,
+            onNone: () =>
+              Effect.flatMap(backend.get(subject), (record): Effect.Effect<Lookup, PersonalDataError> =>
+                Option.isNone(record)
+                  ? Effect.succeed(missing)
+                  : Effect.tap(known(subject, record.value), (value) =>
+                    remember(subject, value)))
+          })
+        )
+        : Cache.get(subjects, subject))
+
   const cachedKnown = (subject: string) =>
     Effect.map(
       Cache.getSuccess(subjects, subject),
@@ -626,7 +742,7 @@ export const make = Effect.fnUntraced(function*(backend: Backend, options?: Keys
     // The subject was forgotten here while the key was created.
     const now = yield* cachedKnown(subject)
     if (Option.isSome(now) && now.value._tag === "Forgotten") return now.value
-    yield* Cache.set(subjects, subject, created)
+    yield* remember(subject, created)
     return created
   })
 
@@ -634,18 +750,18 @@ export const make = Effect.fnUntraced(function*(backend: Backend, options?: Keys
   const creations = yield* Cache.makeWith(create, { capacity, timeToLive: () => Duration.zero })
 
   const encryptionKey = Effect.fnUntraced(function*(subject: string) {
-    const lookup = yield* Cache.get(subjects, subject)
-    const state = lookup._tag === "Missing" ? yield* Cache.get(creations, subject) : lookup
+    const found = yield* lookup(subject)
+    const state = found._tag === "Missing" ? yield* Cache.get(creations, subject) : found
     if (state._tag === "Forgotten") return yield* new SubjectForgotten({ subject })
     return { keyId: state.keyId, key: state.key }
   })
 
   const decryptionKey = Effect.fnUntraced(function*(subject: string, keyId: string) {
-    let state = yield* Cache.get(subjects, subject)
+    let state = yield* lookup(subject)
     if (state._tag === "Active" && state.keyId !== keyId) {
       // What the cache holds may be older than the store.
       yield* Cache.invalidate(subjects, subject)
-      state = yield* Cache.get(subjects, subject)
+      state = yield* lookup(subject)
     }
     switch (state._tag) {
       case "Missing":
@@ -668,15 +784,39 @@ export const make = Effect.fnUntraced(function*(backend: Backend, options?: Keys
     }
   })
 
-  const isForgotten = (subject: string) =>
-    Effect.map(Cache.get(subjects, subject), (state) => state._tag === "Forgotten")
+  const isForgotten = (subject: string) => Effect.map(lookup(subject), (state) => state._tag === "Forgotten")
 
   const forget = Effect.fnUntraced(function*(subject: string) {
     yield* backend.forget(subject, yield* Clock.currentTimeMillis)
     yield* Cache.set(subjects, subject, forgotten)
   })
 
-  return Keys.of({ cipher, encryptionKey, decryptionKey, isForgotten, forget })
+  const rewrap = Effect.fnUntraced(function*(rewrapOptions?: RewrapOptions) {
+    const { replaceWrapped, wrappedByOthers } = backend
+    if (wrappedByOthers === undefined || replaceWrapped === undefined) {
+      return yield* new PersonalDataError({
+        operation: "rewrap",
+        subject: "",
+        message: "This key store can't list or replace wrapped keys"
+      })
+    }
+    const batchSize = rewrapOptions?.batchSize ?? 100
+    let after = ""
+    let rewrapped = 0
+    while (true) {
+      const page = yield* wrappedByOthers(masterKey.keyId, after, batchSize)
+      for (const { key, subject } of page) {
+        const bytes = yield* masterKey.unwrap(key.wrapped, { subject, keyId: key.keyId, masterKeyId: key.masterKeyId })
+        const wrapped = yield* Effect.ensuring(masterKey.wrap(bytes, { subject, keyId: key.keyId }), zero(bytes))
+        // The key is the same, so what the cache holds stays right.
+        if (yield* replaceWrapped(subject, key, { masterKeyId: masterKey.keyId, wrapped })) rewrapped++
+      }
+      if (page.length < batchSize) return { rewrapped } satisfies RewrapResult
+      after = page[page.length - 1]!.subject
+    }
+  })
+
+  return Keys.of({ cipher, encryptionKey, decryptionKey, isForgotten, forget, rewrap })
 })
 
 /** A key store in process memory, gone after a restart along with access to everything it encrypted. */
@@ -694,6 +834,25 @@ export const makeMemoryBackend = (): Backend => {
     forget: (subject, forgottenAt) =>
       Effect.sync(() => {
         if (records.get(subject)?._tag !== "Forgotten") records.set(subject, { _tag: "Forgotten", forgottenAt })
+      }),
+    wrappedByOthers: (masterKeyId, afterSubject, limit) =>
+      Effect.sync(() =>
+        Array.from(records)
+          .filter(([subject, record]) =>
+            subject > afterSubject && record._tag === "Active" && record.masterKeyId !== masterKeyId
+          )
+          .sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
+          .slice(0, limit)
+          .map(([subject, record]) => ({ subject, key: record as Extract<KeyRecord, { readonly _tag: "Active" }> }))
+      ),
+    replaceWrapped: (subject, from, to) =>
+      Effect.sync(() => {
+        const record = records.get(subject)
+        if (record?._tag !== "Active" || record.keyId !== from.keyId || record.masterKeyId !== from.masterKeyId) {
+          return false
+        }
+        records.set(subject, { ...record, ...to })
+        return true
       })
   }
 }
@@ -814,7 +973,33 @@ export const makeSqlBackend = Effect.fnUntraced(function*(options?: SqlOptions) 
           master_key_id = NULL,
           wrapped = NULL,
           forgotten_at = COALESCE(${table}.forgotten_at, excluded.forgotten_at)
-      `.pipe(Effect.asVoid, Effect.mapError(sqlError("forget", subject)))
+      `.pipe(Effect.asVoid, Effect.mapError(sqlError("forget", subject))),
+    inTransaction: Effect.map(Effect.serviceOption(sql.transactionService), Option.isSome),
+    afterCommit: sql.afterCommit,
+    wrappedByOthers: (masterKeyId, afterSubject, limit) =>
+      sql<{ readonly subject: string; readonly keyId: string; readonly masterKeyId: string; readonly wrapped: string }>`
+        SELECT subject, key_id AS "keyId", master_key_id AS "masterKeyId", wrapped
+        FROM ${table}
+        WHERE forgotten_at IS NULL AND master_key_id <> ${masterKeyId} AND subject > ${afterSubject}
+        ORDER BY subject LIMIT ${limit}
+      `.pipe(
+        Effect.mapError(sqlError("rewrap", "")),
+        Effect.flatMap(
+          Effect.forEach((row) =>
+            Effect.map(decodeBase64(row.wrapped, "rewrap", row.subject), (wrapped) => ({
+              subject: row.subject,
+              key: { _tag: "Active" as const, keyId: row.keyId, masterKeyId: row.masterKeyId, wrapped }
+            }))
+          )
+        )
+      ),
+    replaceWrapped: (subject, from, to) =>
+      sql<{ readonly subject: string }>`
+        UPDATE ${table} SET master_key_id = ${to.masterKeyId}, wrapped = ${Base64.encode(to.wrapped)}
+        WHERE subject = ${subject} AND key_id = ${from.keyId} AND master_key_id = ${from.masterKeyId}
+          AND forgotten_at IS NULL
+        RETURNING subject
+      `.pipe(Effect.map((rows) => rows.length === 1), Effect.mapError(sqlError("rewrap", subject)))
   } satisfies Backend
 })
 
@@ -828,6 +1013,15 @@ export const layerSql = (
 // Forgetting
 // ---------------------------------------------------------------------------
 
+/**
+ * Wraps every subject key that an earlier master key wrapped with the current
+ * one, so the earlier one can be dropped from `previous`. Keys stay the same, so
+ * nothing encrypted with them changes, and running it again only rewraps what is
+ * left. Keys created meanwhile are wrapped by the current master key already.
+ */
+export const rewrap = (options?: RewrapOptions): Effect.Effect<RewrapResult, PersonalDataError, Keys> =>
+  Keys.use((keys) => keys.rewrap(options))
+
 /** The stream that records forgotten subjects, one stream per subject. */
 export const streamName = "effect-cqrs/personal-data"
 
@@ -839,6 +1033,11 @@ export const subjectForgottenType = "SubjectForgotten"
  * replacements everywhere, and records a `SubjectForgotten` event in the stream
  * of the subject, with the current causation and metadata as the audit trail.
  * Running it again records nothing new.
+ *
+ * The key goes first, so that no event says a subject is forgotten while its key
+ * still exists. A store that can't be reached is tried a few more times; when it
+ * still fails, the subject is forgotten but the event is missing, and `onForget`
+ * handlers haven't run. Call `forget` again until it succeeds.
  *
  * Other processes stop using the key once their cache expires, see
  * {@link KeysOptions.cacheTtl}.
@@ -860,11 +1059,14 @@ export const forget = Effect.fn("PersonalData.forget")(
       causationId: causation?.causationId ?? id,
       metadata
     }).pipe(
+      Effect.retry({ while: (error) => error._tag === "EventStoreError", schedule: forgetRetry, times: 3 }),
       // The subject was forgotten before, which the stream already records.
       Effect.catchTag("ConcurrencyConflict", () => Effect.void)
     )
   }
 )
+
+const forgetRetry = Schedule.exponential("100 millis")
 
 // ---------------------------------------------------------------------------
 // Encrypting payloads
@@ -910,8 +1112,10 @@ const writableParent = (root: JsonRecord, path: ReadonlyArray<string>): JsonReco
   return current
 }
 
-// Binds a field to its stream, its event type and its place in the event, so a copy
-// moved anywhere else doesn't decrypt.
+// Binds a field to its stream, its event type, its place in the event, its subject and
+// key, so a copy moved to another stream, type, field or subject doesn't decrypt. It is
+// not bound to one event: a copy into another event of the same type in the same
+// stream, by someone who can write to the store, decrypts.
 const fieldLabel = (location: Location, path: ReadonlyArray<string>, subject: string, keyId: string) =>
   label("field", wireVersion, location.aggregateName, location.aggregateId, location.type, path, subject, keyId)
 
