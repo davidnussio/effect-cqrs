@@ -22,3 +22,6 @@ qualification-report/
 
 # Written by `pnpm workshop` without POSTGRES_URL
 workshop.sqlite*
+
+# Local settings of Claude Code, such as the dev servers its preview starts
+.claude/
