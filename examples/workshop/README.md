@@ -161,13 +161,23 @@ address, which leaves room for a classroom behind one router. Both answer `429`.
 ## Rehearsal and reset
 
 `pnpm workshop:load` plays many participants at once through the typed client: each
-joins, opens the live stream and deposits, buys and sends money for a while. It ends
-with how long each call took, what the domain refused, and, given `ADMIN_CODE`,
-whether the books balance and the view models caught up.
+joins, opens the live stream, reads the bank and the shop as the page does every two
+seconds, and deposits, buys and sends money for a while. Each has connections of its
+own, at most six as a browser keeps, and they start one after another over
+`LOAD_RAMP_SECONDS`, 10 by default. It ends with how long each call took, what the
+domain refused, and, given `ADMIN_CODE`, whether the books balance and the view models
+caught up.
 
 ```bash
 ADMIN_CODE=prova LOAD_PARTICIPANTS=50 LOAD_SECONDS=60 pnpm workshop:load
 ```
+
+Started all in the same instant, 50 participants open some 350 connections at once.
+macOS keeps at most 128 waiting for the server to accept them (`kern.ipc.somaxconn`)
+and resets the others right after the handshake, so their first request fails with
+`ECONNRESET` while the server logs nothing. A room never arrives that fast, which is
+what the ramp is for. If the laptop that runs the workshop must take such a burst,
+`sudo sysctl kern.ipc.somaxconn=1024` raises the limit until the next restart.
 
 To rehearse against something as small as Render's free plan, run the image with
 its limits:
@@ -178,7 +188,8 @@ docker run --rm --cpus 0.1 --memory 512m -p 3000:3000 -e ADMIN_CODE=prova \
   -e POSTGRES_URL=... effect-cqrs-workshop
 ```
 
-With 50 participants for 60 seconds, against the image with Postgres:
+With 50 participants for 60 seconds, against the image with Postgres, measured when
+the test read the bank's screen alone:
 
 | CPU | Screen read p50 / p95 | Order p50 / p95 |
 | --- | --- | --- |

@@ -10,6 +10,8 @@
  *
  * - `LOAD_URL`, the server, `http://localhost:3000` by default.
  * - `LOAD_PARTICIPANTS`, 50 by default, and `LOAD_SECONDS`, 60 by default.
+ * - `LOAD_RAMP_SECONDS`, 10 by default: the participants start one after another
+ *   over this time, as phones come into a room, and each then plays `LOAD_SECONDS`.
  * - `ADMIN_CODE`, the server's, to read its metrics at the end.
  *
  * It exits with 1 when a call failed for a reason other than the domain's own
@@ -69,6 +71,7 @@ const program = Effect.gen(function*() {
   const baseUrl = yield* Config.String("LOAD_URL").pipe(Config.withDefault("http://localhost:3000"))
   const count = yield* Config.Int("LOAD_PARTICIPANTS").pipe(Config.withDefault(50))
   const seconds = yield* Config.Int("LOAD_SECONDS").pipe(Config.withDefault(60))
+  const ramp = yield* Config.Int("LOAD_RAMP_SECONDS").pipe(Config.withDefault(10))
   const adminCode = yield* Config.option(Config.String("ADMIN_CODE"))
   const stats = yield* Ref.make<Stats>({ timings: new Map(), refusals: new Map(), failures: [], streamMessages: 0 })
 
@@ -124,7 +127,7 @@ const program = Effect.gen(function*() {
   )).filter((session) => session !== undefined)
   const ids = sessions.map((session) => session.user.id)
   const products = ["caffe", "cornetto", "succo", "cioccolato", "quaderno", "cappellino", "cuffie"] as const
-  const deadline = (yield* Clock.currentTimeMillis) + seconds * 1000
+  const deadline = (yield* Clock.currentTimeMillis) + (ramp + seconds) * 1000
 
   const act = Effect.fnUntraced(
     function*(token: string, id: string) {
@@ -176,7 +179,17 @@ const program = Effect.gen(function*() {
     Effect.provide(phoneConnections)
   )
 
-  yield* Effect.forEach(sessions, (session) => act(session.token, session.user.id), { concurrency: "unbounded" })
+  // All at once, the participants opened some 350 connections in the same millisecond.
+  // macOS keeps at most 128 waiting to be accepted (kern.ipc.somaxconn) and resets the
+  // rest right after the handshake, so their first request failed with ECONNRESET.
+  yield* Effect.forEach(
+    sessions,
+    (session, i) =>
+      Effect.sleep(Duration.millis((i * ramp * 1000) / sessions.length)).pipe(
+        Effect.andThen(act(session.token, session.user.id))
+      ),
+    { concurrency: "unbounded" }
+  )
   yield* Effect.logInfo("Done: waiting for the sagas to settle")
   yield* Effect.sleep("5 seconds")
 
