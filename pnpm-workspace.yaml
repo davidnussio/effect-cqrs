@@ -1,6 +1,8 @@
 # The library is the root package. docs and examples are private packages with
-# their own dependencies, so the library's stay few.
+# their own dependencies, so the library's stay few. The root is listed too, or
+# changesets doesn't find the package it versions.
 packages:
+  - "."
   - docs
   - examples
 
