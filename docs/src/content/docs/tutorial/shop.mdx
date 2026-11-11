@@ -1,28 +1,36 @@
 ---
-title: Tutorial
-description: Build a small shop step by step, from events to a saga with a timeout, metadata, metrics and event versions.
+title: The shop
+description: "The first example, built step by step: a shop with orders, stock and a saga with a timeout, then metadata, metrics and event versions."
+next:
+  link: ../bank/
+  label: The bank
 ---
 
-import { Code, LinkCard } from "@astrojs/starlight/components"
-import shop from "../../../../examples/tutorial/shop.ts?raw"
-import main from "../../../../examples/tutorial/main.ts?raw"
-import { region } from "../../source.ts"
+import { Code } from "@astrojs/starlight/components"
+import DemoCard from "../../../components/DemoCard.astro"
+import shop from "../../../../../examples/tutorial/shop.ts?raw"
+import main from "../../../../../examples/tutorial/main.ts?raw"
+import { region } from "../../../source.ts"
 
 export const shopDemoUrl = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/shop-demo/`
 
 export const file = "examples/tutorial/shop.ts"
 export const full = shop.replace(/^[ \t]*\/\/ #(region .*|endregion)\n/gm, "")
 
-We build a shop: customers place **orders**, and a **saga** holds the **stock** for each
-one and gives the customer 15 seconds to pay. It confirms a paid order, and rejects one that
-is out of stock or not paid in time. Every snippet comes from
-[the full example](#the-full-example), which you can run with `pnpm tutorial`.
-
-<LinkCard
+<DemoCard
   title="Open the shop demo"
   description="The same shop in your browser, with its traces, its saga's state, the stored rows and the metrics."
   href={shopDemoUrl}
 />
+
+The first of three examples, and the one to start from: it builds each piece of the
+framework in turn. [The bank](../bank/) and [the workshop](../workshop/) then put them
+together in bigger apps.
+
+We build a shop: customers place **orders**, and a **saga** holds the **stock** for each
+one and gives the customer 15 seconds to pay. It confirms a paid order, and rejects one that
+is out of stock or not paid in time. Every snippet comes from
+[the full example](#the-full-example), which you can run with `pnpm tutorial`.
 
 ## 1. Events
 
@@ -147,6 +155,6 @@ order.place timings [
 pnpm tutorial
 ```
 
-Next, the guides go deeper into [aggregates](../guides/aggregates/),
-[commands](../guides/commands/), [view models](../guides/view-models/) and
-[sagas](../guides/sagas/).
+Next, [the bank](../bank/) puts the same pieces in an app you can poke at, and the guides go
+deeper into [aggregates](../../guides/aggregates/), [commands](../../guides/commands/),
+[view models](../../guides/view-models/) and [sagas](../../guides/sagas/).

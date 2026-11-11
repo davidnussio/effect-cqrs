@@ -1,25 +1,33 @@
 ---
-title: The bank demo
-description: A bank whose accounts are aggregates, three view models and a transfer saga, running in your browser.
+title: The bank
+description: "The second example: a bank whose accounts are aggregates, with three view models and a transfer saga, running in your browser."
+prev:
+  link: ../shop/
+  label: The shop
+next:
+  link: ../workshop/
+  label: The workshop
 ---
 
 import { Aside, Code, LinkCard } from "@astrojs/starlight/components"
 import account from "../../../../../examples/bank-ui/src/domain/account.ts?raw"
 import engine from "../../../../../examples/bank-ui/src/engine.ts?raw"
 import views from "../../../../../examples/bank-ui/src/domain/views.ts?raw"
+import DemoCard from "../../../components/DemoCard.astro"
 import { demoUrl, region, sourceUrl } from "../../../source.ts"
 
 export const accountFile = "examples/bank-ui/src/domain/account.ts"
 export const viewsFile = "examples/bank-ui/src/domain/views.ts"
 export const engineFile = "examples/bank-ui/src/engine.ts"
 
-<LinkCard
-  title="Open the live demo"
+<DemoCard
+  title="Open the bank demo"
   description="effect-cqrs in your browser, on the in-memory event store. Nothing leaves the page."
   href={demoUrl}
 />
 
-The demo is the classic event sourcing example, a bank, built on the framework as it is:
+The second example. [The shop](../shop/) builds each piece in turn; the bank puts them in an
+app you can poke at. It is the classic event sourcing example, built on the framework as it is:
 the same sources the tests run, bundled for the browser. Bank accounts are aggregates,
 three view models project them, and a saga moves money between accounts.
 

@@ -247,6 +247,33 @@ starlight-toc a[aria-current="true"] {
   transform: translateY(-1px);
 }
 
+/* The card that opens a tutorial page's demo, lit in the accent color. */
+.cq-demo-card .sl-link-card {
+  background:
+    linear-gradient(135deg, rgba(124, 92, 255, 0.24), rgba(124, 92, 255, 0.06) 65%),
+    var(--cq-glass) !important;
+  border-color: rgba(167, 139, 250, 0.55) !important;
+  box-shadow: 0 0 40px -14px rgba(139, 92, 246, 0.8);
+  padding: 1.25rem 1.4rem;
+}
+
+.cq-demo-card .sl-link-card:hover {
+  border-color: rgba(203, 188, 255, 0.85) !important;
+  box-shadow: 0 0 48px -10px rgba(139, 92, 246, 0.95);
+}
+
+.cq-demo-card .sl-link-card .title {
+  color: #fff;
+}
+
+.cq-demo-card .sl-link-card .description {
+  color: var(--sl-color-gray-2);
+}
+
+.cq-demo-card .sl-link-card .icon {
+  color: var(--sl-color-accent-high);
+}
+
 .starlight-aside {
   border-inline-start: 3px solid var(--sl-color-asides-border) !important;
 }

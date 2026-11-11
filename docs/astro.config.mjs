@@ -24,6 +24,13 @@ const fonts =
 export default defineConfig({
   site: "https://davidnussio.github.io",
   base,
+  // Pages that moved, so old links still land. Astro adds the base to where a redirect
+  // starts but not to where it goes.
+  redirects: {
+    "/tutorial": `${base.replace(/\/$/, "")}/tutorial/shop/`,
+    "/example/bank": `${base.replace(/\/$/, "")}/tutorial/bank/`,
+    "/example/workshop": `${base.replace(/\/$/, "")}/tutorial/workshop/`
+  },
   integrations: [
     starlight({
       title: "effect-cqrs",
@@ -76,7 +83,7 @@ export default defineConfig({
               description: "a short guide for coding agents that use effect-cqrs, also in the npm package"
             }
           ],
-          promote: ["index*", "getting-started", "tutorial", "using-with-ai", "guides/**"],
+          promote: ["index*", "getting-started", "tutorial/**", "using-with-ai", "guides/**"],
           demote: ["reference/api/**"],
           // The generated API reference has its own set, so the abridged file stays short.
           exclude: ["reference/api/**"],
@@ -123,7 +130,39 @@ export default defineConfig({
         }
       },
       sidebar: [
-        { label: "Start here", items: ["getting-started", "tutorial", "using-with-ai"] },
+        { label: "Start here", items: ["getting-started", "using-with-ai"] },
+        // The three examples, each with how it's built and its demo: the shop built step by
+        // step, then the bank in the browser and the workshop on a server. The demo links
+        // would be the pages' previous and next links, so the pages set their own.
+        {
+          label: "Tutorial",
+          items: [
+            {
+              label: "The shop",
+              items: [
+                { slug: "tutorial/shop", label: "How it's built" },
+                { label: "Open the demo ↗", link: "/shop-demo/" }
+              ]
+            },
+            {
+              label: "The bank",
+              items: [
+                { slug: "tutorial/bank", label: "How it's built" },
+                { label: "Open the demo ↗", link: "/demo/" }
+              ]
+            },
+            {
+              label: "The workshop",
+              items: [
+                { slug: "tutorial/workshop", label: "How it's built" },
+                {
+                  label: "Run the demo ↗",
+                  link: "https://github.com/davidnussio/effect-cqrs/blob/main/examples/workshop/README.md"
+                }
+              ]
+            }
+          ]
+        },
         {
           label: "Guides",
           items: [
@@ -136,13 +175,6 @@ export default defineConfig({
             "guides/personal-data",
             "guides/integration"
           ]
-        },
-        {
-          label: "Example",
-          items: ["example/bank", { label: "Live demo", link: "/demo/" }, {
-            label: "Tutorial demo",
-            link: "/shop-demo/"
-          }, "example/workshop"]
         },
         {
           label: "Reference",

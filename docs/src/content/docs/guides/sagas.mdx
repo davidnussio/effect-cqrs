@@ -120,5 +120,5 @@ Inside a workflow, `effect/workflow` also offers `DurableClock.sleep` for timeou
 `DurableDeferred` for waiting on a signal, such as a later event that a trigger turns into
 `DurableDeferred.succeed`. `DurableClock.sleep` keeps a minute or less in memory, and
 schedules a clock with the engine beyond that, so it survives restarts on a durable engine.
-The [tutorial's saga](../../tutorial/#5-a-saga) races the two to give a customer 15 seconds
+The [tutorial's saga](../../tutorial/shop/#5-a-saga) races the two to give a customer 15 seconds
 to pay.

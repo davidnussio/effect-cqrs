@@ -1,0 +1,17 @@
+---
+/**
+ * The card at the top of a tutorial page that opens the example's demo: a link card,
+ * lit in the accent color so it stands out from the plain ones.
+ */
+import { LinkCard } from "@astrojs/starlight/components"
+
+interface Props {
+  readonly title: string
+  readonly description: string
+  readonly href: string
+}
+---
+
+<div class="cq-demo-card">
+  <LinkCard {...Astro.props} />
+</div>

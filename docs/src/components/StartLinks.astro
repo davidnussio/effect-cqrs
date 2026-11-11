@@ -10,15 +10,16 @@ interface Props {
 const base = import.meta.env.BASE_URL.replace(/\/$/, "")
 const current = Astro.locals.starlightRoute.id
 
+// `section` marks the link as current on every page under it.
 const links = [
-  { label: "Getting started", id: "getting-started" },
-  { label: "Tutorial", id: "tutorial" }
+  { label: "Getting started", id: "getting-started", section: "getting-started" },
+  { label: "Tutorial", id: "tutorial/shop", section: "tutorial/" }
 ]
 ---
 
 <nav class:list={["cq-start-links", Astro.props.class]} aria-label="Start here">
-  {links.map(({ id, label }) => (
-    <a href={`${base}/${id}/`} aria-current={current === id ? "page" : undefined}>{label}</a>
+  {links.map(({ id, label, section }) => (
+    <a href={`${base}/${id}/`} aria-current={current.startsWith(section) ? "page" : undefined}>{label}</a>
   ))}
 </nav>
 

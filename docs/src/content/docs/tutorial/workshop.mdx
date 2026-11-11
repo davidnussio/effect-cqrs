@@ -1,19 +1,31 @@
 ---
-title: The workshop demo
-description: A bank and a shop on a real server, for a room full of phones and a projector.
+title: The workshop
+description: "The third example: a bank and a shop on a real server, for a room full of phones and a projector."
+prev:
+  link: ../bank/
+  label: The bank
+next:
+  link: ../../guides/aggregates/
+  label: Aggregates
 ---
 
 import { Aside, Code } from "@astrojs/starlight/components"
+import DemoCard from "../../../components/DemoCard.astro"
 import shop from "../../../../../examples/workshop/domain/shop.ts?raw"
-import { region } from "../../../source.ts"
+import { region, sourceUrl } from "../../../source.ts"
 
 export const shopFile = "examples/workshop/domain/shop.ts"
 
-The [bank demo](../bank/) runs in the browser, for one person. The workshop demo runs
-the framework on a server, for a room: participants join from their phones, and a
+<DemoCard
+  title="Run the workshop"
+  description="It needs a server, so there is no copy on this site. Its README says how to run it and put it online on free plans."
+  href={sourceUrl("examples/workshop/README.md")}
+/>
+
+The third example. [The bank](../bank/) runs in the browser, for one person. The workshop
+runs the framework on a server, for a room: participants join from their phones, and a
 control room on the projector shows what the system does while they use it. Its code
-is in [`examples/workshop`](https://github.com/davidnussio/effect-cqrs/tree/main/examples/workshop),
-and its README says how to run it and put it online on free plans.
+is in [`examples/workshop`](https://github.com/davidnussio/effect-cqrs/tree/main/examples/workshop).
 
 ## What the participants do
 
@@ -47,7 +59,7 @@ the money back:
 <Code code={region(shop, "checkout")} lang="ts" title={shopFile} />
 
 <Aside>
-  The tests in [`test/Workshop.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/test/Workshop.test.ts)
+  The tests in [`examples/workshop/workshop.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/workshop/workshop.test.ts)
   send twenty buyers after the last piece at once: one gets it, nineteen get their money back.
 </Aside>
 
