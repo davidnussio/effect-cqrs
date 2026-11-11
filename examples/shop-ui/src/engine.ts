@@ -5,6 +5,7 @@
  * checkpoints and the metrics.
  */
 import {
+  Context,
   DateTime,
   Duration,
   Effect,
@@ -21,6 +22,7 @@ import {
 import type * as Aggregate from "effect-cqrs/Aggregate"
 import * as AggregateService from "effect-cqrs/AggregateService"
 import * as Checkpoints from "effect-cqrs/Checkpoints"
+import * as CommandGateway from "effect-cqrs/CommandGateway"
 import * as EventStore from "effect-cqrs/EventStore"
 import * as Metadata from "effect-cqrs/Metadata"
 import * as ViewModel from "effect-cqrs/ViewModel"
@@ -81,6 +83,22 @@ const slow = <A extends Aggregate.Any>(
 
 const OrdersLive = Layer.effect(Orders, Effect.map(AggregateService.make(Order), slow))
 const StocksLive = Layer.effect(Stocks, Effect.map(AggregateService.make(Stock), slow))
+
+// The screen sends its commands through a gateway, which finds the aggregate each
+// one is for. Its interceptor records the current customer on what they do to
+// orders. Restocking is the staff's job, so stock commands record no customer.
+const asCustomer: CommandGateway.Interceptor = (command, next) =>
+  command.aggregateName === Order.name
+    ? Effect.suspend(() => Metadata.withMetadata(next, { userId: devstore.get().settings.customer, channel: "web" }))
+    : next
+
+// Built on the services above, so commands from the screen are slowed down too.
+// The saga keeps using the services directly: it acts for no customer.
+const makeShop = Effect.gen(function*() {
+  return yield* CommandGateway.make([yield* Orders, yield* Stocks], { interceptors: [asCustomer] })
+})
+
+class Shop extends Context.Service<Shop, Effect.Success<typeof makeShop>>()("shop-ui/Shop") {}
 
 // ---------------------------------------------------------------------------
 // The query side: two view models for the shop's screen. The saga's trigger runs
@@ -299,7 +317,7 @@ const MetricsPoll = poll(
 
 const Storage = Layer.mergeAll(EventStore.layerMemory, Checkpoints.layerMemory)
 
-const Commands = Layer.merge(OrdersLive, StocksLive)
+const Commands = Layer.effect(Shop, makeShop).pipe(Layer.provideMerge(Layer.merge(OrdersLive, StocksLive)))
 
 // The saga's workflow, registered with an engine that keeps executions in memory.
 const Workflows = FulfilWorkflow.pipe(Layer.provideMerge(WorkflowEngine.layerMemory))
@@ -355,13 +373,14 @@ const start = async () => {
 void start()
 
 export const engine = {
-  /** Places an order as the current customer, who goes into the command's metadata. */
+  /** Places an order as the current customer, whom the gateway records in the command's metadata. */
   placeOrder: (sku: string, quantity: number): Promise<Outcome> => {
     const orderId = `order-${nextOrder++}`
     const { customer } = devstore.get().settings
     return runtime.runPromise(
-      Orders.use((orders) => orders.commands.place(orderId, { sku, quantity })).pipe(
-        Metadata.withMetadata({ userId: customer, channel: "web" }),
+      Shop.use((shop) =>
+        shop.send({ aggregateName: "order", aggregateId: orderId, type: "place", payload: { sku, quantity } })
+      ).pipe(
         Effect.withSpan("ui.placeOrder", { attributes: { orderId, sku, quantity, customer } }),
         outcome
       )
@@ -372,8 +391,7 @@ export const engine = {
   pay: (orderId: string): Promise<Outcome> => {
     const { customer } = devstore.get().settings
     return runtime.runPromise(
-      Orders.use((orders) => orders.commands.pay(orderId, {})).pipe(
-        Metadata.withMetadata({ userId: customer, channel: "web" }),
+      Shop.use((shop) => shop.send({ aggregateName: "order", aggregateId: orderId, type: "pay", payload: {} })).pipe(
         Effect.withSpan("ui.pay", { attributes: { orderId, customer } }),
         outcome
       )
@@ -382,10 +400,11 @@ export const engine = {
 
   restock: (sku: string, quantity: number): Promise<Outcome> =>
     runtime.runPromise(
-      Stocks.use((stocks) => stocks.commands.add(sku, { quantity })).pipe(
-        Effect.withSpan("ui.restock", { attributes: { sku, quantity } }),
-        outcome
-      )
+      Shop.use((shop) => shop.send({ aggregateName: "stock", aggregateId: sku, type: "add", payload: { quantity } }))
+        .pipe(
+          Effect.withSpan("ui.restock", { attributes: { sku, quantity } }),
+          outcome
+        )
     ),
 
   /**
