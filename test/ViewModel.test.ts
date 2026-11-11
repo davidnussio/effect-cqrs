@@ -563,6 +563,58 @@ describe("ViewModels", () => {
         )
       }).pipe(Effect.provideService(References.MinimumLogLevel, "None")))
 
+    it.live("goes on from where another process moved the checkpoint to", () =>
+      Effect.gen(function*() {
+        const Rows = ViewModel.make({
+          name: "rows",
+          aggregates: [Todo],
+          dispose: Effect.void,
+          transaction: ViewModel.sqlTransaction,
+          handlers: {
+            TodoCreated: Effect.fnUntraced(function*({ title }, { aggregateId }) {
+              const sql = yield* SqlClient.SqlClient
+              yield* sql`INSERT OR REPLACE INTO todo_rows (id, title) VALUES (${aggregateId}, ${title})`
+            })
+          }
+        })
+
+        yield* Effect.gen(function*() {
+          const sql = yield* SqlClient.SqlClient
+          yield* sql`CREATE TABLE todo_rows (id TEXT PRIMARY KEY, title TEXT NOT NULL)`
+          const checkpoints = yield* Checkpoints.Checkpoints
+          const todos = yield* AggregateService.make(Todo)
+
+          yield* Effect.gen(function*() {
+            const viewModels = yield* ViewModel.ViewModels
+            const first = yield* todos.commands.createTodo("a", { title: "one" })
+            yield* viewModels.caughtUp(first.position)
+
+            // Another holder of the lease saved a checkpoint this process doesn't know.
+            yield* checkpoints.set("rows", 0)
+            const second = yield* todos.commands.createTodo("b", { title: "two" })
+            yield* viewModels.caughtUp(second.position).pipe(Effect.timeout("3 seconds"))
+
+            const rows = yield* sql<{ readonly id: string }>`SELECT id FROM todo_rows ORDER BY id`
+            assert.deepStrictEqual(rows.map(({ id }) => id), ["a", "b"])
+            assert.strictEqual(yield* checkpoints.get("rows"), second.position)
+            // The error is cleared right after the step that caught up.
+            yield* viewModels.status.pipe(
+              Effect.repeat({
+                until: ([status]) => Option.isNone(status!.lastError),
+                schedule: Schedule.spaced("5 millis")
+              }),
+              Effect.timeout("2 seconds")
+            )
+          }).pipe(Effect.provide(ViewModel.layer([Rows])), Effect.scoped)
+        }).pipe(
+          Effect.provide(
+            Layer.merge(SqliteEventStore.layer(), SqliteEventStore.layerCheckpoints()).pipe(
+              Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))
+            )
+          )
+        )
+      }).pipe(Effect.provideService(References.MinimumLogLevel, "None")))
+
     it.live("parks an event and commits the rest of its batch", () =>
       Effect.gen(function*() {
         const Rows = ViewModel.make({

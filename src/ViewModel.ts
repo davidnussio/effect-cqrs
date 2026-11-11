@@ -405,8 +405,29 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
       : Ref.get(saved).pipe(
         Effect.flatMap((from) => advanceCheckpoint(name, from, to)),
         Effect.mapError(fail(0)),
-        Effect.flatMap((moved) => moved ? Effect.void : Effect.fail(movedElsewhere(name)))
+        Effect.flatMap((moved) => {
+          if (moved) return Effect.void
+          outdated = true
+          return Effect.fail(movedElsewhere(name))
+        })
       )
+
+  // Whoever moved the checkpoint got further than this process knows, and moving it
+  // on from the old place would fail forever. So the next attempt starts from where
+  // the checkpoint is now. It is read after the failure, outside the transaction that
+  // the failure rolls back.
+  let outdated = false
+  const reload = Effect.gen(function*() {
+    const from = yield* checkpoints.get(name)
+    yield* Ref.set(saved, from)
+    yield* SubscriptionRef.set(position, from)
+    yield* loadParked
+    outdated = false
+  }).pipe(
+    Effect.catch((error) => Effect.logError(`View model ${name} could not load its checkpoint`, error))
+  )
+  const reloadWhenMoved = <A, R>(effect: Effect.Effect<A, ViewModelError, R>) =>
+    Effect.tapError(effect, () => outdated ? reload : Effect.void)
 
   const save = (to: number) => Effect.andThen(writeCheckpoint(to), Ref.set(saved, to))
 
@@ -460,6 +481,7 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
       else yield* consume({ ...filter, afterPosition }, () => Effect.void)
       yield* settle(latest)
     }).pipe(
+      reloadWhenMoved,
       semaphore.withPermit,
       provide
     )
@@ -528,7 +550,9 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
     Stream.runForEachArray((heads) => {
       let latest = heads[0]!
       for (const head of heads) if (head > latest) latest = head
-      return Effect.flatMap(SubscriptionRef.get(position), (current) => latest > current ? step(latest) : Effect.void)
+      return Effect.flatMap(SubscriptionRef.get(position), (current) =>
+        // Nothing to do also means nothing is failing any more.
+        latest > current ? step(latest) : Ref.set(lastError, Option.none()))
     }),
     Effect.catch(backOff),
     Effect.forever
@@ -605,7 +629,7 @@ const makeRunner = Effect.fnUntraced(function*<V extends Any>(viewModel: V, tail
       yield* consume({ ...filter, ...range }, (size) => Ref.update(count, (n) => n + size))
       yield* settle(head)
       return yield* Ref.get(count)
-    }).pipe(semaphore.withPermit, provide)
+    }).pipe(reloadWhenMoved, semaphore.withPermit, provide)
 
   // Reads the one event at `at`, which the filter selects since the view model handled it.
   const readAt = (at: number) =>
