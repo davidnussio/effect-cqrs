@@ -27,7 +27,10 @@ after it is forgotten.
 | `ui/` | The UI, a Vite and React app, and the control room at `#sala` |
 | `load.ts` | The rehearsal: many virtual participants at once |
 | `reset.ts` | Empties the database |
+| `domain/shared.ts` | The state replicas share: settings, chaos, presence, rate limits |
 | `Dockerfile` | The image Render runs, built from the root of the repository |
+| `ui/Dockerfile` | The UI served by nginx, for the cluster |
+| `cluster/` | Several replicas behind Traefik with Docker Compose, and what scaling out took |
 
 `render.yaml` and `vercel.json` at the root of the repository deploy it, and
 `test/Workshop.test.ts` tests it.
@@ -120,7 +123,8 @@ The simulated shoppers start switched off. Once on, they open accounts named wit
 and then cancel. Their accounts have fixed ids, so a restart finds the same ones.
 
 Both are tuned from the **Regia** section, which only the presenter sees. Settings live
-in memory and go back to the defaults when the server restarts.
+in the `workshop_state` table, beside the events, so every replica of the server sees
+the same ones and a restart keeps them; `pnpm workshop:reset` brings back the defaults.
 
 ## Live streams and the control room
 
@@ -156,7 +160,8 @@ compensation, and rebuild a view model from the log.
 ## Limits
 
 Deposits are limited to 10 a minute per participant, and joins to 120 a minute per
-address, which leaves room for a classroom behind one router. Both answer `429`.
+address, which leaves room for a classroom behind one router. Both answer `429`. They
+are counted in the shared state, so they hold however many replicas answer.
 
 ## Rehearsal and reset
 
@@ -296,8 +301,9 @@ Vercel skips a build when a push changes nothing the UI uses.
 
 For the workshop, run the same image on a laptop and expose it with a Cloudflare
 quick tunnel, which needs no account. Give it the variables Render has, so it uses
-the same database, and suspend the Render service meanwhile: two servers on one
-database would both run the bot and the sagas.
+the same database. Two servers on one PostgreSQL share the work: the sagas, the bot
+and the simulated shoppers run on the one that holds their lease. Behind a load
+balancer that is how the workshop scales, see [cluster/README.md](cluster/README.md).
 
 ```bash
 docker build -f examples/workshop/Dockerfile -t effect-cqrs-workshop .

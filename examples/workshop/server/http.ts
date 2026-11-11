@@ -40,7 +40,16 @@ import {
 } from "../domain/shop.ts"
 import { type InvalidToken, Tokens } from "./auth.ts"
 import { limits, RateLimiter } from "./limits.ts"
-import { asyncApiDocument, controlStream, type Live, metrics, publicStream, type Spans, sseResponse } from "./live.ts"
+import {
+  asyncApiDocument,
+  controlStream,
+  type Live,
+  metrics,
+  publicStream,
+  replicaId,
+  type Spans,
+  sseResponse
+} from "./live.ts"
 
 export class StoreKind extends Context.Service<StoreKind, "postgres" | "sqlite">()("workshop/StoreKind") {}
 
@@ -112,6 +121,7 @@ const SystemHandlers = HttpApiBuilder.group(Api, "system", (handlers) =>
           store: kind,
           position,
           ...(Option.isSome(commit) ? { commit: commit.value } : {}),
+          replica: replicaId,
           startedAt,
           uptimeSeconds: Math.round((now - DateTime.toEpochMillis(startedAt)) / 1000)
         }

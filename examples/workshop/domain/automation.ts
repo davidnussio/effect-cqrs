@@ -3,12 +3,38 @@
  * simulator of shoppers that keeps the demo moving when the room is quiet. Both
  * use the same aggregate services as the HTTP handlers, and record who they are in
  * the metadata of the events they cause.
+ *
+ * With several replicas, each actor runs on the one that holds its lease, from the
+ * `Leases` in context, and keeps its settings and counters in the `SharedState`, so
+ * the presenter tunes it from whichever replica answers.
  */
-import { Clock, Context, DateTime, Duration, Effect, Layer, Random, Ref, Schema, Semaphore } from "effect"
+import {
+  Clock,
+  Context,
+  DateTime,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  Random,
+  Ref,
+  Schedule,
+  Schema,
+  Semaphore
+} from "effect"
 import * as Ids from "effect-cqrs/Ids"
+import * as Leases from "effect-cqrs/Leases"
 import * as Metadata from "effect-cqrs/Metadata"
 import { Accounts, ParticipantsStore } from "./bank.ts"
+import { shared } from "./shared.ts"
 import { type CatalogProduct, CatalogStore, maxQuantity, Orders, OrdersStore, Products } from "./shop.ts"
+
+/** The lease called `name`, or one always held when nothing coordinates replicas. */
+const lease = (name: string) =>
+  Effect.flatMap(
+    Effect.serviceOption(Leases.Leases),
+    (leases) => Option.getOrElse(leases, () => Leases.memory).acquire(name)
+  )
 
 // ---------------------------------------------------------------------------
 // Restock bot
@@ -66,33 +92,40 @@ export class Bot extends Context.Service<Bot, {
   readonly runNow: Effect.Effect<BotStatus>
 }>()("workshop/Bot") {}
 
-interface BotState {
-  readonly settings: BotSettings
-  readonly nextRunAt: number | undefined
-  readonly lastRunAt: number | undefined
-  readonly runs: number
-  readonly restocked: number
-  readonly lastRestocks: ReadonlyArray<Restock>
-}
+const BotState = Schema.Struct({
+  settings: BotSettings,
+  nextRunAt: Schema.NullOr(Schema.Number),
+  lastRunAt: Schema.NullOr(Schema.Number),
+  /** The presenter asked for a run, from a replica that doesn't run the bot. */
+  requested: Schema.Boolean,
+  runs: Schema.Number,
+  restocked: Schema.Number,
+  lastRestocks: Schema.Array(Restock)
+})
+type BotState = typeof BotState.Type
 
-const toDateTime = (millis: number | undefined) => millis === undefined ? undefined : DateTime.makeUnsafe(millis)
+const toDateTime = (millis: number | null) => millis === null ? undefined : DateTime.makeUnsafe(millis)
 
 export const makeBot = Effect.fnUntraced(function*(initial: BotSettings = defaultBotSettings) {
   const products = yield* Products
   const catalog = yield* CatalogStore
   const now = yield* Clock.currentTimeMillis
-  const state = yield* Ref.make<BotState>({
+  const state = yield* shared("bot", BotState, {
     settings: initial,
-    nextRunAt: initial.enabled ? now + initial.intervalSeconds * 1000 : undefined,
-    lastRunAt: undefined,
+    nextRunAt: initial.enabled ? now + initial.intervalSeconds * 1000 : null,
+    lastRunAt: null,
+    requested: false,
     runs: 0,
     restocked: 0,
     lastRestocks: []
   })
+  // The first replica to start stores the defaults; the others find them.
+  yield* state.update((current) => current)
+  const held = yield* lease("workshop/bot")
   // The schedule and `runNow` never restock at the same time.
   const lock = yield* Semaphore.make(1)
 
-  const status = Effect.map(Ref.get(state), (current): BotStatus => {
+  const status = Effect.map(state.get, (current): BotStatus => {
     const nextRunAt = toDateTime(current.nextRunAt)
     const lastRunAt = toDateTime(current.lastRunAt)
     return {
@@ -106,7 +139,7 @@ export const makeBot = Effect.fnUntraced(function*(initial: BotSettings = defaul
   })
 
   const run = lock.withPermit(Effect.gen(function*() {
-    const { settings } = yield* Ref.get(state)
+    const { settings } = yield* state.get
     const plan = planRestocks(Array.from((yield* Ref.get(catalog)).values()), settings)
     const done = yield* Effect.forEach(
       plan,
@@ -117,10 +150,11 @@ export const makeBot = Effect.fnUntraced(function*(initial: BotSettings = defaul
         )
     ).pipe(Effect.map((results) => results.flat()))
     const now = yield* Clock.currentTimeMillis
-    yield* Ref.update(state, (current) => ({
+    yield* state.update((current): BotState => ({
       ...current,
       lastRunAt: now,
-      nextRunAt: current.settings.enabled ? now + current.settings.intervalSeconds * 1000 : undefined,
+      nextRunAt: current.settings.enabled ? now + current.settings.intervalSeconds * 1000 : null,
+      requested: false,
       runs: current.runs + 1,
       restocked: current.restocked + done.reduce((sum, restock) => sum + restock.quantity, 0),
       lastRestocks: done
@@ -130,17 +164,21 @@ export const makeBot = Effect.fnUntraced(function*(initial: BotSettings = defaul
     }
   })).pipe(Metadata.withMetadata({ actor: "bot" }))
 
-  // Wakes up every second and runs when it is time: a new interval applies at once.
+  // Wakes up every second and runs when it is time, where the lease is held: a new
+  // interval applies at once, and a replica that takes the lease over goes on with
+  // the schedule.
   yield* Effect.gen(function*() {
     yield* Effect.sleep(Duration.seconds(1))
-    const current = yield* Ref.get(state)
+    if (!(yield* held.held)) return
+    const current = yield* state.get
     const now = yield* Clock.currentTimeMillis
-    if (current.settings.enabled && current.nextRunAt !== undefined && now >= current.nextRunAt) yield* run
+    const due = current.settings.enabled && current.nextRunAt !== null && now >= current.nextRunAt
+    if (due || current.requested) yield* run
   }).pipe(Effect.forever, Effect.forkScoped)
 
   const configure = Effect.fnUntraced(function*(patch: Partial<BotSettings>) {
     const now = yield* Clock.currentTimeMillis
-    yield* Ref.update(state, (current) => {
+    yield* state.update((current) => {
       const settings = { ...current.settings, ...patch }
       const rescheduled = settings.enabled &&
         (!current.settings.enabled || settings.intervalSeconds !== current.settings.intervalSeconds)
@@ -148,7 +186,7 @@ export const makeBot = Effect.fnUntraced(function*(initial: BotSettings = defaul
         ...current,
         settings,
         nextRunAt: !settings.enabled
-          ? undefined
+          ? null
           : rescheduled
           ? now + settings.intervalSeconds * 1000
           : current.nextRunAt
@@ -157,7 +195,20 @@ export const makeBot = Effect.fnUntraced(function*(initial: BotSettings = defaul
     return yield* status
   })
 
-  return Bot.of({ status, configure, runNow: Effect.andThen(run, status) })
+  // The replica that holds the lease runs the bot at once. Another one asks it to,
+  // and waits a few seconds for the run to show.
+  const runNow = Effect.gen(function*() {
+    if (yield* held.held) return yield* Effect.andThen(run, status)
+    const before = yield* state.modify((current) => [current.runs, { ...current, requested: true }] as const)
+    yield* state.get.pipe(
+      Effect.repeat({ until: (current) => current.runs > before, schedule: Schedule.spaced("250 millis") }),
+      Effect.timeout("5 seconds"),
+      Effect.ignore
+    )
+    return yield* status
+  })
+
+  return Bot.of({ status, configure, runNow })
 })
 
 // ---------------------------------------------------------------------------
@@ -182,6 +233,12 @@ export const SimulatorStatus = Schema.Struct({
 export type SimulatorStatus = typeof SimulatorStatus.Type
 
 export const defaultSimulatorSettings: SimulatorSettings = { enabled: false, shoppers: 5, actionsPerMinute: 60 }
+
+const SimulatorState = Schema.Struct({
+  settings: SimulatorSettings,
+  actions: Schema.Number,
+  recent: Schema.Array(Schema.String)
+})
 
 export class Simulator extends Context.Service<Simulator, {
   readonly status: Effect.Effect<SimulatorStatus>
@@ -223,10 +280,12 @@ export const makeSimulator = Effect.fnUntraced(function*(initial: SimulatorSetti
   const catalog = yield* CatalogStore
   const participants = yield* ParticipantsStore
   const orderList = yield* OrdersStore
-  const state = yield* Ref.make({ settings: initial, actions: 0, recent: [] as ReadonlyArray<string> })
+  const state = yield* shared("simulator", SimulatorState, { settings: initial, actions: 0, recent: [] })
+  yield* state.update((current) => current)
+  const held = yield* lease("workshop/simulator")
 
   const note = (line: string) =>
-    Ref.update(state, (current) => ({
+    state.update((current) => ({
       ...current,
       actions: current.actions + 1,
       recent: [line, ...current.recent].slice(0, 10)
@@ -298,7 +357,7 @@ export const makeSimulator = Effect.fnUntraced(function*(initial: SimulatorSetti
   })
 
   const step = Effect.gen(function*() {
-    const { settings } = yield* Ref.get(state)
+    const { settings } = yield* state.get
     yield* ensureShoppers(settings.shoppers)
     const index = yield* Random.nextIntBetween(0, settings.shoppers - 1)
     yield* act(shopperId(index))
@@ -308,20 +367,21 @@ export const makeSimulator = Effect.fnUntraced(function*(initial: SimulatorSetti
     Metadata.withMetadata({ actor: "simulator" })
   )
 
+  // The shoppers act on the replica that holds the lease.
   yield* Effect.gen(function*() {
-    const { settings } = yield* Ref.get(state)
+    const { settings } = yield* state.get
     yield* Effect.sleep(Duration.millis(Math.round(60_000 / settings.actionsPerMinute)))
-    if ((yield* Ref.get(state)).settings.enabled) yield* step
+    if ((yield* held.held) && (yield* state.get).settings.enabled) yield* step
   }).pipe(Effect.forever, Effect.forkScoped)
 
-  const status = Effect.map(Ref.get(state), ({ actions, recent, settings }): SimulatorStatus => ({
+  const status = Effect.map(state.get, ({ actions, recent, settings }): SimulatorStatus => ({
     settings,
     actions,
     recent
   }))
 
   const configure = Effect.fnUntraced(function*(patch: Partial<SimulatorSettings>) {
-    yield* Ref.update(state, (current) => ({ ...current, settings: { ...current.settings, ...patch } }))
+    yield* state.update((current) => ({ ...current, settings: { ...current.settings, ...patch } }))
     return yield* status
   })
 

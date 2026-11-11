@@ -8,7 +8,14 @@ import { HttpApiClient, HttpApiMiddleware } from "effect/http-api"
 import { useSyncExternalStore } from "react"
 import { Api, Authorization, type Health, type Session } from "../../api.ts"
 
-export const apiUrl = (import.meta.env.VITE_API_URL ?? "http://localhost:3000").replace(/\/$/, "")
+/**
+ * Where the server is: `VITE_API_URL`, or `http://localhost:3000` without it. `/`
+ * means the page's own origin, for a UI served behind the same proxy as the API.
+ */
+export const apiUrl = (() => {
+  const configured = import.meta.env.VITE_API_URL ?? "http://localhost:3000"
+  return configured === "/" ? window.location.origin : configured.replace(/\/$/, "")
+})()
 
 // ---------------------------------------------------------------------------
 // Session

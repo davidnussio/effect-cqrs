@@ -16,6 +16,10 @@
  *   it any origin may call the API.
  * - `RENDER_GIT_COMMIT`, set by Render, is reported by `/health`.
  *
+ * Several replicas can share one PostgreSQL database behind a load balancer, see
+ * ../cluster/README.md: the sagas, the bot and the simulated shoppers then run on
+ * the replica that holds their lease, and what the presenter sets is shared.
+ *
  * Without `AUTH_SECRET` or the master key the server uses development values,
  * unless `NODE_ENV` is `production`.
  */
@@ -23,12 +27,13 @@ import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
 import { PgClient } from "@effect/sql-pg"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { Config, Effect, Layer, Option, Redacted, Tracer } from "effect"
-import { PersonalData, PostgresEventStore, SqliteEventStore } from "effect-cqrs"
+import { Leases, PersonalData, PostgresEventStore, SqliteEventStore } from "effect-cqrs"
 import { HttpRouter } from "effect/http"
 import { HttpApiBuilder, HttpApiScalar } from "effect/http-api"
 import { createServer } from "node:http"
 import { Api } from "../api.ts"
 import { AutomationLive } from "../domain/automation.ts"
+import { SharedState } from "../domain/shared.ts"
 import { seedCatalog } from "../domain/shop.ts"
 import { WorkshopLive } from "../domain/workshop.ts"
 import * as Auth from "./auth.ts"
@@ -41,7 +46,11 @@ const isProduction = Config.String("NODE_ENV").pipe(
   Config.map((env) => env === "production")
 )
 
-/** The event store, the SQL client it uses and what kind it is. */
+/**
+ * The event store, the SQL client it uses and what kind it is, and the leases that
+ * decide which replica runs the sagas, the bot and the shoppers: advisory locks on
+ * PostgreSQL, and always held on SQLite, which only one process can use.
+ */
 const Storage = Layer.unwrap(Effect.gen(function*() {
   const url = yield* Config.option(Config.Redacted("POSTGRES_URL"))
   if (Option.isSome(url)) {
@@ -52,13 +61,15 @@ const Storage = Layer.unwrap(Effect.gen(function*() {
       applicationName: "effect-cqrs-workshop",
       ...(Option.isSome(ca) ? { ssl: { ca: ca.value } } : {})
     })
-    return Layer.mergeAll(PostgresEventStore.layer(), Layer.succeed(StoreKind, "postgres")).pipe(
-      Layer.provideMerge(client)
-    )
+    return Layer.mergeAll(
+      PostgresEventStore.layer(),
+      Leases.layerPostgres({ interval: "2 seconds", prefix: "workshop/" }),
+      Layer.succeed(StoreKind, "postgres")
+    ).pipe(Layer.provideMerge(client))
   }
   const filename = yield* Config.String("SQLITE_FILE").pipe(Config.withDefault("workshop.sqlite"))
   yield* Effect.logInfo(`Storing events in ${filename}`)
-  return Layer.mergeAll(SqliteEventStore.layer(), Layer.succeed(StoreKind, "sqlite")).pipe(
+  return Layer.mergeAll(SqliteEventStore.layer(), Leases.layerMemory, Layer.succeed(StoreKind, "sqlite")).pipe(
     Layer.provideMerge(SqliteClient.layer({ filename }))
   )
 }))
@@ -91,7 +102,7 @@ const Workshop = Layer.mergeAll(Seed, LiveLive).pipe(
   // The restock bot starts with the server; the simulated shoppers wait for the presenter.
   Layer.provideMerge(AutomationLive),
   Layer.provideMerge(WorkshopLive),
-  Layer.provideMerge(Keys),
+  Layer.provideMerge(Layer.mergeAll(Keys, SharedState.layerSql)),
   Layer.provideMerge(Storage)
 )
 

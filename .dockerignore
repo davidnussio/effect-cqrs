@@ -1,12 +1,21 @@
-# Only examples/workshop/Dockerfile builds from here: keep what the server build needs.
+# The images of the workshop build from here, the server with
+# examples/workshop/Dockerfile and the UI with examples/workshop/ui/Dockerfile:
+# keep what their builds need.
 *
 !package.json
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !examples/package.json
+!tsconfig.json
+!examples/tsconfig.json
 !.pnpmfile.cjs
 !src
+!examples/devtools
+!examples/bank-ui/src/components
 !examples/workshop/api.ts
 !examples/workshop/server
 !examples/workshop/domain
+!examples/workshop/ui
 examples/workshop/server/dist
+examples/workshop/ui/dist
+**/node_modules

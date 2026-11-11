@@ -4,8 +4,10 @@
  */
 import {
   Cause,
+  Clock,
   Context,
   DateTime,
+  Duration,
   Effect,
   Exit,
   JsonSchema,
@@ -16,15 +18,18 @@ import {
   Ref,
   Schema,
   type Scope,
+  Semaphore,
   Stream,
   Tracer
 } from "effect"
 import { AggregateService, EventCatalog, EventStore, PersonalData, ViewModel } from "effect-cqrs"
 import { Sse } from "effect/encoding"
 import { HttpServerResponse } from "effect/http"
+import { hostname } from "node:os"
 import { type CommandTiming, LiveEvent, Metrics, Presence, SpanEntry, type User } from "../api.ts"
 import { Account, forgotten } from "../domain/account.ts"
 import { BooksStore, expectedBalances, ParticipantsStore } from "../domain/bank.ts"
+import { shared } from "../domain/shared.ts"
 import { Order, OrdersStore, Product } from "../domain/shop.ts"
 
 // ---------------------------------------------------------------------------
@@ -192,10 +197,46 @@ export class Live extends Context.Service<Live, {
 const recentLength = 100
 const changesLength = 30
 
-interface Online {
-  readonly nickname: string
-  readonly since: string
-  readonly connections: number
+/**
+ * Identifies this replica of the server: the container's host name, and the
+ * process, for two servers started on one laptop.
+ */
+export const replicaId = `${hostname()}:${process.pid}`
+
+const Online = Schema.Struct({ nickname: Schema.String, since: Schema.String, connections: Schema.Number })
+type Online = typeof Online.Type
+
+/**
+ * Who is in the room on each replica, in the `SharedState`: a phone's stream may
+ * reach any replica, and the control room another one. Each replica writes its own
+ * entry when someone comes or goes and every few seconds, and an entry not written
+ * for `staleAfter` belongs to a replica that is gone.
+ */
+const Room = Schema.Record(
+  Schema.String,
+  Schema.Struct({ seenAt: Schema.Number, online: Schema.Record(Schema.String, Online) })
+)
+type Room = typeof Room.Type
+
+const heartbeat = Duration.seconds(3)
+const staleAfter = 10_000
+
+const mergeOnline = (maps: ReadonlyArray<ReadonlyMap<string, Online> | Readonly<Record<string, Online>>>) => {
+  const merged = new Map<string, Online>()
+  for (const map of maps) {
+    for (const [id, person] of map instanceof Map ? map : Object.entries(map)) {
+      const seen = merged.get(id)
+      merged.set(
+        id,
+        seen === undefined ? person : {
+          nickname: seen.nickname,
+          since: seen.since < person.since ? seen.since : person.since,
+          connections: seen.connections + person.connections
+        }
+      )
+    }
+  }
+  return merged
 }
 
 export const LiveLive = Layer.effect(
@@ -206,11 +247,17 @@ export const LiveLive = Layer.effect(
     const events = yield* PubSub.sliding<Variants>(1024)
     const presenceChanges = yield* PubSub.sliding<Presence>(64)
     const recent = yield* Ref.make<ReadonlyArray<Variants>>([])
-    const online = yield* Ref.make<ReadonlyMap<string, Online>>(new Map())
+    const room = yield* shared("presence", Room, {})
+    // The connections this replica holds, those the others hold, and everyone, as last announced.
+    const local = yield* Ref.make<ReadonlyMap<string, Online>>(new Map())
+    const others = yield* Ref.make<ReadonlyMap<string, Online>>(new Map())
+    const everyone = yield* Ref.make<ReadonlyMap<string, Online>>(new Map())
     const changes = yield* Ref.make<Presence["changes"]>([])
+    // One change of who is in at a time, so each one is announced once.
+    const lock = yield* Semaphore.make(1)
 
     const presence = Effect.map(
-      Effect.all([Ref.get(online), Ref.get(changes)]),
+      Effect.all([Ref.get(everyone), Ref.get(changes)]),
       ([people, latest]): Presence => ({
         online: Array.from(people.entries()).map(([id, person]) => ({ id, ...person })),
         changes: latest
@@ -218,12 +265,60 @@ export const LiveLive = Layer.effect(
     )
     const announce = Effect.flatMap(presence, (snapshot) => PubSub.publish(presenceChanges, snapshot))
 
-    const change = (kind: "joined" | "left", user: User) =>
-      Effect.gen(function*() {
-        const at = DateTime.formatIso(yield* DateTime.now)
+    // Works out who came and went since the last time, across replicas, and tells the streams.
+    const settle = Effect.gen(function*() {
+      const now = mergeOnline([yield* Ref.get(local), yield* Ref.get(others)])
+      const before = yield* Ref.getAndSet(everyone, now)
+      const at = DateTime.formatIso(yield* DateTime.now)
+      const came = Array.from(now.entries()).filter(([id]) => !before.has(id))
+      const went = Array.from(before.entries()).filter(([id]) => !now.has(id))
+      if (came.length + went.length > 0) {
         yield* Ref.update(changes, (list) =>
-          [{ kind, id: user.id, nickname: user.nickname, at }, ...list].slice(0, changesLength))
+          [
+            ...came.map(([id, { nickname }]) => ({ kind: "joined" as const, id, nickname, at })),
+            ...went.map(([id, { nickname }]) => ({ kind: "left" as const, id, nickname, at })),
+            ...list
+          ].slice(0, changesLength))
+      }
+      const moved = came.length + went.length > 0 ||
+        Array.from(now).some(([id, person]) => before.get(id)?.connections !== person.connections)
+      if (moved) yield* announce
+    })
+
+    // Writes this replica's entry, and drops the entries of replicas that stopped writing.
+    const publish = Effect.gen(function*() {
+      const mine = yield* Ref.get(local)
+      const now = yield* Clock.currentTimeMillis
+      yield* room.update((all) => {
+        const next: Record<string, Room[string]> = {}
+        for (const [id, entry] of Object.entries(all)) {
+          if (id !== replicaId && entry.seenAt > now - staleAfter) next[id] = entry
+        }
+        if (mine.size > 0) next[replicaId] = { seenAt: now, online: Object.fromEntries(mine) }
+        return next
       })
+    }).pipe(Effect.catchCause((cause) => Effect.logWarning("Couldn't share who is in the room", cause)))
+
+    // Reads the other replicas' entries.
+    const poll = Effect.gen(function*() {
+      const now = yield* Clock.currentTimeMillis
+      const all = yield* room.get
+      const fresh = Object.entries(all).filter(([id, entry]) => id !== replicaId && entry.seenAt > now - staleAfter)
+      yield* Ref.set(others, mergeOnline(fresh.map(([, entry]) => entry.online)))
+      yield* settle
+    }).pipe(
+      lock.withPermit,
+      Effect.catchCause((cause) => Effect.logWarning("Couldn't read who is in the room", cause))
+    )
+
+    let ticks = 0
+    yield* Effect.gen(function*() {
+      yield* Effect.sleep(Duration.seconds(1))
+      yield* poll
+      if (++ticks % Duration.toSeconds(heartbeat) === 0) yield* publish
+    }).pipe(Effect.forever, Effect.forkScoped)
+    // A replica that stops takes its connections out of the room.
+    yield* Effect.addFinalizer(() => Ref.set(local, new Map()).pipe(Effect.andThen(publish)))
 
     // Follows the log from a little before its head, so the control room opens on the latest events.
     const head = yield* Effect.orDie(store.head)
@@ -245,38 +340,30 @@ export const LiveLive = Layer.effect(
       Effect.forkScoped
     )
 
+    const changeLocal = (f: (people: ReadonlyMap<string, Online>) => ReadonlyMap<string, Online>) =>
+      Ref.update(local, f).pipe(Effect.andThen(settle), lock.withPermit, Effect.andThen(publish))
+
     const join = (user: User) =>
       Effect.acquireRelease(
         Effect.gen(function*() {
           const since = DateTime.formatIso(yield* DateTime.now)
-          const before = (yield* Ref.get(online)).get(user.id)
-          yield* Ref.update(online, (people) =>
-            new Map(people).set(user.id, {
+          yield* changeLocal((people) => {
+            const before = people.get(user.id)
+            return new Map(people).set(user.id, {
               nickname: user.nickname,
               since: before?.since ?? since,
               connections: (before?.connections ?? 0) + 1
-            }))
-          if (before === undefined) yield* change("joined", user)
-          yield* announce
+            })
+          })
         }),
         () =>
-          Effect.gen(function*() {
-            const before = (yield* Ref.get(online)).get(user.id)
-            if (before === undefined) return
-            if (before.connections > 1) {
-              yield* Ref.update(
-                online,
-                (people) => new Map(people).set(user.id, { ...before, connections: before.connections - 1 })
-              )
-            } else {
-              yield* Ref.update(online, (people) => {
-                const next = new Map(people)
-                next.delete(user.id)
-                return next
-              })
-              yield* change("left", user)
-            }
-            yield* announce
+          changeLocal((people) => {
+            const before = people.get(user.id)
+            const next = new Map(people)
+            if (before === undefined) return people
+            if (before.connections > 1) next.set(user.id, { ...before, connections: before.connections - 1 })
+            else next.delete(user.id)
+            return next
           })
       ).pipe(Effect.asVoid)
 
@@ -287,7 +374,7 @@ export const LiveLive = Layer.effect(
       presenceChanges,
       join,
       connections: Effect.map(
-        Ref.get(online),
+        Ref.get(everyone),
         (people) => Array.from(people.values()).reduce((sum, person) => sum + person.connections, 0)
       )
     })

@@ -1,7 +1,8 @@
 /**
  * Empties the workshop's database, for a clean start after a rehearsal: it drops
- * the framework's tables, events, checkpoints and keys of personal data alike,
- * and the server creates them again when it starts. Stop the server first.
+ * the framework's tables, events, checkpoints and keys of personal data alike, and
+ * the state the replicas share, and the server creates them again when it starts.
+ * Stop the server first.
  *
  *   RESET=yes POSTGRES_URL=... pnpm workshop:reset
  *   RESET=yes pnpm workshop:reset              # the SQLite file, workshop.sqlite by default
@@ -31,10 +32,11 @@ const program = Effect.gen(function*() {
   const tables = postgres
     ? yield* sql<{ readonly name: string }>`
         SELECT table_name AS name FROM information_schema.tables
-        WHERE table_schema = current_schema() AND table_name LIKE 'cqrs\\_%'
+        WHERE table_schema = current_schema() AND (table_name LIKE 'cqrs\\_%' OR table_name = 'workshop_state')
       `
     : yield* sql<{ readonly name: string }>`
-        SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'cqrs\\_%' ESCAPE '\\'
+        SELECT name FROM sqlite_master
+        WHERE type = 'table' AND (name LIKE 'cqrs\\_%' ESCAPE '\\' OR name = 'workshop_state')
       `
   if (tables.length === 0) return yield* Effect.logInfo("Nothing to drop: the database is already empty")
   for (const { name } of tables) {

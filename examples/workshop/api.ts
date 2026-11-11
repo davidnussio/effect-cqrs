@@ -29,6 +29,8 @@ export const Health = Schema.Struct({
   position: Schema.Number,
   /** The commit the server was built from, when the host says. */
   commit: Schema.optionalKey(Schema.String),
+  /** Which replica answered, when several share the load. */
+  replica: Schema.optionalKey(Schema.String),
   startedAt: Schema.DateTimeUtcFromString,
   uptimeSeconds: Schema.Number
 })

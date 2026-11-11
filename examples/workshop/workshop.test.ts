@@ -18,6 +18,7 @@ import {
   Simulator
 } from "./domain/automation.ts"
 import { Accounts, bankViews, ParticipantsStore, Transfers } from "./domain/bank.ts"
+import { SharedState } from "./domain/shared.ts"
 import {
   Orders,
   OrderSagas,
@@ -53,7 +54,7 @@ const serverWith = (bot: BotSettings) =>
       Layer.mergeAll(Layer.effect(Bot, makeBot(bot)), Layer.effect(Simulator, makeSimulator(defaultSimulatorSettings)))
     ),
     Layer.provideMerge(WorkshopLive),
-    Layer.provideMerge(Keys),
+    Layer.provideMerge(Layer.mergeAll(Keys, SharedState.layerMemory)),
     Layer.provideMerge(EventStore.layerMemory),
     Layer.provide(Layer.succeed(StoreKind, "sqlite"))
   )

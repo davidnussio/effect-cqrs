@@ -16,6 +16,7 @@ import * as ViewModel from "effect-cqrs/ViewModel"
 import { Activity, WorkflowEngine } from "effect/workflow"
 import { AccountNotOpen, Amount, InsufficientFunds } from "./account.ts"
 import { Accounts } from "./bank.ts"
+import { shared } from "./shared.ts"
 
 /** The most pieces one order asks for. */
 export const maxQuantity = 5
@@ -329,13 +330,14 @@ export class Chaos extends Context.Service<Chaos, {
   readonly consume: Effect.Effect<boolean>
   readonly pending: Effect.Effect<number>
 }>()("workshop/Chaos") {
+  // Shared, since the presenter's request and the saga that breaks may reach different replicas.
   static readonly layer = Layer.effect(
     Chaos,
-    Effect.map(Ref.make(0), (broken) =>
+    Effect.map(shared("chaos", Schema.Number, 0), (broken) =>
       Chaos.of({
-        breakNext: Ref.updateAndGet(broken, (n) => n + 1),
-        consume: Ref.modify(broken, (n) => n > 0 ? [true, n - 1] : [false, 0]),
-        pending: Ref.get(broken)
+        breakNext: broken.update((n) => n + 1),
+        consume: broken.modify((n) => n > 0 ? [true, n - 1] : [false, 0]),
+        pending: broken.get
       }))
   )
 }
