@@ -68,7 +68,7 @@ you work to:
 
 - **Your domain.** The suite shows that the framework runs an aggregate correctly, not
   that your aggregates decide correctly. Test those with `Fixture`.
-- **Other modules.** `Saga`, `Outbox`, `CommandApi`, `Leases`, `EventCatalog` and
+- **Other modules.** `Saga`, `Outbox`, `CommandApi`, `CommandGateway`, `Leases`, `EventCatalog` and
   `Fixture` have tests in `test/` but no requirements here. If the device relies on
   one, add requirements for it.
 - **Performance.** `pnpm bench` and `pnpm stress` measure it, see `bench/REPORT.md`.

@@ -39,6 +39,17 @@ Runs an aggregate against the event store. <a href={sourceUrl("src/AggregateServ
 | `makeEventDecoder(aggregate, keys)`, `makeEventEncoder(aggregate, keys)` | Convert between stored JSON and an aggregate's events, decrypting and encrypting personal fields with `keys` |
 | `MetricNames` | The names of the [metrics](../../guides/commands/#metrics) the service records |
 
+## CommandGateway
+
+One entry point for the commands of several aggregates, see [several aggregates](../../guides/commands/#several-aggregates). <a href={sourceUrl("src/CommandGateway.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `make(entries, { interceptors })` | The gateway over aggregates or their services: `send`, `dispatch`, `services` |
+| `Interceptor<E, R>`, `CommandInfo` | What runs around every command, and what it learns about the command |
+| `Command` | The typed command `send` takes |
+| `UnroutableCommand` | `dispatch` can't tell which aggregate a command is for |
+
 ## PersonalData
 
 Crypto-shredding of personal fields, see [personal data](../../guides/personal-data/). <a href={sourceUrl("src/PersonalData.ts")}>Source</a>

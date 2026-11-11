@@ -317,3 +317,71 @@ class Todos extends Context.Service<Todos, AggregateService.AggregateService<typ
   static readonly layer = Layer.effect(Todos, AggregateService.make(Todo))
 }
 ```
+
+## Several aggregates
+
+`CommandGateway` is one entry point for the commands of several aggregates. The caller hands
+over a command and the gateway finds the aggregate that takes it:
+
+```ts
+import { CommandGateway } from "effect-cqrs"
+
+const gateway = yield* CommandGateway.make([Todo, Account])
+
+yield* gateway.send({ aggregateName: "todo", aggregateId: "todo-1", type: "createTodo", payload: { title: "Buy Milk" } })
+
+// JSON from a transport: `aggregateName` can be left out when a single aggregate has the command.
+yield* gateway.dispatch({ aggregateId: "todo-1", type: "completeTodo", payload: {} })
+```
+
+`send` is typed: the aggregate's name picks its commands, the type picks the payload, and the
+errors are the handler's own plus `CommandFailure`. It also takes `commandId` and
+`expectedVersion`. `dispatch` takes the same envelope as `AggregateService.dispatch`, with
+`aggregateName` on top. When it can't tell where a command goes, because the envelope names an
+aggregate the gateway doesn't have, or names none and no aggregate or more than one has the
+command, it fails with `UnroutableCommand`, whose `candidates` lists the aggregates that have it.
+
+The gateway builds the service of each aggregate with the default options. To choose them, or
+to share a service and its state cache with code that uses it directly, give the gateway the
+service instead:
+
+```ts
+const todos = yield* AggregateService.make(Todo, { snapshots })
+const gateway = yield* CommandGateway.make([todos, Account])
+```
+
+`gateway.services.todo` is the service of `todo`, for `readModel` and `history`.
+
+### Interceptors
+
+Interceptors run around every command the gateway routes: to authorize it, log it, or record
+metadata. Each gets the command's `aggregateName`, `aggregateId` and `type`, and the command to
+run. It can fail instead of running it, or run it with more context:
+
+```ts
+const authorize: CommandGateway.Interceptor<Unauthorized, CurrentUser> = (command, next) =>
+  Effect.gen(function*() {
+    const user = yield* CurrentUser
+    if (!user.may(command.type)) return yield* new Unauthorized({ type: command.type })
+    return yield* Metadata.withMetadata(next, { userId: user.id })
+  })
+
+const gateway = yield* CommandGateway.make([Todo, Account], { interceptors: [authorize, log] })
+```
+
+The first interceptor runs outermost. An interceptor's errors and requirements are added to every
+command of the gateway, and they are read from its type, so declare it as an
+`Interceptor<E, R>`: an interceptor written inline in the options doesn't compile. Interceptors
+run in the caller's fiber, so `CurrentUser` here comes from the caller, such as an HTTP handler,
+and not from the layer that built the gateway. Commands run through `gateway.services`, or through
+`CommandApi`, skip them.
+
+To use the gateway from several places, put it in a layer like a service:
+
+```ts
+const makeGateway = CommandGateway.make([Todo, Account], { interceptors: [authorize] })
+
+class Gateway extends Context.Service<Gateway, Effect.Success<typeof makeGateway>>()("app/Gateway") {
+  static readonly layer = Layer.effect(Gateway, makeGateway)
+}
+```

@@ -1,6 +1,15 @@
 import { assert, describe, it } from "@effect/vitest"
-import { Effect, Schema } from "effect"
-import { Aggregate, type AggregateService, type EventStore, EventVersions, Fixture, ViewModel } from "effect-cqrs"
+import { Context, Effect, Schema } from "effect"
+import {
+  Aggregate,
+  type AggregateService,
+  CommandGateway,
+  type EventStore,
+  EventVersions,
+  Fixture,
+  ViewModel
+} from "effect-cqrs"
+import { Account, type AccountAlreadyOpened, type AccountNotOpen } from "./fixtures/account.ts"
 import { Todo, type TodoAlreadyCreated, type TodoAlreadyDeleted, type TodoNotFound } from "./fixtures/todo.ts"
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false
@@ -146,6 +155,64 @@ describe("types", () => {
       Aggregate.historical(named, "Named", 1, { first: "Ada" })
       // @ts-expect-error there is no version 3
       Aggregate.historical(named, "Named", 3, { first: "Ada", last: "Lovelace" })
+    })
+  })
+
+  it("types the commands of a gateway", () => {
+    class Unauthorized extends Schema.TaggedError<Unauthorized>()("Unauthorized", {}) {}
+    class CurrentUser extends Context.Service<CurrentUser, { readonly id: string }>()("types/CurrentUser") {}
+    const authorize: CommandGateway.Interceptor<Unauthorized, CurrentUser> = (_, next) => CurrentUser.use(() => next)
+
+    const make = CommandGateway.make([Todo, Account], { interceptors: [authorize] })
+    type Gateway = Effect.Success<typeof make>
+    const requirements: Equals<Effect.Services<typeof make>, EventStore.EventStore> = true
+
+    void ((gateway: Gateway) => {
+      const create = gateway.send({
+        aggregateName: "todo",
+        aggregateId: "a",
+        type: "createTodo",
+        payload: { title: "Milk" }
+      })
+      const createError: Equals<
+        Effect.Error<typeof create>,
+        TodoAlreadyCreated | AggregateService.CommandFailure | Unauthorized
+      > = true
+      const createContext: Equals<Effect.Services<typeof create>, CurrentUser> = true
+      const open = gateway.send({
+        aggregateName: "account",
+        aggregateId: "a",
+        type: "openAccount",
+        payload: { owner: "Alice", color: "blue" },
+        commandId: "c1"
+      })
+      const openError: Equals<
+        Effect.Error<typeof open>,
+        AccountAlreadyOpened | AggregateService.CommandFailure | Unauthorized
+      > = true
+      const dispatchError: AccountNotOpen | TodoNotFound | CommandGateway.UnroutableCommand extends
+        Effect.Error<ReturnType<Gateway["dispatch"]>> ? true : false = true
+      void [createError, createContext, openError, dispatchError]
+
+      // @ts-expect-error todo has no command openAccount
+      gateway.send({
+        aggregateName: "todo",
+        aggregateId: "a",
+        type: "openAccount",
+        payload: { owner: "A", color: "b" }
+      })
+      // @ts-expect-error the payload of createTodo has a title
+      gateway.send({ aggregateName: "todo", aggregateId: "a", type: "createTodo", payload: { owner: "A" } })
+      // @ts-expect-error the gateway has no aggregate order
+      gateway.send({ aggregateName: "order", aggregateId: "a", type: "createTodo", payload: { title: "Milk" } })
+      gateway.services.account.readModel("a")
+    })
+    void requirements
+
+    // An interceptor's errors are read from its type, so an inline one doesn't compile.
+    CommandGateway.make([Todo], {
+      // @ts-expect-error declare it as an Interceptor<E, R>
+      interceptors: [(_, next) => Effect.flatMap(Effect.fail(new Unauthorized()), () => next)]
     })
   })
 })

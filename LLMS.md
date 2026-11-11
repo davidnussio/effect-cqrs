@@ -31,6 +31,7 @@ import * as Fixture from "effect-cqrs/Fixture"
 | --- | --- |
 | `Aggregate` | Define an aggregate: events, state, projection and commands |
 | `AggregateService` | Run commands against the event store, read state and history |
+| `CommandGateway` | One entry point for the commands of several aggregates, with interceptors |
 | `EventVersions` | Declare older shapes of an event and upcast them on read |
 | `ViewModel` | Read models that follow the log from a checkpoint, `ViewModels` to replay and wait for them |
 | `Saga` | Processes that span several aggregates, as durable workflows from `effect/workflow` |
@@ -129,6 +130,11 @@ const program = Effect.gen(function*() {
 - `Causation.withCausation({ correlationId, causationId })` and
   `Metadata.withMetadata({ userId })` wrap a command to record those on its events.
   `Metadata.layer({ appVersion })` sets metadata for the whole application.
+- `CommandGateway.make([Todo, Account], { interceptors })` routes commands to several
+  aggregates: `gateway.send({ aggregateName, aggregateId, type, payload })` is typed, and
+  `gateway.dispatch(json)` routes by `aggregateName`, or by `type` when a single aggregate has
+  it, failing with `UnroutableCommand` otherwise. Declare each interceptor as
+  `CommandGateway.Interceptor<E, R>` so its errors and requirements reach the commands' types.
 
 ## Change an event's schema
 
