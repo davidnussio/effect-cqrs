@@ -120,7 +120,7 @@ export const ViewCard = (
       className="glass rounded-2xl p-4"
       animate={{ boxShadow: view.error ? "0 0 0 1px rgba(251,113,133,0.5)" : "0 0 0 0px rgba(0,0,0,0)" }}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Code>{viewModelNames[name]}</Code>
         <Pill color={status.color}>{status.label}</Pill>
         <span className="font-mono text-[9.5px] text-white/30">latency ×{lagFactor[name]}</span>

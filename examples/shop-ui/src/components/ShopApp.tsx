@@ -10,7 +10,7 @@ export const ShopApp = () => {
   const list = Object.values(orders).sort((a, b) => b.position - a.position)
 
   return (
-    <section className="scroll-thin min-h-0 overflow-y-auto px-6 py-5">
+    <section className="scroll-thin min-h-0 overflow-y-auto px-4 py-5 sm:px-6">
       <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-sky-300/70">Customer app</div>
       <h1 className="text-2xl font-semibold tracking-tight">Fruit shop</h1>
       <p className="mt-1 max-w-xl text-[13px] leading-relaxed text-white/50">
@@ -22,7 +22,7 @@ export const ShopApp = () => {
 
       <Customer />
 
-      <div className="mt-5 grid grid-cols-3 gap-3">
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
         {catalog.map((product) => <ProductCard key={product.sku} {...product} />)}
       </div>
 
@@ -51,7 +51,7 @@ export const ShopApp = () => {
 const Customer = () => {
   const customer = useSnapshot((s) => s.settings.customer)
   return (
-    <div className="mt-4 flex items-center gap-2">
+    <div className="mt-4 flex flex-wrap items-center gap-2">
       <span className="text-[11px] text-white/45">Ordering as</span>
       {customers.map((name) => (
         <button

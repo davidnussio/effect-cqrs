@@ -23,7 +23,7 @@ export const DevTools = (
   const autopilot = useSnapshot((s) => s.settings.autopilot)
 
   return (
-    <aside className="flex min-h-0 flex-col border-l border-white/[0.07] bg-[#0a0a12]/80 backdrop-blur-xl">
+    <aside className="flex min-h-0 flex-col border-white/[0.07] bg-[#0a0a12]/80 backdrop-blur-xl lg:border-l">
       <div className="flex items-center gap-2 border-b border-white/[0.06] px-4 pt-3 pb-2">
         <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-300/80">
           ◆ CQRS devtools
@@ -39,12 +39,12 @@ export const DevTools = (
         </div>
       </div>
       <FlowStrip />
-      <nav className="flex gap-1 border-b border-white/[0.06] px-3">
+      <nav className="scroll-thin flex gap-1 overflow-x-auto border-b border-white/[0.06] px-3">
         {tabs.map((name) => (
           <button
             key={name}
             onClick={() => setTab(name)}
-            className={`relative px-3 py-2.5 text-xs font-medium transition-colors ${
+            className={`relative shrink-0 whitespace-nowrap px-3 py-2.5 text-xs font-medium transition-colors ${
               tab === name ? "text-white" : "text-white/45 hover:text-white/80"
             }`}
           >

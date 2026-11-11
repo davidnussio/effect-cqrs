@@ -1,5 +1,7 @@
 import { motion } from "motion/react"
 import { AnimatedNumber, Button } from "../../../bank-ui/src/components/ui.tsx"
+import { useState } from "react"
+import { NarrowBar, pane, type View } from "../../../devtools/NarrowView.tsx"
 import { engine } from "../engine.ts"
 import { useSnapshot } from "../hooks.ts"
 import { DevTools } from "./DevTools.tsx"
@@ -13,21 +15,23 @@ export const App = () => {
   const orders = useSnapshot((s) => Object.keys(s.orders).length)
   const running = useSnapshot((s) => Object.values(s.engine).filter((status) => status === "running").length)
   const epoch = useSnapshot((s) => s.epoch)
+  // On a narrow screen, the pane in view.
+  const [view, setView] = useState<View>("app")
 
   return (
     <div className="bg-aurora relative flex h-full flex-col">
       <div className="bg-grid pointer-events-none absolute inset-0" />
-      <header className="relative z-10 flex items-center gap-4 border-b border-white/[0.06] px-5 py-3">
+      <header className="relative z-10 flex items-center gap-3 border-b border-white/[0.06] px-3 py-3 sm:gap-4 sm:px-5">
         <Logo />
         <div>
-          <div className="text-[15px] font-semibold tracking-tight">
+          <div className="whitespace-nowrap text-[15px] font-semibold tracking-tight">
             Shop <span className="text-white/40">Lab</span>
           </div>
-          <div className="font-mono text-[10px] text-white/40">
+          <div className="hidden font-mono text-[10px] text-white/40 sm:block">
             the tutorial's shop · traced, measured and stored in your browser
           </div>
         </div>
-        <div className="ml-auto flex items-center gap-5 font-mono text-[11px] text-white/50">
+        <div className="ml-auto flex items-center gap-2 font-mono text-[11px] text-white/50 sm:gap-5">
           {docsUrl !== undefined && (
             <a
               href={`${docsUrl}tutorial/shop/`}
@@ -42,16 +46,25 @@ export const App = () => {
           <Button tone="ghost" onClick={() => void engine.reset()}>↺ Reset</Button>
         </div>
       </header>
-      <main key={epoch} className="relative z-10 grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(500px,48%)]">
-        <ShopApp />
-        <DevTools />
+      <NarrowBar view={view} onView={setView} app="Shop" accent="#38bdf8" />
+      <main
+        key={epoch}
+        className="relative z-10 grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(500px,48%)]"
+      >
+        <div className={pane(view, "app")}>
+          <ShopApp />
+        </div>
+        <div className={pane(view, "devtools")}>
+          <DevTools />
+        </div>
       </main>
     </div>
   )
 }
 
+// The counters need room, so a narrow screen leaves them out.
 const Stat = ({ label, value }: { label: string; value: number }) => (
-  <div className="flex items-baseline gap-1.5">
+  <div className="hidden items-baseline gap-1.5 lg:flex">
     <span className="text-[15px] font-semibold text-white">
       <AnimatedNumber value={value} format={(n) => Math.round(n).toString()} />
     </span>

@@ -45,14 +45,14 @@ export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; 
   const storeHead = head(events)
 
   return (
-    <section className="scroll-thin relative min-h-0 overflow-y-auto px-6 py-5">
+    <section className="scroll-thin relative min-h-0 overflow-y-auto px-4 py-5 sm:px-6">
       <AnimatePresence>
         {!live && (
           <motion.div
             initial={{ opacity: 0, y: -12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
-            className="sticky top-0 z-30 mb-4 flex items-center gap-3 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2.5 text-xs text-sky-100 backdrop-blur-xl"
+            className="sticky top-0 z-30 mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2.5 text-xs text-sky-100 backdrop-blur-xl"
           >
             <motion.span animate={{ rotate: -360 }} transition={{ duration: 3, repeat: Infinity, ease: "linear" }}>
               ⏪
@@ -66,7 +66,7 @@ export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; 
         )}
       </AnimatePresence>
 
-      <div className="mb-5 flex items-end justify-between gap-4">
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
         <div>
           <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">Customer app</div>
           <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
@@ -138,7 +138,7 @@ const Freshness = (
   const behind = Math.max(0, head - position)
   const color = replaying ? "#38bdf8" : behind === 0 ? "#34d399" : "#fbbf24"
   return (
-    <div className="flex items-center gap-2 rounded-full bg-white/[0.04] py-1 pr-3 pl-1.5 font-mono text-[10px] ring-1 ring-white/[0.06]">
+    <div className="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full bg-white/[0.04] py-1 pr-3 pl-1.5 font-mono text-[10px] ring-1 ring-white/[0.06]">
       <span className="relative flex h-2 w-2">
         {behind > 0 && (
           <span
@@ -166,7 +166,7 @@ const Vault = (
     </div>
     <motion.div
       layout
-      className="glass relative grid grid-cols-4 gap-px overflow-hidden rounded-2xl"
+      className="glass relative grid grid-cols-2 gap-px overflow-hidden rounded-2xl sm:grid-cols-4"
     >
       {[
         { label: "Money in bank", value: totals.moneyInBank, color: "#e9e7ff" },
@@ -504,7 +504,7 @@ const TransferDialog = (
         animate={{ scale: 1, y: 0 }}
         exit={{ scale: 0.9, y: 20 }}
         onClick={(event) => event.stopPropagation()}
-        className="glass w-[420px] rounded-2xl p-5 shadow-2xl"
+        className="glass w-[420px] max-w-[calc(100vw-2rem)] rounded-2xl p-5 shadow-2xl"
       >
         <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">sendTransfer</div>
         <div className="mt-1 text-lg font-semibold">

@@ -46,7 +46,7 @@ export const CommandsTab = () => {
         >
           Speed
         </SectionTitle>
-        <div className="grid grid-cols-2 gap-x-5 gap-y-4">
+        <div className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2">
           <Slider
             label="Command latency per stage"
             value={settings.commandDelay}
