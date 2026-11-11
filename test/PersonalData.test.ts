@@ -380,6 +380,14 @@ describe("PersonalData", () => {
       assert.include(error.message, "Unknown master key 2025")
     }))
 
+  it.effect("refuse a previous master key under the id of the current one", () =>
+    Effect.gen(function*() {
+      const current = { keyId: "default", key: Redacted.make(crypto.getRandomValues(new Uint8Array(32))) }
+      const old = { keyId: "default", key: Redacted.make(crypto.getRandomValues(new Uint8Array(32))) }
+      const error = yield* Effect.flip(PersonalData.makeMasterKey({ ...current, previous: [old] }))
+      assert.include(error.message, "Master key default is listed twice")
+    }))
+
   it.effect("decrypt older versions of an event before upcasting them", () =>
     Effect.gen(function*() {
       const OpenedV1 = Schema.Struct({ name: PersonalData.field(Schema.String, { redacted: "[forgotten]" }) })
@@ -541,6 +549,32 @@ describe("PersonalData", () => {
         }
       })
       assert.throws(() => PersonalData.fieldsByTag(Nested, "nested"), /changes its shape/)
+    })
+
+    it("rejects a field transformed after it was marked, and finds one marked after", () => {
+      const Before = Schema.TaggedUnion({
+        Opened: {
+          owner: PersonalData.field(Schema.String, { redacted: "x" }).pipe(Schema.decodeTo(Schema.NonEmptyString))
+        }
+      })
+      assert.throws(() => PersonalData.fieldsByTag(Before, "before"), /owner is transformed after being marked/)
+      const Nullable = Schema.TaggedUnion({
+        Opened: {
+          owner: Schema.NullOr(
+            PersonalData.field(Schema.String, { redacted: "x" }).pipe(Schema.decodeTo(Schema.NonEmptyString))
+          )
+        }
+      })
+      assert.throws(() => PersonalData.fieldsByTag(Nullable, "nullable"), /owner is transformed after being marked/)
+      const After = Schema.TaggedUnion({
+        Opened: {
+          owner: PersonalData.field(Schema.String.pipe(Schema.decodeTo(Schema.NonEmptyString)), { redacted: "x" })
+        }
+      })
+      assert.deepStrictEqual(
+        PersonalData.fieldsByTag(After, "after").get("Opened")?.map(({ path }) => path),
+        [["owner"]]
+      )
     })
 
     it("rejects a subject that isn't a sibling", () => {

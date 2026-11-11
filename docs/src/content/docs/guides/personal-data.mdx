@@ -71,8 +71,12 @@ const Keys = PersonalData.layerSql().pipe(
 | Your own `MasterKey` | A KMS such as AWS KMS, Google Cloud KMS or HashiCorp Vault, which keeps the master key out of the process |
 
 A `MasterKey` is two functions, `wrap` and `unwrap`, so implementing one on a KMS is a
-call to its encrypt and decrypt endpoints. Changing the master key rewraps subject keys,
-never events.
+call to its encrypt and decrypt endpoints.
+
+A new master key needs a new `keyId`, and wraps the keys of subjects created from then on.
+Keys of earlier subjects stay wrapped by the master key that created them, so keep that one
+in `previous` for as long as those subjects exist: nothing rewraps them, and events are never
+rewritten. `layerMasterKeyConfig()` reads a single key, so rotate with `layerMasterKey`.
 
 Keep the key store apart from the events: another database or at least another client, with
 its own permissions and backups. A copy of the keys outlives a forget for as long as the

@@ -142,6 +142,8 @@ const mentionsPersonal = (ast: SchemaAST.AST, seen: Set<SchemaAST.AST> = new Set
   if (seen.has(ast)) return false
   seen.add(ast)
   if (annotationOf(ast) !== undefined) return true
+  // A schema transformed after it was marked keeps the mark on its encoded side.
+  if (ast.encoding?.some(({ to }) => mentionsPersonal(to, seen)) === true) return true
   switch (ast._tag) {
     case "Objects":
       return ast.propertySignatures.some(({ type }) => mentionsPersonal(type, seen)) ||
@@ -168,6 +170,14 @@ const collect = (ast: SchemaAST.AST, path: ReadonlyArray<string>, fields: Array<
     return
   }
   const node = unwrapNullable(ast)
+  // The mark is read from the decoded side, so one left on the encoded side by a
+  // later transformation would go unnoticed and the field be stored in plaintext.
+  if (node._tag !== "Objects" && node.encoding?.some(({ to }) => mentionsPersonal(to)) === true) {
+    throw new Error(
+      `${where}: ${describe(path)} is transformed after being marked as personal, ` +
+        `so mark the result instead: PersonalData.field(schema.pipe(...), ...)`
+    )
+  }
   if (node._tag !== "Objects") {
     if (mentionsPersonal(node)) {
       throw new Error(
@@ -473,6 +483,14 @@ export const makeMasterKey = Effect.fnUntraced(function*(options: {
   const cipher = yield* Cipher
   const keys = new Map<string, CipherKey>()
   for (const { key, keyId } of [options, ...(options.previous ?? [])]) {
+    // A later key under the same id would replace the current one, and wrap new keys.
+    if (keys.has(keyId)) {
+      return yield* new PersonalDataError({
+        operation: "masterKey",
+        subject: "",
+        message: `Master key ${keyId} is listed twice: a new master key needs a new id`
+      })
+    }
     const bytes = new Uint8Array(Redacted.value(key))
     const imported = bytes.byteLength !== keyLength
       ? Effect.fail(
