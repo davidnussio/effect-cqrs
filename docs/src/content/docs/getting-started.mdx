@@ -3,21 +3,78 @@ title: Getting started
 description: Install effect-cqrs, or clone the repository to run its examples.
 ---
 
-import { FileTree, LinkCard, Steps } from "@astrojs/starlight/components"
+import { FileTree, LinkCard, Steps, TabItem, Tabs } from "@astrojs/starlight/components"
 
 ## Install
+
+<Tabs syncKey="pkg">
+<TabItem label="pnpm">
 
 ```bash
 pnpm add effect-cqrs effect
 ```
 
+</TabItem>
+<TabItem label="npm">
+
+```bash
+npm install effect-cqrs effect
+```
+
+</TabItem>
+<TabItem label="yarn">
+
+```bash
+yarn add effect-cqrs effect
+```
+
+</TabItem>
+<TabItem label="bun">
+
+```bash
+bun add effect-cqrs effect
+```
+
+</TabItem>
+</Tabs>
+
 It needs Node 24 or later and Effect 4. To store events in SQLite or PostgreSQL, add
 that database's `effect/sql` driver too:
+
+<Tabs syncKey="pkg">
+<TabItem label="pnpm">
 
 ```bash
 pnpm add @effect/sql-sqlite-node
 pnpm add @effect/sql-pg
 ```
+
+</TabItem>
+<TabItem label="npm">
+
+```bash
+npm install @effect/sql-sqlite-node
+npm install @effect/sql-pg
+```
+
+</TabItem>
+<TabItem label="yarn">
+
+```bash
+yarn add @effect/sql-sqlite-node
+yarn add @effect/sql-pg
+```
+
+</TabItem>
+<TabItem label="bun">
+
+```bash
+bun add @effect/sql-sqlite-node
+bun add @effect/sql-pg
+```
+
+</TabItem>
+</Tabs>
 
 Everything is exported from `effect-cqrs`, and each module also has its own path, such
 as `effect-cqrs/ViewModel`.

@@ -50,7 +50,8 @@ const managers = [
 </div>
 
 <script>
-  const key = "cq-package-manager"
+  // The key Starlight keeps `<Tabs syncKey="pkg">` under, so the choice carries over to the pages.
+  const key = "starlight-synced-tabs__pkg"
   const root = document.querySelector<HTMLElement>("[data-install]")
 
   if (root) {
