@@ -1,0 +1,187 @@
+---
+/**
+ * What the framework does beyond the path of one command: the modules a real system
+ * ends up needing, each with the guide that explains it.
+ */
+import { docsUrl } from "../source.ts"
+
+interface Feature {
+  readonly module: string
+  readonly color: string
+  readonly title: string
+  readonly text: string
+  readonly links: ReadonlyArray<{ readonly label: string; readonly path: string }>
+}
+
+const features: ReadonlyArray<Feature> = [
+  {
+    module: "Saga",
+    color: "var(--cq-command)",
+    title: "Sagas across aggregates",
+    text: "A process that touches several aggregates, like a transfer between two accounts, runs as a durable workflow that an event starts. The engine keeps the outcome of every step, so a restart skips the commands it already ran, and compensations undo the steps that succeeded.",
+    links: [{ label: "Sagas guide", path: "guides/sagas/" }]
+  },
+  {
+    module: "PersonalData",
+    color: "var(--cq-reject)",
+    title: "GDPR, by crypto-shredding",
+    text: "Forget a person without rewriting the log. Personal fields are encrypted with a key that belongs to their subject, and <code>forget</code> destroys it. The events stay, with their amounts and dates, and streams still replay.",
+    links: [{ label: "Personal data guide", path: "guides/personal-data/" }]
+  },
+  {
+    module: "CommandApi",
+    color: "var(--cq-aggregate)",
+    title: "An HTTP API from an aggregate",
+    text: "A <code>POST</code> endpoint per command, with history and state, as an <code>HttpApiGroup</code> with OpenAPI. <code>Idempotency-Key</code> and <code>If-Match</code> reach the command, and failures map to status codes.",
+    links: [{ label: "HTTP", path: "guides/integration/#http" }]
+  },
+  {
+    module: "Outbox · EventCatalog",
+    color: "var(--cq-event)",
+    title: "Events for other systems",
+    text: "An outbox publishes events to Kafka, NATS, SQS and the like, at least once and in order. The catalog describes them as JSON Schema and AsyncAPI, and its guard fails when a change can no longer decode what is stored.",
+    links: [
+      { label: "Outbox", path: "guides/integration/#outbox" },
+      { label: "Event catalog", path: "guides/integration/#event-catalog" }
+    ]
+  },
+  {
+    module: "EventVersions",
+    color: "var(--cq-projection)",
+    title: "Events that change shape",
+    text: "The log is never rewritten. Declare the older shapes of an event and how each becomes the next, and old events are upcast as they are read. Handlers and projections only see the current one.",
+    links: [{ label: "Evolving events", path: "guides/aggregates/#evolving-events" }]
+  },
+  {
+    module: "ViewModel · Leases",
+    color: "var(--cq-command)",
+    title: "Made to keep running",
+    text: "Command ids make a retried command run once. View models retry a failing handler, park an event that never passes, and run on one replica at a time. Every event records its cause, and the services report metrics.",
+    links: [
+      { label: "Command ids", path: "guides/commands/#retries-and-command-ids" },
+      { label: "Failing handlers", path: "guides/view-models/#failing-handlers" },
+      { label: "Several processes", path: "guides/view-models/#several-processes" }
+    ]
+  }
+]
+---
+
+<section class="cq-features not-content" aria-labelledby="features-title">
+  <h2 id="features-title">Beyond one command</h2>
+  <p class="cq-features-lede">
+    The path above is the core. These modules cover what a system needs around it, and each is opt-in.
+  </p>
+  <ul>
+    {features.map((feature) => (
+      <li style={`--tone: ${feature.color}`}>
+        <span class="cq-module">{feature.module}</span>
+        <h3>{feature.title}</h3>
+        <p set:html={feature.text} />
+        <div class="cq-feature-links">
+          {feature.links.map((link) => <a href={docsUrl(link.path)}>{link.label}</a>)}
+        </div>
+      </li>
+    ))}
+  </ul>
+</section>
+
+<style>
+  .cq-features {
+    padding: 4rem 0 1rem;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: var(--sl-text-h2);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: var(--sl-line-height-headings);
+    color: #fff;
+  }
+
+  .cq-features-lede {
+    max-width: 44rem;
+    margin: 1rem 0 2rem;
+    line-height: 1.65;
+    color: var(--sl-color-gray-2);
+  }
+
+  ul {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 1.4rem 1.4rem 1.25rem;
+    border: 1px solid var(--cq-line);
+    border-radius: 0.9rem;
+    background: var(--cq-glass);
+  }
+
+  .cq-module {
+    align-self: flex-start;
+    font-family: var(--__sl-font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.01em;
+    color: var(--tone);
+  }
+
+  h3 {
+    margin: 0.6rem 0 0.5rem;
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.3;
+    color: #fff;
+  }
+
+  li p {
+    flex: 1;
+    margin: 0 0 1rem;
+    font-size: var(--sl-text-sm);
+    line-height: 1.6;
+    color: var(--sl-color-gray-2);
+  }
+
+  li p :global(code) {
+    font-family: var(--__sl-font-mono);
+    font-size: 0.85em;
+    color: #ddd2ff;
+  }
+
+  .cq-feature-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.1rem;
+  }
+
+  a {
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-1);
+    text-decoration-color: color-mix(in srgb, var(--tone) 60%, transparent);
+    text-underline-offset: 0.25em;
+  }
+
+  a:hover {
+    color: #fff;
+  }
+
+  @media (max-width: 64rem) {
+    ul {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 40rem) {
+    ul {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>
