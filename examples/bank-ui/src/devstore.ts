@@ -186,7 +186,7 @@ const defaultSettings: Settings = {
   projectionDelay: 350,
   replayDelay: 60,
   paused: false,
-  autopilot: false,
+  autopilot: true,
   autopilotEvery: 1400,
   breakTotals: false
 }
