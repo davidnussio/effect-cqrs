@@ -1,0 +1,207 @@
+---
+/**
+ * The install command of the home page, for each package manager. The choice is
+ * remembered, and without scripts the pnpm command stays as rendered.
+ */
+const packages = "effect-cqrs effect"
+
+const managers = [
+  { name: "pnpm", command: `pnpm add ${packages}` },
+  { name: "npm", command: `npm install ${packages}` },
+  { name: "yarn", command: `yarn add ${packages}` },
+  { name: "bun", command: `bun add ${packages}` }
+]
+---
+
+<div class="cq-install" data-install>
+  <div class="cq-install-bar">
+    <svg class="cq-prompt" viewBox="0 0 16 16" aria-hidden="true">
+      <rect width="16" height="16" rx="3" fill="currentColor"></rect>
+      <path d="M4 5.5 6.5 8 4 10.5M8 10.5h4" fill="none" stroke="var(--cq-ink)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"></path>
+    </svg>
+    <div class="cq-tabs" role="tablist" aria-label="Package manager">
+      {managers.map(({ name }, index) => (
+        <button
+          type="button"
+          role="tab"
+          id={`install-tab-${name}`}
+          aria-controls="install-command"
+          aria-selected={index === 0 ? "true" : "false"}
+          tabindex={index === 0 ? 0 : -1}
+          data-manager={name}
+        >
+          {name}
+        </button>
+      ))}
+    </div>
+    <button type="button" class="cq-copy" data-copy aria-label="Copy the install command">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.3"></rect>
+        <path d="M10.5 3.5v-.5a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"></path>
+      </svg>
+      <span data-copy-label>Copy</span>
+    </button>
+  </div>
+  <div class="cq-command" id="install-command" role="tabpanel" aria-labelledby="install-tab-pnpm">
+    {managers.map(({ command, name }, index) => (
+      <code data-command={name} hidden={index !== 0}>{command}</code>
+    ))}
+  </div>
+</div>
+
+<script>
+  const key = "cq-package-manager"
+  const root = document.querySelector<HTMLElement>("[data-install]")
+
+  if (root) {
+    const tabs = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-manager]"))
+    const commands = Array.from(root.querySelectorAll<HTMLElement>("[data-command]"))
+    const panel = root.querySelector<HTMLElement>("[role=tabpanel]")
+    const label = root.querySelector<HTMLElement>("[data-copy-label]")
+
+    const select = (name: string) => {
+      for (const tab of tabs) {
+        const on = tab.dataset.manager === name
+        tab.setAttribute("aria-selected", String(on))
+        tab.tabIndex = on ? 0 : -1
+      }
+      for (const command of commands) command.hidden = command.dataset.command !== name
+      panel?.setAttribute("aria-labelledby", `install-tab-${name}`)
+    }
+
+    const remember = (name: string) => {
+      try {
+        localStorage.setItem(key, name)
+      } catch {
+        // Storage can be blocked. The choice then lasts until the page is left.
+      }
+    }
+
+    try {
+      const saved = localStorage.getItem(key)
+      if (saved && tabs.some((tab) => tab.dataset.manager === saved)) select(saved)
+    } catch {
+      // Stays on the first one.
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => {
+        select(tab.dataset.manager!)
+        remember(tab.dataset.manager!)
+      })
+      tab.addEventListener("keydown", (event) => {
+        const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0
+        if (step === 0) return
+        event.preventDefault()
+        const next = tabs[(index + step + tabs.length) % tabs.length]!
+        next.focus()
+        next.click()
+      })
+    })
+
+    root.querySelector("[data-copy]")?.addEventListener("click", async () => {
+      const shown = commands.find((command) => !command.hidden)
+      if (!shown || !label) return
+      try {
+        await navigator.clipboard.writeText(shown.textContent ?? "")
+        label.textContent = "Copied"
+      } catch {
+        label.textContent = "Select it"
+      }
+      setTimeout(() => (label.textContent = "Copy"), 1600)
+    })
+  }
+</script>
+
+<style>
+  .cq-install {
+    width: fit-content;
+    max-width: 100%;
+    margin-top: 1.75rem;
+    border: 1px solid var(--cq-line-strong);
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.04);
+    overflow: hidden;
+  }
+
+  .cq-install-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.4rem 0.5rem 0.4rem 0.75rem;
+    border-bottom: 1px solid var(--cq-line);
+  }
+
+  .cq-prompt {
+    flex: none;
+    width: 1rem;
+    height: 1rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .cq-tabs {
+    display: flex;
+    gap: 0.15rem;
+  }
+
+  button {
+    border: 1px solid transparent;
+    background: none;
+    font-family: var(--__sl-font-mono);
+    font-size: 0.78rem;
+    color: var(--sl-color-gray-3);
+    cursor: pointer;
+    transition: color 120ms ease, background-color 120ms ease;
+  }
+
+  [role="tab"] {
+    padding: 0.2rem 0.6rem;
+    border-radius: 0.45rem;
+  }
+
+  button:hover {
+    color: var(--sl-color-gray-1);
+  }
+
+  [role="tab"][aria-selected="true"] {
+    border-color: var(--cq-line-strong);
+    background: var(--cq-ink);
+    color: #fff;
+  }
+
+  button:focus-visible {
+    outline: 2px solid var(--sl-color-accent);
+    outline-offset: 1px;
+  }
+
+  .cq-copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-inline-start: auto;
+    padding: 0.2rem 0.45rem;
+    border-radius: 0.45rem;
+  }
+
+  .cq-copy svg {
+    width: 0.85rem;
+    height: 0.85rem;
+  }
+
+  .cq-command {
+    padding: 0.7rem 1rem;
+    overflow-x: auto;
+  }
+
+  code {
+    font-family: var(--__sl-font-mono);
+    font-size: 0.85rem;
+    white-space: nowrap;
+    color: var(--sl-color-gray-1);
+    user-select: all;
+  }
+
+  code[hidden] {
+    display: none;
+  }
+</style>
