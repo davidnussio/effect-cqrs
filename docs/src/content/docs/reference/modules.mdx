@@ -154,6 +154,22 @@ Which process runs each view model, see [several processes](../../guides/view-mo
 | `layerPostgres({ interval, prefix })`, `makePostgres` | Leases on PostgreSQL advisory locks |
 | `Lease` | A lease: `held` and `changes` |
 
+## Saga
+
+Processes that span several aggregates, as durable workflows from `effect/workflow`, see [sagas](../../guides/sagas/). <a href={sourceUrl("src/Saga.ts")}>Source</a>
+
+| Export | What it is |
+| --- | --- |
+| `workflow(tag, { payload, idempotencyKey, success, error })` | Defines a saga's workflow: `Workflow.make` with a `causation` field added to the payload |
+| `toLayer(workflow, execute)` | Registers the workflow's body with the engine. Its commands record the event that started the saga as their cause |
+| `command(name, { execute, error })` | Runs a command as an activity, so a replay of the workflow returns the saved outcome instead of running it again |
+| `start(workflow, payload)` | Starts a run without waiting for it, and returns its execution id |
+| `make({ name, aggregates, handlers, onFailure })` | The trigger: a view model whose handlers start workflows with `start` |
+| `layer([...])` | Runs triggers in the background, apart from the view models, and provides `Sagas` |
+| `Sagas` | The service that manages the triggers, with what `ViewModel.ViewModels` has |
+| `SagaWorkflow` | The type of a workflow whose payload carries its causation |
+| `CausationSchema`, `CommandOutcome` | Schemas of that causation, and of what a saga keeps of a command it ran: aggregate, version and position |
+
 ## CommandApi
 
 Serves an aggregate over HTTP, see [integration](../../guides/integration/#http). <a href={sourceUrl("src/CommandApi.ts")}>Source</a>
