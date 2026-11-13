@@ -187,6 +187,20 @@ export default defineConfig({
             // makes has a subgroup per module, which stays empty when a module is one page.
             { label: "API", collapsed: true, items: [{ autogenerate: { directory: "reference/api" } }] }
           ]
+        },
+        // A series of posts on the lending library of examples/blog. The index and the
+        // last post set their own previous and next links, so the series stands apart
+        // from the API reference before it.
+        {
+          label: "Blog",
+          items: [
+            { slug: "blog", label: "All posts" },
+            "blog/why-cqrs-and-event-sourcing",
+            "blog/your-first-aggregate",
+            "blog/read-models",
+            "blog/sagas",
+            "blog/tests-schema-changes-and-production"
+          ]
         }
       ]
     })

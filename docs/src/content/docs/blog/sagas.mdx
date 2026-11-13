@@ -1,0 +1,164 @@
+---
+title: Sagas
+description: "Part 4 of the series: borrowing a book touches the member and the book, so a saga coordinates them as a durable workflow."
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import library from "../../../../../examples/blog/library.ts?raw"
+import { region } from "../../../source.ts"
+
+export const file = "examples/blog/library.ts"
+
+*Part 4 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+So far a member was just a string on a loan. The library has a rule about members too: **a
+member may have at most three books at a time.** Together with the book's own rule, one
+member per copy, borrowing now has to satisfy two aggregates at once.
+
+Why not one aggregate that holds both? Because an aggregate is the unit that commands take
+turns on. A "library" aggregate with every book and every member would make every loan in
+the building wait for every other one, and fold the whole library's history to decide
+anything. Aggregates stay small, and a process that spans several of them is a *saga*: it
+reacts to an event and runs commands on other aggregates, possibly over a long time.
+
+## The member
+
+The member is an aggregate like the book, with its own events:
+
+<Code code={region(library, "member-events")} lang="ts" title={file} />
+
+`PersonalData.field` marks the name as personal data, so that a member can be forgotten.
+Everywhere in the code it is a plain string. [Part 5](../tests-schema-changes-and-production/)
+explains how it works.
+
+<Code code={region(library, "member-errors")} lang="ts" title={file} />
+
+<Code code={region(library, "member")} lang="ts" title={file} />
+
+A loan goes through two steps on the member. `requestLoan` takes one of the three places
+right away, as `requested`. The member can't know yet whether the book is free, so the
+place is held until the book answers: `confirmLoan` makes it `active`, `cancelLoan` gives it
+back. Counting requested loans against the limit means three requests in a row can't
+borrow four books.
+
+The three commands at the end are the ones the saga runs, and each records nothing when
+there is nothing to do. Confirming a loan twice confirms it once. We'll see why that
+matters below.
+
+## The process
+
+Borrowing goes like this:
+
+1. The member requests a loan: `LoanRequested`.
+2. The saga sees the event and lends the book.
+3. If the book was free, the saga confirms the loan. If it was out, it cancels the loan, and
+   the member has the place back.
+
+Here it is as a workflow:
+
+<Code code={region(library, "borrow")} lang="ts" title={file} />
+
+`Saga.workflow` declares a workflow from `effect/workflow`, Effect's durable workflow
+engine, with what one run is about, and `idempotencyKey` says what identifies a run.
+Starting the saga twice for the same loan joins the first run rather than lending the book
+twice.
+
+Every command in the body goes through `Saga.command`, which makes it an *activity*: a step
+whose outcome the engine records. If the process restarts in the middle of a run, the
+engine replays the body and skips the steps it already has an outcome for. The `error`
+option lists the domain errors the saga reacts to. Their outcome is recorded too, so a
+replay takes the same branch. Any other failure ends the run as a defect.
+
+Refusing to lend is part of the normal flow here, not an accident, so the saga handles it
+with `catchTag` and cancels the loan. For steps that have to be *undone* when a later one
+fails, the workflow also has `withCompensation`, see the
+[sagas guide](../../guides/sagas/#the-workflow).
+
+Bringing a book back is a second, shorter process: the book records `BookReturned`, and the
+member's loan has to be closed so the place is free again.
+
+<Code code={region(library, "close-loan")} lang="ts" title={file} />
+
+## The trigger
+
+What starts the workflows is a trigger, made with `Saga.make`. It is a view model, the same
+as in [part 3](../read-models/), whose handlers only start runs:
+
+<Code code={region(library, "trigger")} lang="ts" title={file} />
+
+Being a view model, it follows the log from its own checkpoint, catches up after downtime,
+and sees every event at least once. `Saga.start` returns as soon as the engine has the run,
+so a slow saga never holds up the trigger.
+
+<Aside type="caution">
+At least once means a run can start again after a crash, and an activity cut off before its
+outcome was saved runs again. That is why `lend`, `confirmLoan`, `cancelLoan` and
+`closeLoan` record nothing when the work is already done: **the commands a saga runs must
+be idempotent.**
+</Aside>
+
+## Wiring it together
+
+Everything is a layer. The sagas sit on top of the command side, which sits on top of the
+storage:
+
+<Code code={region(library, "library")} lang="ts" title={file} />
+
+`Application` is everything but the storage, which part 5 swaps for a database.
+`WorkflowEngine.layerMemory` keeps runs in memory, which pairs with in-memory checkpoints:
+after a restart the trigger reads the log from the start and starts every saga again, and
+the idempotent commands make that harmless. In production, `ClusterWorkflowEngine` from
+`effect/cluster` keeps runs in SQL, and pairs with durable checkpoints.
+
+## Two members, one book
+
+A saga finishes a little after the command that started it. To wait for the outcome, we
+subscribe to the member's events and stop at the one that settles the loan:
+
+<Code code={region(library, "settled")} lang="ts" title={file} />
+
+`store.subscribe` is a stream of past events followed by live ones, so the outcome is
+found whether it was stored before or after the call. Now Alice and Bob both want *Dune*:
+
+<Code code={region(library, "borrow-run")} lang="ts" title={file} />
+
+Alice's loan is confirmed. Bob's request takes a place, the saga finds the book out, and
+cancels his loan, which gives the place back. Neither aggregate ever broke its own rule,
+and neither had to know about the other.
+
+When Alice brings the book back, the second workflow closes her loan:
+
+<Code code={region(library, "return-run")} lang="ts" title={file} />
+
+## Following the thread
+
+A saga turns one request into commands on several aggregates. effect-cqrs records how they
+are linked, on every event:
+
+<Code code={region(library, "correlation")} lang="ts" title={file} />
+
+- The **`correlationId`** is shared by everything that follows from one original request.
+  Bob's request and its cancellation carry the same one, and so does the book's `BookLent`
+  that Alice's request led to.
+- The **`causationId`** names what directly caused a command. The cancellation was caused
+  by the event `member/bob@2`, version 2 of Bob's stream, his `LoanRequested`.
+
+When you need to know why a loan was cancelled at 3 a.m., you follow the causation ids back
+to the request that started it. To join a request from outside, an HTTP request id for
+instance, wrap the command in `Causation.withCausation`.
+
+## Waiting inside a saga
+
+A saga can also wait. A reminder when a loan is overdue would be a run that sleeps until
+the due date with `DurableClock.sleep`, then sends a reminder unless the book came back. A
+durable engine keeps the clock across restarts, even for three weeks. `DurableDeferred`
+waits for a signal instead, such as a later event. The
+[tutorial's shop](../../tutorial/shop/#5-a-saga) races the two, to give a customer fifteen
+seconds to pay.
+
+## What we have
+
+The library now has every piece of CQRS: aggregates that decide, read models that follow,
+and a saga that coordinates. What's left is making sure it is right and keeping it right
+as it changes and grows. [Part 5](../tests-schema-changes-and-production/) covers testing,
+changing an event's shape, moving to a database, and forgetting a member.

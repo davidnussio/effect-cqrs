@@ -1,0 +1,130 @@
+---
+title: Read models you can throw away
+description: "Part 3 of the series: view models that follow the log, catch up after a restart, read your own writes, and rebuild from scratch."
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import library from "../../../../../examples/blog/library.ts?raw"
+import { region } from "../../../source.ts"
+
+export const file = "examples/blog/library.ts"
+
+*Part 3 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+In [part 2](../your-first-aggregate/) the book became an aggregate: commands decide on
+events, and `readModel("book-1")` folds one book's events into its state. That is the
+write side, and it is good at one question: what is the state of *this* book, so I can
+decide what happens to it?
+
+The front desk asks other questions. Which books can be borrowed right now? Which books
+does Alice have? Folding every book on every request would answer them, slowly. The read
+side of CQRS answers them from read models: data shaped for one query, kept up to date by
+following the log. effect-cqrs calls the code that keeps one a *view model*.
+
+## A catalog
+
+Here is the catalog, one entry per book with a flag for whether it is on the shelf. It
+lives in memory in a `Ref`, wrapped in a service so that handlers and queries can share it:
+
+<Code code={region(library, "catalog")} lang="ts" title={file} />
+
+A view model has a name, the aggregates whose events it reads, and a handler for each event
+it cares about. The handlers get the event and its metadata, which includes the
+`aggregateId`, the `version`, the `position` in the store, the `timestamp`, and the
+correlation and causation ids we'll meet in part 4. `dispose` clears what the view model
+stored, for when it has to be rebuilt.
+
+Notice what is *not* here. There is no `if (book.status === ...)`, no rule, no refusal. The
+events have already been decided and stored. A handler only records what happened, in the
+shape a query wants.
+
+## Another shape, same events
+
+The second question, which books each member has, wants another shape. It is another view
+model over the same events:
+
+<Code code={region(library, "loans")} lang="ts" title={file} />
+
+Read models are cheap. Each one serves its queries and nothing else, so there is no
+compromise between the catalog page and the member page, and no join at read time.
+
+Both view models are written so that handling an event twice changes nothing: setting a
+map entry or adding to a set again leaves them as they were. That matters, because
+**delivery is at least once**. A view model saves how far it has read, its *checkpoint*,
+every 500 events and when it stops. After a crash it starts again from the last checkpoint
+and sees a few events a second time.
+
+<Aside>
+A view model that keeps its data in SQL can skip the idempotency: with
+`transaction: ViewModel.sqlTransaction`, each batch of handlers commits in one transaction
+with its checkpoint. See [checkpoints in a transaction](../../guides/view-models/#checkpoints-in-a-transaction).
+</Aside>
+
+## Running them
+
+`ViewModel.layer` starts the view models in the background, as long as the layer lives.
+They need the event store and somewhere to keep their checkpoints:
+
+<Code code={region(library, "read-side")} lang="ts" title={file} />
+
+Each view model *pulls* events from the store, from its own checkpoint, rather than waiting
+for them to be pushed. A view model that was down, or that is new, reads what it missed
+and then waits for more. Nothing is lost while it isn't running, and there is no message
+broker to configure.
+
+The checkpoints here are in memory, which suits read models in memory: both are gone after
+a restart, and the view models rebuild from the start of the log. A read model kept in a
+database pairs with checkpoints in the same database. **A checkpoint must live exactly as
+long as what its view model stores**, or after a restart it says "done" for data that isn't
+there.
+
+## Reading your own writes
+
+The read side runs a moment behind the write side. A command returns when its events are
+stored, and the view models see them a little later. A user who lends a book and then
+looks at the catalog could see it still on the shelf.
+
+Every command returns the `position` of its last event in the store, and `caughtUp` waits
+until every view model has handled it:
+
+<Code code={region(library, "caught-up")} lang="ts" title={file} />
+
+In an HTTP API you can return the position to the client, and let the next read wait for
+it. Without a position, `caughtUp()` waits for the latest event in the store.
+
+## Throw it away
+
+A read model is not the truth, the log is. So you can throw one away and build it again:
+
+<Code code={region(library, "replay")} lang="ts" title={file} />
+
+`replay` resets the checkpoint, runs `dispose`, reads the log from the start and returns
+once the view model has caught up. This is how you fix a read model that a bug damaged, or
+one whose shape changed: deploy the new handlers and replay.
+
+A brand new view model needs no replay at all. Its checkpoint starts at zero, so it begins
+with the first event ever stored. In part 1, `timesLent` answered a question nobody had
+asked when the events were written. In a running system, that is a new view model: write
+the handlers, deploy, and it fills itself from the whole history.
+
+## When a handler fails
+
+A handler that fails, say because a database is down, stalls its view model on that event
+and retries with backoff, up to every 30 seconds. Events are never skipped and never
+reordered, so a read model is either right or visibly behind. `viewModels.status` shows
+each view model's position and the failure it is retrying.
+
+For read models where a gap is better than a stop, `onFailure: ViewModel.park({ attempts })`
+sets an event aside after a few failures, and `retryParked` handles it again once the bug
+is fixed. The [view models guide](../../guides/view-models/#failing-handlers) has the details.
+
+## What we have
+
+The library now has two sides. The write side keeps the rules, one aggregate at a time.
+The read side follows the log, in as many shapes as the queries need, and can be rebuilt
+whenever we like.
+
+What it can't do yet is anything that involves *two* aggregates. A member may only have
+three books at a time, and a book can only be with one member. Borrowing has to respect
+both rules, and a command only changes one aggregate. [Part 4](../sagas/) solves this with
+a saga.

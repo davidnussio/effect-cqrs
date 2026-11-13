@@ -1,0 +1,161 @@
+---
+title: Tests, schema changes and production
+description: "Part 5 of the series: test aggregates with given, when, then and random commands, change an event's shape without rewriting the log, move to SQLite or PostgreSQL, and forget a member."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import library from "../../../../../examples/blog/library.ts?raw"
+import tests from "../../../../../examples/blog/library.test.ts?raw"
+import storage from "../../../../../examples/blog/storage.ts?raw"
+import { region } from "../../../source.ts"
+
+export const file = "examples/blog/library.ts"
+export const testFile = "examples/blog/library.test.ts"
+export const storageFile = "examples/blog/storage.ts"
+
+*Part 5 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+Over the last four posts the library grew books, members, read models and a saga, all in
+memory. This last post is about living with it: testing the rules, changing an event that
+is already stored, moving to a real database, and forgetting a member who asks for it.
+
+## Given, when, then
+
+An aggregate is a pure decision: given these past events, when this command comes, these
+events happen, or this error. `Fixture` tests exactly that:
+
+<Code code={region(tests, "fixture")} lang="ts" title={testFile} />
+
+The chain runs the command through the real `AggregateService` on an in-memory store, so
+payload validation and the JSON round trip of every event are tested too. An expected event
+is compared through the aggregate's schema, and a mismatch shows the difference.
+
+Time needs no mocking. `it.effect` runs on a test clock stopped at zero, so `DateTime.now`
+in the `lend` handler gives the epoch, and the due date is exactly 21 days later. To test a
+late return, `TestClock.adjust` moves time on by 22 days before the book comes back.
+
+<Aside type="caution">
+The chain is lazy, like every effect. Built and never returned from `it.effect` or
+yielded, it checks nothing and the test passes.
+</Aside>
+
+## Rules that hold for any sequence
+
+Examples test the cases you think of. The rule "never more than three books" should hold
+for *any* sequence of commands, including the ones you don't think of. `checkInvariants`
+runs random sequences, with payloads generated from the command schemas, and checks a
+predicate after every command that succeeds:
+
+<Code code={region(tests, "invariants")} lang="ts" title={testFile} />
+
+Loan ids come from a small set, so that random commands keep talking about the same loans:
+a confirmation of a loan that was requested, a cancellation of one that was already
+confirmed, the same request twice. Commands that fail are part of the game. When the
+invariant breaks, the test fails with the shortest sequence of commands it found that
+breaks it, which reads like a bug report.
+
+Try it: change `>=` to `>` in `requestLoan`, and after a few hundred runs the test fails
+with four `requestLoan` commands for four different loans. A thousand runs take a fraction
+of a second, and the fixed `seed` makes every run of the test try the same sequences.
+
+## Changing an event's shape
+
+Events written today will be read by code written years from now, and the log is never
+rewritten. Suppose the first version of the library recorded `BookAdded` with a title only,
+and authors came later. The events already stored don't have one.
+
+effect-cqrs records the schema version of every event. To change an event, declare its
+older shapes and how each one becomes the next:
+
+<Code code={region(library, "book-versions")} lang="ts" title={file} />
+
+That is the `versions: bookVersions` line we skipped in [part 2](../your-first-aggregate/).
+An old `BookAdded` is *upcast* as it is read: projections, view models and sagas only ever
+see the current shape, with `author: "Unknown"`. New events are written in the latest
+version. The types check every step: an upcast that returns the wrong shape, or a history
+that doesn't end at the current schema, doesn't compile.
+
+A test can seed events as old code would have stored them, with `Aggregate.historical`:
+
+<Code code={region(tests, "historical")} lang="ts" title={testFile} />
+
+Upcasting covers adding a field, renaming one or splitting one. A change of meaning is
+better as a new event type, next to the old one.
+
+## Moving to a database
+
+Everything so far ran on `EventStore.layerMemory`. Because the application is a layer that
+*requires* a store, moving to a database is a change in one place. Here are the events on
+SQLite:
+
+<Code code={region(storage, "sqlite")} lang="ts" title={storageFile} />
+
+Tables are created on startup. Only the events moved: the read models and the workflow
+engine are still in memory, so their checkpoints are too, and they rebuild from the log on
+every start. That is a fine setup for one process, and the rule from
+[part 3](../read-models/) holds: a checkpoint lives exactly as long as what it describes.
+
+PostgreSQL works the same way:
+
+<Code code={region(storage, "postgres")} lang="ts" title={storageFile} />
+
+On PostgreSQL several processes can write to the same events. Each process still runs
+every view model and saga trigger in this setup, which the idempotent handlers and
+commands make safe, but wasteful. To run each one in one process only, add
+`Leases.layerPostgres()` for the view models, and a durable workflow engine with durable
+checkpoints for the sagas, see [several processes](../../guides/view-models/#several-processes)
+and [delivery and durability](../../guides/sagas/#delivery-and-durability).
+
+The tests of this series run the whole library on SQLite in memory, with
+`onSqlite({ events: ":memory:", keys: ":memory:" })`.
+
+## Forgetting a member
+
+The GDPR lets Alice ask to be forgotten, and the log can't be edited. effect-cqrs gets
+around that with *crypto-shredding*: in [part 4](../sagas/), the member's name was marked
+with `PersonalData.field`. Every personal field is encrypted in the store with a key of its
+own subject, here the member, and forgetting the member destroys the key. Her events stay
+where they are, with their loans and dates, so streams still replay and the saga's history
+still adds up, while her name reads as `"[forgotten]"`.
+
+That is why `onSqlite` keeps the keys in a database of their own, wrapped by a master key
+from the environment. The keys must be kept apart from the events, with their own
+permissions and backups.
+
+A read model that stored the name has to erase it too. The front desk's directory handles
+`onForget`:
+
+<Code code={region(library, "directory")} lang="ts" title={file} />
+
+And the whole thing, as a test:
+
+<Code code={region(tests, "forget")} lang="ts" title={testFile} />
+
+After `forget`, Alice's stream still holds every loan, her name reads as the replacement,
+and the directory no longer has it. The forget itself is recorded as an event, with no
+personal data in it, and from then on a command that would record new personal data about
+her fails with `SubjectForgotten`. The [personal data guide](../../guides/personal-data/) covers master
+key rotation, keys in a KMS, and what crypto-shredding doesn't cover.
+
+## Where to go from here
+
+That is the whole library, in about six hundred lines of
+[`examples/blog`](https://github.com/davidnussio/effect-cqrs/tree/main/examples/blog):
+
+- **Events** as schemas, the only source of truth, versioned as they change.
+- **Aggregates** that decide on events, with typed errors and optimistic concurrency.
+- **View models** that follow the log, catch up, and can be thrown away and rebuilt.
+- **A saga** that coordinates two aggregates as a durable workflow.
+- **Tests** that read like the rules, and find the sequences you didn't think of.
+
+From here:
+
+- The [bank demo](../../tutorial/bank/) runs all of this in your browser, and shows each
+  command travelling through the pipeline.
+- The [workshop](../../tutorial/workshop/) runs it on a server, for a room full of phones.
+- The [guides](../../guides/aggregates/) go deeper into every piece, and the
+  [comparison with moleculer-cqrs](../../reference/moleculer-cqrs/) shows where the
+  framework comes from.
+
+Thanks for reading the series.

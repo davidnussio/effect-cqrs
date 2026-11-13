@@ -1,0 +1,143 @@
+---
+title: Why CQRS and event sourcing
+description: "Part 1 of the series: what goes missing when you store only the current state, event sourcing by hand in forty lines, and what CQRS adds on top."
+---
+
+import { Code } from "@astrojs/starlight/components"
+import Flow from "../../../components/Flow.astro"
+import byHand from "../../../../../examples/blog/by-hand.ts?raw"
+import { region } from "../../../source.ts"
+
+export const file = "examples/blog/by-hand.ts"
+
+*Part 1 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+Most applications keep the current state of things. A library keeps a table of books, and
+lending one updates a row:
+
+```sql
+UPDATE books SET lent_to = 'bob' WHERE id = 'book-1';
+```
+
+The row is now right, and everything it said before is gone. Who had the book before Bob?
+How many times has it been lent this year? Was it brought back late? Nobody asked those
+questions when the table was designed, so the answers were thrown away one `UPDATE` at a
+time. You can add an audit table, a `loans` history and a `returned_late` flag, but each
+one has to be planned before the data it needs comes in, and kept in step with the row by
+hand.
+
+This series is about the other way of doing it: keep what happened, and work out the
+current state from that. Over five posts we build a small lending library with
+[effect-cqrs](../../), from the first event to a saga, tests and a database:
+
+1. **Why CQRS and event sourcing**, this post: the idea, by hand, without a framework.
+2. [Your first aggregate](../your-first-aggregate/): events, commands and typed errors.
+3. [Read models you can throw away](../read-models/): view models, checkpoints and replays.
+4. [Sagas](../sagas/): processes that span several aggregates.
+5. [Tests, schema changes and production](../tests-schema-changes-and-production/):
+   fixtures, upcasting, SQLite and PostgreSQL, and forgetting a person.
+
+## Event sourcing in forty lines
+
+Instead of a row, a book is the list of things that happened to it. Each event is a fact
+in the past tense:
+
+<Code code={region(byHand, "events")} lang="ts" title={file} />
+
+The current state is not stored anywhere. It is what you get when you apply the events one
+after another, starting from an empty book. That is a fold, `reduce` in JavaScript:
+
+<Code code={region(byHand, "evolve")} lang="ts" title={file} />
+
+Changing a book means deciding on new events. A command looks at the state, checks what
+the rules allow, and either returns the events that happen next or refuses:
+
+<Code code={region(byHand, "decide")} lang="ts" title={file} />
+
+Put together, the log only ever grows:
+
+<Code code={region(byHand, "run")} lang="ts" title={file} />
+
+Two functions carry the whole model: `evolve` turns events into state, and `lend` turns
+state and a request into events. Neither of them touches a database, a clock or the
+network, so both are trivial to test.
+
+## What the log gives you
+
+The questions from the start of this post are now easy, because the facts they need were
+never thrown away:
+
+<Code code={region(byHand, "another-question")} lang="ts" title={file} />
+
+`timesLent` was written after the events. It works on every book ever lent, including the
+ones lent before anyone thought of counting. That is the main argument for event sourcing:
+**the log answers questions you haven't thought of yet.** Some more:
+
+- **History for free.** Every change has a time, an order and, as we'll see, a cause. An
+  audit trail is not a feature you add, it is the storage.
+- **Time travel.** The state of a book last March is the fold of the events up to last
+  March.
+- **Debugging by replay.** A bug report comes with the exact sequence of events that led
+  to it, and you can run them again in a test.
+- **Decisions you can explain.** A refused command can say which earlier event it was
+  refused because of.
+
+## Where CQRS comes in
+
+The log is a great way to *write*, and a poor way to *read*. "Which books are available
+right now?" would mean folding every book in the library on every request. "Which books
+does Alice have?" would mean folding them all and filtering.
+
+CQRS, Command Query Responsibility Segregation, splits the two:
+
+- **The write side** takes commands. It loads one thing, an *aggregate* such as a book,
+  folds its events, decides, and appends new events. It only cares about the rules, and it
+  only ever needs one aggregate's events at a time.
+- **The read side** follows the log and keeps *read models*, each shaped for the queries it
+  serves: a catalog with an `available` flag, a map from member to the books they have,
+  a count of loans per month. They are projections of the log, so you can throw one away
+  and rebuild it, or add a new one that starts from the first event ever written.
+
+This is the path a command takes in effect-cqrs, and the outline of the next three posts:
+
+<Flow />
+
+The price is that the read side is a moment behind the write side. After a command, a read
+model may not have seen its events yet. Part 3 shows how to wait for your own write when
+you need to.
+
+## What the forty lines leave out
+
+The version above works on an array in memory, for one user at a time. A real application
+needs more, and each of these is what the rest of the series is about:
+
+- **Storage and concurrency.** Two librarians lending the same copy at the same moment must
+  not both succeed. The store has to append only if nobody wrote in between.
+- **Typed, validated input.** `lend` above trusts its arguments and refuses with a thrown
+  `Error`. Refusals are part of the domain, and the caller should know which ones can come.
+- **Read models that keep up.** They must follow the log as it grows, pick up where they
+  stopped after a restart, and never miss an event.
+- **Processes.** Borrowing a book involves the book *and* the member, who may only have
+  three books at a time. One command changes one aggregate, so something has to coordinate
+  the two.
+- **Change.** Events written today will be read in five years by code that looks
+  different. The log can't be rewritten, so old events have to be read as new ones.
+- **Forgetting.** The GDPR lets a person ask to be forgotten, in a log that is never
+  edited.
+
+## When not to use it
+
+Event sourcing is not free. You trade a table you can query with SQL for a log plus read
+models you write yourself, and the read side is eventually consistent. Events are a
+contract with your own future, so their shape needs more care than a column does.
+
+It pays off where the history *is* the domain, such as loans, accounts, orders, bookings or
+anything audited, and where the rules are rich enough that "what happened" matters more
+than "what it looks like now". A settings page or a list of tags is happier as a table.
+Nothing stops you from mixing the two in one application.
+
+## Next
+
+In [part 2](../your-first-aggregate/) we write the book as an aggregate with effect-cqrs:
+the same `evolve` and `decide`, with schemas, typed errors and a store that handles
+concurrent writers.

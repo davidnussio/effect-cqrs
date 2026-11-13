@@ -1,5 +1,5 @@
 {
   "extends": "../tsconfig.json",
-  "include": ["todo", "tutorial", "server", "workshop", "vitest.config.ts"],
+  "include": ["blog", "todo", "tutorial", "server", "workshop", "vitest.config.ts"],
   "exclude": ["workshop/ui", "workshop/server/dist"]
 }

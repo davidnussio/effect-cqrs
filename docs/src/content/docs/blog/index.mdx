@@ -1,0 +1,41 @@
+---
+title: Blog
+description: Posts about CQRS and event sourcing, with examples that run on effect-cqrs.
+prev: false
+---
+
+import { LinkCard } from "@astrojs/starlight/components"
+
+## CQRS with effect-cqrs
+
+A series in five parts, November 2026. We build a small lending library, where members
+borrow books and bring them back, from the first event to a saga, tests and a database.
+Every snippet comes from
+[`examples/blog`](https://github.com/davidnussio/effect-cqrs/tree/main/examples/blog),
+whose tests run it.
+
+<LinkCard
+  title="1. Why CQRS and event sourcing"
+  description="What goes missing when you store only the current state, event sourcing by hand in forty lines, and what CQRS adds on top."
+  href="why-cqrs-and-event-sourcing/"
+/>
+<LinkCard
+  title="2. Your first aggregate"
+  description="A book as an aggregate: events as schemas, commands that decide, typed errors, and a store that handles concurrent writers."
+  href="your-first-aggregate/"
+/>
+<LinkCard
+  title="3. Read models you can throw away"
+  description="View models that follow the log, catch up after a restart, read your own writes, and rebuild from scratch."
+  href="read-models/"
+/>
+<LinkCard
+  title="4. Sagas"
+  description="Borrowing a book touches the member and the book, so a saga coordinates them as a durable workflow."
+  href="sagas/"
+/>
+<LinkCard
+  title="5. Tests, schema changes and production"
+  description="Given, when, then and random commands, an event that changes shape, SQLite and PostgreSQL, and forgetting a member."
+  href="tests-schema-changes-and-production/"
+/>

@@ -1,0 +1,170 @@
+---
+title: Your first aggregate
+description: "Part 2 of the series: a book as an aggregate, with events as schemas, commands that decide, typed errors, and a store that handles concurrent writers."
+---
+
+import { Code } from "@astrojs/starlight/components"
+import library from "../../../../../examples/blog/library.ts?raw"
+import { region } from "../../../source.ts"
+
+export const file = "examples/blog/library.ts"
+
+*Part 2 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+In [part 1](../why-cqrs-and-event-sourcing/) we wrote event sourcing by hand: a list of
+events, an `evolve` function that folds them into a state, and a `lend` function that
+decides on new events. This post turns that book into an *aggregate* with
+[effect-cqrs](../../), and runs commands against a store.
+
+effect-cqrs is built on [Effect 4](https://effect.website), so commands are effects with
+typed errors, and storage, clocks and configuration are services you provide. It needs
+Node 24 or later:
+
+```bash
+pnpm add effect-cqrs effect
+```
+
+All the code of this series lives in
+[`examples/blog`](https://github.com/davidnussio/effect-cqrs/tree/main/examples/blog), and
+its tests run every snippet you see here.
+
+## Events are schemas
+
+The events of part 1 were a TypeScript union. Here they are a `Schema.TaggedUnion`, which
+gives the same type plus a way to check, encode and decode values:
+
+<Code code={region(library, "book-events")} lang="ts" title={file} />
+
+The store keeps events as JSON, and the schema says how to get there and back. `dueOn` is a
+`DateTime` in your code and an ISO string in the database, and every event read back is
+checked against the schema. `BookEvent.cases.BookLent.make({ ... })` builds an event and
+fills in its `_tag`.
+
+The events now carry more than in part 1. A loan has an id, so that the same loan can be
+recognised when it comes again, and a due date. A return says whether it was late. Events
+are the only record of what happened, so it pays to put in them what you'll want to know
+later.
+
+## Refusals are errors with a type
+
+Part 1 refused with a thrown `Error`. Here each refusal is a class of its own:
+
+<Code code={region(library, "book-errors")} lang="ts" title={file} />
+
+A `Schema.TaggedError` is an error with a `_tag`, so the caller can tell them apart and
+handle each one. As we'll see in a moment, they also show up in the type of every command
+that can fail with them.
+
+## The aggregate
+
+An aggregate puts three things together: its events, a projection that folds them into its
+state, and its commands. Here is the book:
+
+<Code code={region(library, "book")} lang="ts" title={file} />
+
+Read it against part 1:
+
+- **`projection` is `evolve`**, split into one function per event. Each gets the state and
+  the event and returns the new state. If you add an event to `BookEvent` and forget its
+  projection, the aggregate doesn't compile.
+- **Each `.command` is a `decide`.** It has a payload schema, checked before the handler
+  runs, and a handler that gets the current state, the payload and the aggregate's id and
+  version. It returns one event, an array of events, or `[]` to record nothing, or fails
+  with one of the errors above.
+- **The state type is given explicitly**, as in `Aggregate.make<BookState>()`, so that
+  `status: "lent"` stays the literal `"lent"` rather than widening to `string`.
+- **Time comes from Effect's clock.** `DateTime.now` reads the `Clock` service, so a test
+  can stop or move time without mocking anything. We do that in part 5.
+- **`versions` comes in part 5**, when the book's first event changes shape.
+
+Look at `lend` once more. Lending a book for a loan it is already lent for returns `[]`
+instead of failing. A retry of the same request is then harmless, which part 4's saga will
+rely on.
+
+Handlers have a few rules, and they all follow from one idea: **a handler only decides.**
+
+- It may run more than once. A command that loses a race with another process reloads the
+  state and decides again, so a handler must not send an email or call a payment provider.
+  Reactions to events belong to read models and sagas, the subject of parts 3 and 4.
+- It must not change the state it receives. Recent states are kept in memory between
+  commands, so a projection or handler that mutates one corrupts the next command. Always
+  return new objects.
+
+## Running commands
+
+`AggregateService.make` turns the aggregate into a service with one typed function per
+command. We give it a name with `Context.Service`, so that the rest of the application can
+ask for `Books`, and provide an event store kept in memory:
+
+<Code code={region(library, "books-service")} lang="ts" title={file} />
+
+Now we can lend a book:
+
+<Code code={region(library, "first-commands")} lang="ts" title={file} />
+
+What happens inside `lend`:
+
+1. The payload is checked against the command's schema.
+2. The service loads the book's events from the store and folds them into its state. It
+   keeps recent states in memory, so the next command on `book-1` only reads what is new.
+3. The handler decides, and the new events are appended. The append says which version the
+   decision was based on, here 1, and the store refuses it if someone else wrote to
+   `book-1` in between.
+4. The command returns the events, the book's new version and the event's position in the
+   whole store, which part 3 uses.
+
+Commands on one book from one process take turns, so they never race. Writers in different
+processes race optimistically: the loser gets the store's refusal, reloads, decides again,
+and gives up with `ConcurrencyConflict` after a few tries.
+
+## Handling a refusal
+
+The second loan of the same copy is refused. The error is in the command's type, so
+`Effect.catchTag` knows which tags exist and what each carries:
+
+<Code code={region(library, "refused")} lang="ts" title={file} />
+
+Hover over `books.commands.lend` in an editor and its error channel reads
+`BookNotFound | BookAlreadyLent | AggregateService.CommandFailure`: the handler's own
+errors, plus what any command can fail with, such as `InvalidCommand` for a bad payload,
+`ConcurrencyConflict` for a race lost too often, and errors of the store. Leave one out of a
+`catchTag` and it stays in the type, where the caller can see it.
+
+## JSON from the outside
+
+`books.commands` is for TypeScript callers. An HTTP or RPC endpoint receives JSON it knows
+nothing about, and hands it to `dispatch`, which checks the envelope and decodes the payload
+with the command's schema before anything runs:
+
+<Code code={region(library, "dispatch")} lang="ts" title={file} />
+
+An ISO date in the JSON becomes a `DateTime`, and a payload that doesn't match fails with
+`InvalidCommand` listing what was wrong. The handler only ever sees valid input.
+
+## Reading
+
+`readModel` folds an aggregate's events into its state, and `history` lists them:
+
+<Code code={region(library, "read")} lang="ts" title={file} />
+
+`readModel` also takes a `finishTime`, which gives the state as it was at that moment: the
+time travel of part 1. `history` with `{ payload: true }` includes each event.
+
+To run all of this, provide the layer and run the effect:
+
+```ts
+Effect.runPromise(firstSteps.pipe(Effect.provide(BooksInMemory)))
+```
+
+## What we have
+
+Compared with the forty lines of part 1, the book now has validated input, typed refusals,
+a store with optimistic concurrency, and a clock it can be tested with. It still answers
+only one kind of question: what is the state of *this* book? To find every available book,
+we would have to load them all.
+
+That is what read models are for, in [part 3](../read-models/).
+
+The [commands guide](../../guides/commands/) covers what this post skipped: command ids
+for retries over the network, `expectedVersion` for edits based on what a user saw,
+metadata, snapshots and metrics.
