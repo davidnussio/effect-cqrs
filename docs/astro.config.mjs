@@ -199,7 +199,8 @@ export default defineConfig({
             "blog/your-first-aggregate",
             "blog/read-models",
             "blog/sagas",
-            "blog/tests-schema-changes-and-production"
+            "blog/tests-schema-changes-and-production",
+            "blog/the-saga-you-skipped"
           ]
         }
       ]

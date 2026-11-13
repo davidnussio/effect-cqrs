@@ -126,6 +126,10 @@ Alice's loan is confirmed. Bob's request takes a place, the saga finds the book 
 cancels his loan, which gives the place back. Neither aggregate ever broke its own rule,
 and neither had to know about the other.
 
+Why not let the member's command lend the book itself, and skip the saga?
+[The saga you skipped](../the-saga-you-skipped/) tries that, in two ways, and shows what
+happens to the data when a write fails in the middle.
+
 When Alice brings the book back, the second workflow closes her loan:
 
 <Code code={region(library, "return-run")} lang="ts" title={file} />

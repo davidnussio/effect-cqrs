@@ -1,0 +1,190 @@
+---
+title: The saga you skipped
+description: "Borrowing a book without a saga, in the two ways that look right: one aggregate that records another's events, and one that calls another's commands. What breaks, and what the saga does instead."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import library from "../../../../../examples/blog/library.ts?raw"
+import withoutSaga from "../../../../../examples/blog/without-saga.ts?raw"
+import { region } from "../../../source.ts"
+
+export const file = "examples/blog/without-saga.ts"
+export const libraryFile = "examples/blog/library.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+Sagas are the part of CQRS that teams skip most often. Aggregates and read models make
+sense on day one, while a saga looks like ceremony: a workflow, a trigger, an engine, just to
+lend a book? It is so much shorter to let the member's command do everything at once.
+
+This post takes that shortcut, twice, on the library of the series. Both versions compile,
+pass a happy-path test, and look fine in a demo. Then we look at what they do to the data,
+and at what the saga of [part 4](../sagas/) does differently. Every snippet runs in
+[`examples/blog/without-saga.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/without-saga.test.ts).
+
+The rules are the ones from the series: **a member may have at most three books at a time,
+and a copy can only be with one member.** The first rule is about the member, the second
+about the book.
+
+## Mistake 1: one aggregate records everything
+
+Borrowing changes the member and the book, so the member's command records both changes.
+The member's events get a `BookLent`, and `borrow` returns two events in one go:
+
+<Code code={region(withoutSaga, "greedy")} lang="ts" title={file} />
+
+It reads well. One command, one atomic append, both facts recorded together. Here is a
+morning at the library:
+
+<Code code={region(withoutSaga, "greedy-run")} lang="ts" title={file} />
+
+Alice and Bob both have the only copy of *Dune*. Nothing failed, so nothing told us.
+
+Look at where the rule "one member per copy" is checked in `borrow`: nowhere, and it can't
+be. The handler decides from the *member's* state, which holds the member's loans and
+nothing about the book. The member wrote a fact about the book, `BookLent`, without asking
+the book.
+
+And the event is in the wrong place. `BookLent` sits in Alice's stream and in Bob's, not in
+`book-1`'s, so the book's own state says it is on the shelf. Every read model that follows
+the book's events agrees with it. The library now has two versions of the truth, and the
+one in the book's stream is wrong.
+
+The usual patch is to read the book first, with `books.readModel(bookId)`, and refuse if it
+is lent. That only moves the problem: the book's stream still never gets the `BookLent`, so
+the read always says available. Even if it did, reading and then writing elsewhere is
+check-then-act: between the read and the member's append, another member can borrow the
+same copy, and no version check stops it, because the append goes to a different stream.
+
+<Aside>
+An aggregate is a consistency boundary. It can guarantee its rules because every change to
+its data goes through its own commands, in turn, checked against its own version. **A rule
+can only be enforced by the aggregate that owns the data the rule is about.**
+</Aside>
+
+## Mistake 2: one aggregate calls the other
+
+Fine, the book must decide for itself. So the member's command calls the book's command,
+and records its own event once the book has said yes:
+
+<Code code={region(withoutSaga, "calling")} lang="ts" title={file} />
+
+The book's events are back in the book's stream, and its rule runs:
+
+<Code code={region(withoutSaga, "calling-run")} lang="ts" title={file} />
+
+This version passes every test you'd think of writing first. The problem is in a test you
+wouldn't: one where something goes wrong *between* the two writes.
+
+`borrow` now writes to two streams: the book's, inside `lend`, then the member's, when the
+handler returns. Those are two appends. No transaction spans them, and in general none can:
+the two streams may live in different tables, databases or services. So let's lose the
+connection to the database at the worst moment, with a store that fails one append:
+
+<Code code={region(withoutSaga, "failing-once")} lang="ts" title={file} />
+
+Same code, same request, on that store:
+
+<Code code={region(withoutSaga, "calling-failure")} lang="ts" title={file} />
+
+The book is lent to Carol, for loan `loan-3`. Carol has no loan `loan-3`. The command
+failed, so the client tells Carol to try again later, and if she doesn't, the book stays
+lent to a loan that doesn't exist. Nothing in the system knows that a loan was half done,
+so nothing will come back to finish it or undo it.
+
+A lost connection is only one way to get there. Any of these does the same:
+
+- **The process stops** between the two appends: a crash, a deploy, a scaled-down pod.
+- **The member's append loses a race.** Another request for Carol got there first, so the
+  service reloads her state and runs the handler again, which calls `lend` again. Here
+  `lend` happens to be idempotent, so the second call records nothing. If the handler had
+  instead picked "the first free copy", the retry could lend a second one.
+- **The member's rules change their mind on the retry.** After the reload Carol has three
+  books, so the retry fails with `LoanLimitReached`, after the book was lent.
+
+There are quieter costs too. A handler is meant to only decide, because it can run more
+than once. The member module now depends on the books service, and an aggregate whose
+handler calls another aggregate's command can deadlock if that one ever calls back, since
+commands on one aggregate take turns. And when someone asks why a book is lent, the
+member's stream has no answer.
+
+## The same loan, with a saga
+
+The saga starts from a different question. Not "how do I write both changes at once?", which
+has no good answer, but "how do I make sure the process *finishes*?"
+
+The member only ever records its own decision. `requestLoan` checks the member's rule and
+appends `LoanRequested` to the member's stream, one atomic write to one aggregate. From that
+moment, the intention to borrow is a fact in the log, and the rest of the process can always
+be finished from it.
+
+Then the saga carries the data from one aggregate to the next. This is the workflow of
+[part 4](../sagas/):
+
+<Code code={region(library, "borrow")} lang="ts" title={libraryFile} />
+
+Look at what it does with the data. It reads the member id, the book id and the loan id from
+the member's event, and hands them to the *book's* command. The book decides with its own
+state and its own rule. The answer goes back to the *member*, as one of the member's own
+commands, `confirmLoan` or `cancelLoan`. Every change is still made by a command on the
+aggregate that owns the data. The saga owns no data, and changes none directly: it puts
+together what several aggregates know, and asks each one to do its part.
+
+Now the same failure, the same store, on the library of the series. This time the append
+that fails is the member's `LoanConfirmed`, the saga's last step:
+
+<Code code={region(withoutSaga, "saga-run")} lang="ts" title={file} />
+
+The loan settles: the book is lent to Carol, and Carol has the loan. Here is why:
+
+- **Each step is one command on one aggregate**, with one atomic append. A step either
+  happened or it didn't. There is no half of a step.
+- **A step that fails is tried again.** `Saga.command` retries a lost race or a store error a
+  few times, with a backoff that starts at 50 milliseconds, so a dropped connection costs a
+  short wait.
+- **Finished steps are not done again.** The workflow engine records the outcome of every
+  step. A run that restarts after a crash skips the book's `lend`, which already happened,
+  and goes on with the confirmation. With a durable engine, that holds across restarts of
+  the whole process.
+- **The commands are idempotent**, so a step that ran but whose outcome wasn't recorded can
+  run again harmlessly.
+- **The state in between is explicit.** Until the saga confirms or cancels it, Carol's loan
+  is `requested`. It holds one of her three places, so she can't over-borrow while the book
+  decides, and it shows that something is in progress. If a failure outlasts the retries,
+  the run stops there, and the loan stays visibly `requested` instead of silently missing.
+
+Here are the three versions side by side:
+
+| | One aggregate records both | One aggregate calls the other | Saga |
+| --- | --- | --- | --- |
+| The book's rule is checked | No | Yes | Yes |
+| The book's events are in its stream | No | Yes | Yes |
+| A failure between two writes | — | Leaves them disagreeing | Retried, then resumed |
+| Where the process is recorded | Nowhere | Nowhere | The member's events and the engine |
+
+## Rules of thumb
+
+- **One command, one aggregate, one append.** When a command needs to change a second
+  aggregate, the first one records what it decided, and something else, a saga, asks the
+  second.
+- **An event names its own aggregate's facts.** A member's event that says "the book was
+  lent" is a fact the member had no right to decide.
+- **A decision that needs another aggregate's state is a process, not a command.** Model the
+  steps in between, such as `requested`, in the state, because they are real: the book really
+  hasn't answered yet.
+- **If you can't live with the step in between, check the boundary.** A rule that must hold
+  instantly across two aggregates may mean they are one aggregate. That is a design
+  decision, and sometimes the right one. But "every loan in the library" is too big to be one
+  aggregate, so here the saga wins.
+
+What about a view model whose handler runs the book's command? It gets closer: the member
+records its intention, and the handler sees every event at least once. But it keeps no
+record of which steps ran or which branch it took, so it can't resume a half-done process or
+replay one the same way. The saga's trigger *is* a view model, plus the workflow engine that
+keeps that record.
+
+## Next
+
+The series shows the whole saga, its trigger and its wiring in [part 4](../sagas/), and the
+[sagas guide](../../guides/sagas/) covers compensations, timeouts and durable engines.
