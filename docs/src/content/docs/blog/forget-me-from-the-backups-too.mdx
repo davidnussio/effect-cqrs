@@ -1,0 +1,141 @@
+---
+title: Forget me, from the backups too
+description: "A member asks to be erased. Deleting her row is easy, and her name is still in every backup for months, ready to come back with the next restore. Crypto-shredding erases her from the backups you already have."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import forgetMe from "../../../../../examples/blog/forget-me.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/forget-me-from-the-backups-too.webp"
+
+export const file = "examples/blog/forget-me.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="A librarian drops a small key into a shredder, next to shelves of archive boxes that each stay closed with a padlock" />
+
+Alice moves away and asks the library to erase her personal data, as the GDPR allows. In a
+CRUD application it looks like one statement:
+
+```sql
+DELETE FROM members WHERE id = 'alice';
+```
+
+Then the questions start. The nightly backups of the last 30 days still have her row. So do
+the weekly ones kept for a year, the copy the analytics team loaded last month, and the dump a
+developer took to debug something. Six weeks later a disk fails, the database is restored
+from a backup, and Alice is back, with her name and address, as if she had never asked.
+
+Erasure in a system with backups is a known hard problem. This post shows how
+crypto-shredding solves it, and why the way
+[part 5](../tests-schema-changes-and-production/#forgetting-a-member) forgets a member was
+about backups all along. Every snippet runs in
+[`examples/blog/forget-me.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/forget-me.test.ts).
+
+## Why deleting isn't enough
+
+The usual answers each fall short somewhere:
+
+- **Delete from the backups too.** Most backups can't be edited: they are compressed
+  snapshots, often on write-once storage on purpose, so ransomware can't touch them.
+- **Re-apply deletions after a restore.** Keep a list of erased ids and delete them again
+  after every restore. It works if nobody forgets, and the list of who asked to be erased is
+  itself personal data.
+- **Keep backups short.** Thirty days of backups means thirty days during which a restore
+  brings Alice back. Regulators tend to accept it as long as it is documented. Users don't
+  always.
+
+And with event sourcing it looks worse: the log is never edited, so there is no row to delete
+in the first place.
+
+## Encrypt each person with their own key
+
+Crypto-shredding turns the problem around. Each personal field is stored encrypted, with a
+key that belongs to the person it describes. Erasing the person means destroying one key.
+Every copy of the data, in the store, in every backup, in every dump, becomes unreadable at
+once, without touching any of them.
+
+In the library, the member's name is marked as personal data in its event schema, as in
+[part 4](../sagas/):
+
+```ts title="examples/blog/library.ts"
+MemberJoined: { name: PersonalData.field(Schema.NonEmptyString, { redacted: "[forgotten]" }) },
+```
+
+The keys live in their own store, apart from the events:
+
+<Code code={region(forgetMe, "keys")} lang="ts" title={file} />
+
+Here it is in memory with a random master key, for the test. In production it is
+`PersonalData.layerSql()` on another database, with the master key from the environment or a
+KMS. What the event store holds is not Alice's name:
+
+<Code code={region(forgetMe, "joined")} lang="ts" title={file} />
+
+The subject and the ciphertext, and nothing that reads as Alice. Projections, handlers and
+read models never see this: `AggregateService` decrypts on the way in and encrypts on the way
+out, so to the code, `name` is a string.
+
+## Back up, then forget
+
+Last night, the backup ran:
+
+<Code code={region(forgetMe, "backup")} lang="ts" title={file} />
+
+This morning, Alice asked to be forgotten:
+
+<Code code={region(forgetMe, "forget")} lang="ts" title={file} />
+
+Her key is destroyed, and her name reads as the replacement given in the schema. Her events
+are all still there, and with them everything else they record: loans, dates, late returns.
+They still add up, and so does everything read models built from them.
+
+## Restore
+
+Then the bad day: the event store has to be restored from last night's backup, from before
+Alice asked:
+
+<Code code={region(forgetMe, "restore")} lang="ts" title={file} />
+
+Alice doesn't come back. The backup holds her name exactly as the store did, encrypted with a
+key that no longer exists. Bob, who never asked, is restored as he was. Nobody had to remember
+a list of erased ids or edit a backup. Every backup of the events ever taken lost Alice's
+name at the moment her key was destroyed.
+
+## The keys have backups too
+
+The problem moves to the key store, and it is a much smaller problem:
+
+- **Keep the key store's backups short.** A copy of the keys outlives a forget for as long
+  as it is kept, so the key store's backups should expire in days, not months. The events,
+  which are most of the data, can be kept as long as you need.
+- **Keep the keys apart from the events.** Another database or at least another client, with
+  its own permissions and its own backups. A dump of the events then holds no names, and a
+  dump of the keys holds no events.
+- **Wrap the keys with a master key** from the environment or, better, a KMS, so that even
+  the key store's backups are useless without it.
+
+<Aside type="caution">
+Crypto-shredding covers what goes through `AggregateService`. Read models store decrypted
+values, so a view model that kept a name erases it with `onForget`, as part 5 shows.
+Application logs, traces, exports and caches that saw a decrypted value keep it: don't log
+event payloads with personal fields.
+</Aside>
+
+## Rules of thumb
+
+- **Mark personal fields from the first version of an event.** Events stored before a field
+  was marked keep it in plaintext, because the log is never rewritten.
+- **Use opaque ids as subjects.** The subject id is stored next to each encrypted field, so
+  `alice` or a UUID, never an email address.
+- **Separate what you keep from who it was about.** Loans, amounts and dates are the
+  library's records. Names and addresses are Alice's. Crypto-shredding lets the first outlive
+  the second.
+- **Make backups of keys expire fast.** That is the one place where a forget can be undone.
+
+## Next
+
+The [personal data guide](../../guides/personal-data/) covers marking fields, key stores,
+master keys on a KMS, key rotation and what crypto-shredding doesn't cover.

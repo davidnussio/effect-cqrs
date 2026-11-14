@@ -59,7 +59,9 @@ const covers: Record<string, string> = {
   "the-bug-that-wont-reproduce":
     "In a quiet library workroom, a librarian carefully cuts a short strip of stamped loan cards from a long ribbon and lays it into a small glass test box on a workbench. A magnifying glass and a little brass tray of index cards sit beside the box.",
   "two-pods-two-emails":
-    "Two identical mail sorting desks side by side in the library's back office, each with a clerk putting the same letter into an envelope for the same member. Between the desks, a single brass key hangs on a hook, one clerk reaching for it while the other pauses."
+    "Two identical mail sorting desks side by side in the library's back office, each with a clerk putting the same letter into an envelope for the same member. Between the desks, a single brass key hangs on a hook, one clerk reaching for it while the other pauses.",
+  "forget-me-from-the-backups-too":
+    "In the library's archive room, a librarian drops a single small key into a paper shredder. Behind her, shelves of sealed archive boxes, each closed with a small padlock, stay neatly in place, untouched."
 }
 
 const args = process.argv.slice(2)

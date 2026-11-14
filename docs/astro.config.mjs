@@ -210,7 +210,8 @@ export default defineConfig({
             "blog/the-message-that-blocks-the-queue",
             "blog/what-it-looked-like-last-tuesday",
             "blog/the-bug-that-wont-reproduce",
-            "blog/two-pods-two-emails"
+            "blog/two-pods-two-emails",
+            "blog/forget-me-from-the-backups-too"
           ]
         }
       ]
