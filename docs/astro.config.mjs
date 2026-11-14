@@ -211,7 +211,8 @@ export default defineConfig({
             "blog/what-it-looked-like-last-tuesday",
             "blog/the-bug-that-wont-reproduce",
             "blog/two-pods-two-emails",
-            "blog/forget-me-from-the-backups-too"
+            "blog/forget-me-from-the-backups-too",
+            "blog/from-a-table-to-a-log"
           ]
         }
       ]

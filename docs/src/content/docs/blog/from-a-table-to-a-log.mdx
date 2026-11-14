@@ -1,0 +1,126 @@
+---
+title: From a table to a log
+description: "Every real project that adopts event sourcing already has data in tables. Import each row as the first event of its stream, say where it came from, don't invent the history you never had, and switch writes over one aggregate at a time."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import tableToLog from "../../../../../examples/blog/table-to-log.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/from-a-table-to-a-log.webp"
+
+export const file = "examples/blog/table-to-log.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="A librarian copies the rows of an old ledger, one card each, onto the start of a long ribbon of stamped loan cards that continues across the desk" />
+
+The series built its library from the first event. Nobody's real project starts there. The
+library already runs on a database, with a `books` table that has years of data in it, and
+the question after reading about event sourcing is not *how do I start* but *how do I get
+there from here*.
+
+This post moves the library's books from a table to a log, without stopping it and without
+pretending to know more than the table did. Every snippet runs in
+[`examples/blog/table-to-log.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/table-to-log.test.ts).
+
+## What the table knows
+
+<Code code={region(tableToLog, "rows")} lang="ts" title={file} />
+
+The table knows each book's current state: its title, its author, who has it and until when.
+It doesn't know when the book was added, how many times it has been lent, or who had it
+before Alice. That history was thrown away one `UPDATE` at a time, as
+[part 1](../why-cqrs-and-event-sourcing/) put it. No migration can bring it back.
+
+## Don't invent the past
+
+The tempting import writes the history the events *would* have had: a `BookAdded`, then a
+`BookLent` for Alice. Every read model would work at once, since they already handle those
+events.
+
+It is also false. The `BookAdded` would carry the date of the import, not the date the book
+was added. The `BookLent` would claim Alice borrowed the book at the moment of the import.
+Any read model that counts loans per month, or measures how long books stay out, would now
+count a spike of fake loans on import day. A log is valuable because it says what happened,
+and an import that makes things up spends that on day one.
+
+## Import what the table says
+
+Instead, the import is a fact of its own: on this date, the old system said this about the
+book. It gets an event that says exactly that:
+
+<Code code={region(tableToLog, "events")} lang="ts" title={file} />
+
+`BookImported` carries the row's state, the loan included if there is one, and nothing more.
+The book's projection starts from it like from any other first event, and the `importBook`
+command records it only for a book that has no stream yet:
+
+<Code code={region(tableToLog, "book")} lang="ts" title={file} />
+
+The import script reads the rows and sends one command per row, with metadata naming where
+the data came from:
+
+<Code code={region(tableToLog, "import")} lang="ts" title={file} />
+
+It can be run as often as needed. A book that has a stream is skipped, so a script that dies
+halfway through ten thousand rows is simply started again.
+
+## Carry on
+
+Once a book has a stream, it only changes through commands:
+
+<Code code={region(tableToLog, "run")} lang="ts" title={file} />
+
+Alice brings *Dune* back, and the book decides on it with the due date from the old table.
+*Emma* is lent to Bob. The book's history says where it came from: the first event is the
+import, with the script in its metadata, and from then on, what really happened.
+
+Read models need one more handler, for `BookImported`. Here is the catalog of the series with
+it:
+
+<Code code={region(tableToLog, "catalog")} lang="ts" title={file} />
+
+A read model like "loans per month" simply ignores it: an imported loan didn't start that
+month, and the event says so by not being a `BookLent`.
+
+## Switching over
+
+The import is the easy part. The hard part is the day the old code stops writing the table.
+
+- **One aggregate type at a time.** Move books first, members later. Commands on books go
+  through the new code, and the rest of the application keeps its tables until its turn.
+- **Stop writes to the table, then import.** Anything written to the table after the import
+  is lost to the log. Make the old code read-only for books, run the import, switch the
+  commands over, and turn writes back on through the new path. If that pause is too long,
+  import first, then import again for the rows that changed in between, as `BookImported`s
+  for new books and corrections for the others, then switch.
+- **Keep the old queries working** with a read model in the old table's shape, written by a
+  view model. Reports and other teams that read `books` don't notice the move, and can be
+  moved to better read models one by one.
+- **Keep the table** read-only for a while after the switch, to compare with the read
+  models. Drop it once they agree.
+
+<Aside>
+If the old database has an audit or history table, it can be imported too, as events of
+their own, such as `LoanRecordedBeforeImport`, with the dates it recorded. Read models then
+decide whether to trust them. The same rule holds: import what was recorded, and invent
+nothing.
+</Aside>
+
+## Rules of thumb
+
+- **An import is an event.** `BookImported` says what the old system knew, on which day,
+  from where. It doesn't pretend to be the history the table never kept.
+- **Make the import idempotent.** One event per row, skipped if the stream exists, so the
+  script can run again after any failure.
+- **Put the source in the metadata.** Every imported stream then says where it came from, and
+  an import with a bug can be found and [corrected](../the-wrong-event/).
+- **Move one aggregate type at a time**, and keep the old shape alive as a read model until
+  nobody reads it.
+
+## Next
+
+[Why CQRS and event sourcing](../why-cqrs-and-event-sourcing/) is where the series starts,
+and [the storage guide](../../guides/storage/) covers moving to SQLite or PostgreSQL.

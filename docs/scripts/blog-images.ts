@@ -61,7 +61,9 @@ const covers: Record<string, string> = {
   "two-pods-two-emails":
     "Two identical mail sorting desks side by side in the library's back office, each with a clerk putting the same letter into an envelope for the same member. Between the desks, a single brass key hangs on a hook, one clerk reaching for it while the other pauses.",
   "forget-me-from-the-backups-too":
-    "In the library's archive room, a librarian drops a single small key into a paper shredder. Behind her, shelves of sealed archive boxes, each closed with a small padlock, stay neatly in place, untouched."
+    "In the library's archive room, a librarian drops a single small key into a paper shredder. Behind her, shelves of sealed archive boxes, each closed with a small padlock, stay neatly in place, untouched.",
+  "from-a-table-to-a-log":
+    "At a long library desk, a librarian copies the rows of an old leather ledger, one card per row, onto the beginning of a long ribbon of stamped loan cards that continues across the desk and out of view. The old ledger lies open beside a small stack of finished cards."
 }
 
 const args = process.argv.slice(2)
