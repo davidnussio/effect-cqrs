@@ -10,11 +10,11 @@ It's an experiment, not a maintained library: the API may change, and
 [Limitations](#limitations) lists what the port leaves out.
 
 The documentation, with a walkthrough of the bank demo, is at
-https://davidnussio.github.io/effect-cqrs/, and its
-[blog](https://davidnussio.github.io/effect-cqrs/blog/) builds a lending library with it
+https://effect-cqrs.dambox.ch/, and its
+[blog](https://effect-cqrs.dambox.ch/blog/) builds a lending library with it
 over a series of posts, from the first event to a saga and a database. For coding agents, the package ships
 [LLMS.md](LLMS.md), a short guide to using it, and the documentation is also published as
-[llms.txt](https://davidnussio.github.io/effect-cqrs/llms.txt).
+[llms.txt](https://effect-cqrs.dambox.ch/llms.txt).
 
 Commands decide on events, events are the only source of truth, and read models
 are projections you can throw away and rebuild.
@@ -41,7 +41,7 @@ The example needs `node:sqlite` and runs TypeScript directly. `pnpm build` compi
 of the setup, and [SECURITY.md](SECURITY.md) says how to report a vulnerability.
 
 `pnpm ui` serves an interactive demo at http://localhost:5173, also published at
-https://davidnussio.github.io/effect-cqrs/demo/. It runs the framework
+https://effect-cqrs.dambox.ch/demo/. It runs the framework
 in the browser on the in-memory store: a bank whose accounts are aggregates, three
 view models, and a saga for transfers. Its devtools slow commands and projections
 down, pause and step the command bus, crash a projection, scrub through the log and

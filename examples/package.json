@@ -15,7 +15,7 @@
     "ui:bank": "vite bank-ui",
     "ui:shop": "vite shop-ui",
     "ui:workshop": "vite workshop/ui --port 5190",
-    "build:demos": "vite build bank-ui --base \"${DOCS_BASE:-/effect-cqrs}/demo/\" --outDir ../../docs/public/demo --emptyOutDir && vite build shop-ui --base \"${DOCS_BASE:-/effect-cqrs}/shop-demo/\" --outDir ../../docs/public/shop-demo --emptyOutDir",
+    "build:demos": "vite build bank-ui --base \"${DOCS_BASE:-}/demo/\" --outDir ../../docs/public/demo --emptyOutDir && vite build shop-ui --base \"${DOCS_BASE:-}/shop-demo/\" --outDir ../../docs/public/shop-demo --emptyOutDir",
     "build:workshop": "vite build workshop/ui",
     "build:workshop-server": "vite build --config workshop/server/vite.config.ts"
   },

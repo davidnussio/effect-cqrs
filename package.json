@@ -12,7 +12,7 @@
     "sqlite",
     "postgres"
   ],
-  "homepage": "https://davidnussio.github.io/effect-cqrs/",
+  "homepage": "https://effect-cqrs.dambox.ch/",
   "bugs": {
     "url": "https://github.com/davidnussio/effect-cqrs/issues"
   },

@@ -1,6 +1,6 @@
 /**
  * A Sätteri plugin that rewrites the relative links of a page to start from the site's
- * base, so `../commands/` on the sagas guide becomes `/effect-cqrs/guides/commands/`.
+ * base, so `../commands/` on the sagas guide becomes `/guides/commands/`.
  * The pages work either way, but `llms-full.txt` and the Markdown copy of a page don't
  * know which page a relative link was relative to.
  */

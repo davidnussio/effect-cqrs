@@ -30,10 +30,9 @@ jobs:
       - run: pnpm check
       - id: pages
         uses: actions/configure-pages@v6
-      # Pages serves the site under /<repository>/, so links and assets need that base.
+      # The site has its own domain, effect-cqrs.dambox.ch, set in the repository's Pages
+      # settings, so it builds for the root.
       - run: pnpm docs:build
-        env:
-          DOCS_BASE: ${{ steps.pages.outputs.base_path }}
       - uses: actions/upload-pages-artifact@v5
         with:
           path: docs/dist

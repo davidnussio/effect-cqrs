@@ -3,8 +3,8 @@
 effect-cqrs is CQRS and event sourcing for Effect 4. Commands decide on events, events are
 the only source of truth, and read models are projections that can be thrown away and
 rebuilt. This guide is for agents writing code that uses the package. The full
-documentation is at https://davidnussio.github.io/effect-cqrs/, and as one text file at
-https://davidnussio.github.io/effect-cqrs/llms-full.txt.
+documentation is at https://effect-cqrs.dambox.ch/, and as one text file at
+https://effect-cqrs.dambox.ch/llms-full.txt.
 
 It is built on Effect 4 (`effect@^4`), whose APIs differ from Effect 3's. Read Effect's own
 guide, `LLMS.md` in the Effect repository, before writing Effect code, and copy the patterns

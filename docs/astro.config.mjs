@@ -14,15 +14,16 @@ const root = fileURLToPath(new URL("..", import.meta.url))
 // doesn't export. The Markdown copy of each page uses it too, so the two agree.
 const llmsMarkdown = join(dirname(fileURLToPath(import.meta.resolve("starlight-llms-txt"))), "entryToSimpleMarkdown.ts")
 
-// GitHub Pages serves the site under /<repository>/. The workflow passes that path.
-const base = process.env.DOCS_BASE ?? "/effect-cqrs"
+// The site has its own domain, so it lives at the root. DOCS_BASE serves it under a path
+// instead, such as "/effect-cqrs", with no trailing slash.
+const base = process.env.DOCS_BASE || "/"
 
 // The fonts of the bank demo, so the site and the demo read as one thing.
 const fonts =
   "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
 
 export default defineConfig({
-  site: "https://davidnussio.github.io",
+  site: "https://effect-cqrs.dambox.ch",
   base,
   // Pages that moved, so old links still land. Astro adds the base to where a redirect
   // starts but not to where it goes.

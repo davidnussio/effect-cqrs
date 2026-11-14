@@ -28,7 +28,7 @@ and those in a database driver to that driver's project.
 `PersonalData` lets an append-only log forget a person: the fields marked with
 `PersonalData.field` are encrypted with a key that belongs to their subject, and
 `PersonalData.forget` destroys that key. The
-[personal data guide](https://davidnussio.github.io/effect-cqrs/guides/personal-data/)
+[personal data guide](https://effect-cqrs.dambox.ch/guides/personal-data/)
 explains how to use it. This section says what it protects and what it doesn't.
 
 ### How it works
