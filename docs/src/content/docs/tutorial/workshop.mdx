@@ -63,6 +63,20 @@ the money back:
   send twenty buyers after the last piece at once: one gets it, nineteen get their money back.
 </Aside>
 
+## Reading your own writes
+
+The screens read view models, which run a moment behind the commands. Every command the
+UI sends answers with the position of its last event, and the reads that follow it, the
+movements, the orders, the participants and the catalog, send it back in a `Read-After`
+header. [`CommandApi.ReadAfter`](../../guides/integration/#reading-your-own-writes) holds
+each of those reads until the view models have handled that position, so a participant
+who buys something sees the order at once, while the other phones catch up on their own a
+moment later.
+
+When the view models are more than five seconds behind, because the room is busy or a
+handler keeps failing, the server answers `503` with `NotCaughtUp`. The UI then reads
+again without the header, and shows a screen that is a little old rather than an error.
+
 ## The control room
 
 The server follows the log once and sends each event on two Server-Sent Events
