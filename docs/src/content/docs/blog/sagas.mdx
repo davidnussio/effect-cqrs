@@ -91,8 +91,10 @@ as in [part 3](../read-models/), whose handlers only start runs:
 <Code code={region(library, "trigger")} lang="ts" title={file} />
 
 Being a view model, it follows the log from its own checkpoint, catches up after downtime,
-and sees every event at least once. `Saga.start` returns as soon as the engine has the run,
-so a slow saga never holds up the trigger.
+and sees every event at least once. Its checkpoint is saved every 500 events, so after a
+crash the trigger can handle a few hundred events again and start their sagas a second
+time. `Saga.start` returns as soon as the engine has the run, so a slow saga never holds up
+the trigger.
 
 <Aside type="caution">
 At least once means a run can start again after a crash, and an activity cut off before its
