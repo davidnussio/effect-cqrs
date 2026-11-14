@@ -40,86 +40,83 @@ whose tests run it.
   href="tests-schema-changes-and-production/"
 />
 
-## More posts
+## When things go wrong
 
-<LinkCard
-  title="The saga you skipped"
-  description="Borrowing a book without a saga, in the two ways that look right, what breaks when a write fails between them, and what the saga does instead."
-  href="the-saga-you-skipped/"
-/>
-
-<LinkCard
-  title="Three ways to read"
-  description="A lent book read from its aggregate, from a read model as it is, and from a read model that waits for the command, in one process and over HTTP."
-  href="three-ways-to-read/"
-/>
+Bugs and incidents every team meets, on the same library: what they do to a database that
+keeps only the current state, and what the log changes. Each post stands alone, and its
+example runs in a test of its own.
 
 <LinkCard
   title="Fix the code, not the data"
   description="A loans table with a bug that loses loans, fixed in a database, where the lost rows stay lost, and in a read model, where a replay brings them back."
   href="fix-the-code-not-the-data/"
 />
-
 <LinkCard
   title="The wrong event"
   description="A bug in a command stores wrong due dates for a week. Why not to edit the log, hide it in an upcaster or patch the read models, and how a correction event fixes it."
   href="the-wrong-event/"
 />
-
 <LinkCard
   title="The double write"
   description="Store the loan and tell the broker, in either order, and see what each breaks on a bad day. With event sourcing the log is already the outbox."
   href="the-double-write/"
 />
-
 <LinkCard
   title="I clicked twice"
   description="A payment request times out and is sent again. Why disabling the button and a unique column fall short, and how a command id makes a retry return the first answer."
   href="i-clicked-twice/"
 />
-
 <LinkCard
   title="The form that overwrites"
   description="Two librarians edit the same record and the second save undoes the first. Commands that say what changed avoid most collisions, and an expected version catches the rest."
   href="the-form-that-overwrites/"
 />
-
 <LinkCard
   title="The message that blocks the queue"
   description="One event a handler can't read stops everything behind it. Stop and wait, or park it and carry on: when each is right, and how a parked event comes back after the fix."
   href="the-message-that-blocks-the-queue/"
 />
-
 <LinkCard
   title="What it looked like last Tuesday"
   description="A member was refused a book that is on the shelf today. The log shows the book as it was at that moment, and every event the request caused, across aggregates."
   href="what-it-looked-like-last-tuesday/"
 />
-
 <LinkCard
   title="The bug that won't reproduce"
   description="A member can't borrow anything and every test passes. Copy her stream from production into a fixture, and the bug report becomes a failing test."
   href="the-bug-that-wont-reproduce/"
 />
-
 <LinkCard
   title="Two pods, two emails"
   description="Scaled to two replicas, every member gets every email twice. Background work that reads the log must run in one place, and move when that place goes away."
   href="two-pods-two-emails/"
 />
 
+## Design choices
+
+Decisions that shape an event-sourced system before anything breaks: where a process lives,
+how to read, what to keep, and how to get there from the tables you already have.
+
+<LinkCard
+  title="The saga you skipped"
+  description="Borrowing a book without a saga, in the two ways that look right, what breaks when a write fails between them, and what the saga does instead."
+  href="the-saga-you-skipped/"
+/>
+<LinkCard
+  title="Three ways to read"
+  description="A lent book read from its aggregate, from a read model as it is, and from a read model that waits for the command, in one process and over HTTP."
+  href="three-ways-to-read/"
+/>
 <LinkCard
   title="Forget me, from the backups too"
   description="A member asks to be erased, and her name is still in every backup, ready to come back with the next restore. Crypto-shredding erases her from the backups you already have."
   href="forget-me-from-the-backups-too/"
 />
-
 <LinkCard
   title="From a table to a log"
   description="Every project that adopts event sourcing already has data in tables. Import each row as the first event of its stream, invent no history, and switch writes over one aggregate at a time."
   href="from-a-table-to-a-log/"
 />
-
 <LinkCard
   title="Change the rules, keep the history"
   description="The loan period changes and every open loan's due date moves with it. Store the decisions rules made, run rules only when deciding, and never in a projection."

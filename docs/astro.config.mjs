@@ -188,32 +188,47 @@ export default defineConfig({
             { label: "API", collapsed: true, items: [{ autogenerate: { directory: "reference/api" } }] }
           ]
         },
-        // A series of posts on the lending library of examples/blog. The index and the
-        // last post set their own previous and next links, so the series stands apart
-        // from the API reference before it.
+        // Posts on the lending library of examples/blog: the series first, then posts that
+        // each take one problem. The index and the last post set their own previous and next
+        // links, so the blog stands apart from the API reference before it.
         {
           label: "Blog",
           items: [
             { slug: "blog", label: "All posts" },
-            "blog/why-cqrs-and-event-sourcing",
-            "blog/your-first-aggregate",
-            "blog/read-models",
-            "blog/sagas",
-            "blog/tests-schema-changes-and-production",
-            "blog/the-saga-you-skipped",
-            "blog/three-ways-to-read",
-            "blog/fix-the-code-not-the-data",
-            "blog/the-wrong-event",
-            "blog/the-double-write",
-            "blog/i-clicked-twice",
-            "blog/the-form-that-overwrites",
-            "blog/the-message-that-blocks-the-queue",
-            "blog/what-it-looked-like-last-tuesday",
-            "blog/the-bug-that-wont-reproduce",
-            "blog/two-pods-two-emails",
-            "blog/forget-me-from-the-backups-too",
-            "blog/from-a-table-to-a-log",
-            "blog/change-the-rules-keep-the-history"
+            {
+              label: "CQRS with effect-cqrs",
+              items: [
+                { slug: "blog/why-cqrs-and-event-sourcing", label: "1. Why CQRS and event sourcing" },
+                { slug: "blog/your-first-aggregate", label: "2. Your first aggregate" },
+                { slug: "blog/read-models", label: "3. Read models you can throw away" },
+                { slug: "blog/sagas", label: "4. Sagas" },
+                { slug: "blog/tests-schema-changes-and-production", label: "5. Tests, schema changes and production" }
+              ]
+            },
+            {
+              label: "When things go wrong",
+              items: [
+                "blog/fix-the-code-not-the-data",
+                "blog/the-wrong-event",
+                "blog/the-double-write",
+                "blog/i-clicked-twice",
+                "blog/the-form-that-overwrites",
+                "blog/the-message-that-blocks-the-queue",
+                "blog/what-it-looked-like-last-tuesday",
+                "blog/the-bug-that-wont-reproduce",
+                "blog/two-pods-two-emails"
+              ]
+            },
+            {
+              label: "Design choices",
+              items: [
+                "blog/the-saga-you-skipped",
+                "blog/three-ways-to-read",
+                "blog/forget-me-from-the-backups-too",
+                "blog/from-a-table-to-a-log",
+                "blog/change-the-rules-keep-the-history"
+              ]
+            }
           ]
         }
       ]
