@@ -200,7 +200,8 @@ export default defineConfig({
             "blog/read-models",
             "blog/sagas",
             "blog/tests-schema-changes-and-production",
-            "blog/the-saga-you-skipped"
+            "blog/the-saga-you-skipped",
+            "blog/three-ways-to-read"
           ]
         }
       ]

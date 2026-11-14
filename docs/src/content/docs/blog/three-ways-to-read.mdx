@@ -1,0 +1,134 @@
+---
+title: Three ways to read
+description: "A lent book read from its aggregate, from a read model as it is, and from a read model that waits for the command. Which one is current, when to use each, and how a browser picks one over HTTP."
+next: false
+---
+
+import { Code } from "@astrojs/starlight/components"
+import reading from "../../../../../examples/blog/reading.ts?raw"
+import { region } from "../../../source.ts"
+
+export const file = "examples/blog/reading.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+Alice borrows *Dune* at the front desk, and the catalog on the screen still shows it on the
+shelf. She reloads, and it's gone. Nothing is broken: the catalog is a read model, and read
+models run a moment behind the commands.
+
+"CQRS means eventual consistency" is repeated so often that it sounds like a rule. It isn't.
+Delay comes from reading something that is updated *after* the write, and that is one way
+of reading among several. In effect-cqrs a read is one of three kinds, and each query picks
+the one it needs. Every snippet below runs in
+[`examples/blog/reading.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/reading.test.ts).
+
+## 1. The aggregate: always current
+
+The first way doesn't use a read model at all. It folds the book's own events, as
+[part 2](../your-first-aggregate/#reading) did:
+
+<Code code={region(reading, "aggregate")} lang="ts" title={file} />
+
+`readModel` reads the store, from the state the service remembers onwards, so it sees every
+event that was appended, by this process or another. It is the same state the next command
+on the book will be decided on. It can't be behind, because there is nothing in between to
+fall behind.
+
+The cost is that it answers one question only: the state of *this* book, by its id. It
+can't list the available books or find Alice's loans without loading every book. For the
+page of one thing, though, such as a book, an order or an account, it is often all you
+need. That is also the page a user tends to land on right after acting on it.
+
+## 2. A read model as it is: a moment behind
+
+The catalog of [part 3](../read-models/) is a view model. It handles events in a fiber of
+its own, after the command has stored them:
+
+<Code code={region(reading, "as-it-is")} lang="ts" title={file} />
+
+Right after the command, the view model may or may not have run. The gap is usually
+milliseconds. A slow handler, a restart or a handler that keeps failing makes it longer,
+and `viewModels.status` says how far each view model has got.
+
+For most reads that doesn't matter. Nobody can tell whether the catalog they just opened is
+twenty milliseconds old, and a search, a dashboard or a monthly total is no different. This
+is the cheapest read there is: no fold, no wait, data already in the shape of the page.
+
+## 3. A read model after the command: your own writes
+
+The trouble is only with the person who just acted. Alice lends a book, and the next screen
+she sees is the catalog. She knows what she did, and expects to see it.
+
+Every command returns the position of its last event in the store. `caughtUp` waits until
+every view model of the process has handled that position:
+
+<Code code={region(reading, "after-the-command")} lang="ts" title={file} />
+
+The catalog now includes the return, and every command stored before it. Commands that
+others ran after it may be there or not. This is "read your own writes", not a lock on the
+library, and it only costs a wait for the one read that needs it.
+
+## Over HTTP
+
+In an application, the command and the query are two requests, often from a browser. The
+position has to make the trip between them. Here is the library as an HTTP API, the book's
+commands from [`CommandApi.group`](../../guides/integration/#http) next to a catalog
+endpoint of our own:
+
+<Code code={region(reading, "api")} lang="ts" title={file} />
+
+`CommandApi.ReadAfter` is middleware for the query endpoints. It needs the view models, and
+the handlers need the catalog:
+
+<Code code={region(reading, "server")} lang="ts" title={file} />
+
+Every command answers with its position, in the body and in an `Event-Position` header. A
+query that sends it back in a `Read-After` header waits until the view models have handled
+it. Here is a client, the way a browser would call it:
+
+<Code code={region(reading, "client")} lang="ts" title={file} />
+
+The client chooses, request by request. The book's page reads the aggregate, and is always
+current. The catalog page after Alice's loan sends the position, and includes the loan.
+Someone who is just browsing the catalog sends nothing, and gets an answer at once.
+
+A few details matter in production:
+
+- **A timeout.** A view model that is stalled on a failing handler would hold the request
+  forever. After `timeout` the request is answered with `503` and `NotCaughtUp`, and the
+  client can try again, or read without the header and accept an older answer.
+- **One process.** `ReadAfter` waits for the view models of the process that serves the
+  request. With several replicas, send the read to one that runs the view models it needs.
+- **Browsers on another origin** only see `Event-Position` if the server lists it in
+  `Access-Control-Expose-Headers`.
+
+## Why not update the read model with the command?
+
+Some CQRS setups update their read tables in the same transaction as the write, so a read is
+never behind. effect-cqrs doesn't, on purpose.
+
+- **Every command would wait for every read model.** A slow handler would slow down
+  loans, and a failing one would refuse them. A broken catalog should show an old catalog,
+  not stop the library.
+- **Read models are rebuilt from the log.** A replay, or a new view model that starts from
+  the first event, runs the same handlers on the same events. A projection that also runs
+  inside commands is a second path that has to give exactly the same result.
+- **They live elsewhere.** A read model in a search index or another database can't join a
+  transaction with the event store.
+
+When a screen must be exact, it reads the aggregate. When it must include the user's own
+change, it waits for the position. Either way the cost falls on the one read that needs it,
+not on every command.
+
+## Which one when
+
+| The question | Read | Up to date |
+| --- | --- | --- |
+| What is the state of this book? | `readModel(id)`, `GET /book/:id` | Always |
+| The catalog, right after I lent a book | The catalog after `caughtUp(position)`, or with `Read-After` | Includes my loan |
+| Which books are on the shelf? | The catalog as it is | A moment behind |
+
+The read side is not one property of the system, fixed when it was designed. It is a choice
+each query makes, and the three choices sit side by side in one application. The
+[view models guide](../../guides/view-models/#reading-your-own-writes) and the
+[HTTP guide](../../guides/integration/#reading-your-own-writes) have the reference.

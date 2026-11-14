@@ -46,7 +46,9 @@ model over the same events:
 <Code code={region(library, "loans")} lang="ts" title={file} />
 
 Read models are cheap. Each one serves its queries and nothing else, so there is no
-compromise between the catalog page and the member page, and no join at read time.
+compromise between the catalog page and the member page, and no join at read time. They
+also don't share code: changing how the catalog stores a book can't break the loans, and a
+read model that needs a search index or raw SQL can have one without the others noticing.
 
 Both view models are written so that handling an event twice changes nothing: setting a
 map entry or adding to a set again leaves them as they were. That matters, because
@@ -89,8 +91,11 @@ until every view model has handled it:
 
 <Code code={region(library, "caught-up")} lang="ts" title={file} />
 
-In an HTTP API you can return the position to the client, and let the next read wait for
-it. Without a position, `caughtUp()` waits for the latest event in the store.
+Without a position, `caughtUp()` waits for the latest event in the store. Over HTTP,
+`CommandApi` answers every command with the position in an `Event-Position` header, and
+`CommandApi.ReadAfter` makes a query wait for the one a client sends back.
+[Three ways to read](../three-ways-to-read/) puts it together with the other two ways of
+reading a book.
 
 ## Throw it away
 

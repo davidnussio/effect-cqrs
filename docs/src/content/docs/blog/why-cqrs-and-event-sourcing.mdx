@@ -98,13 +98,21 @@ CQRS, Command Query Responsibility Segregation, splits the two:
   a count of loans per month. They are projections of the log, so you can throw one away
   and rebuild it, or add a new one that starts from the first event ever written.
 
+The two ideas are separate, and each works without the other. Plenty of applications do
+CQRS on ordinary tables: commands update rows, and queries read a view or a second table,
+often in the same database, with no queue in between. What CQRS asks for is that the code
+that changes things and the code that answers questions don't share a model. effect-cqrs
+does both because they fit: once the log is the truth, every read model is a projection of
+it, which you can rebuild, change or add at any time without migrating data.
+
 This is the path a command takes in effect-cqrs, and the outline of the next three posts:
 
 <Flow />
 
 The price is that the read side is a moment behind the write side. After a command, a read
 model may not have seen its events yet. Part 3 shows how to wait for your own write when
-you need to.
+you need to, and [Three ways to read](../three-ways-to-read/) when you don't need a read
+model at all.
 
 ## What the forty lines leave out
 
@@ -128,7 +136,7 @@ needs more, and each of these is what the rest of the series is about:
 ## When not to use it
 
 Event sourcing is not free. You trade a table you can query with SQL for a log plus read
-models you write yourself, and the read side is eventually consistent. Events are a
+models you write yourself, and most reads run a moment behind the writes. Events are a
 contract with your own future, so their shape needs more care than a column does.
 
 It pays off where the history *is* the domain, such as loans, accounts, orders, bookings or

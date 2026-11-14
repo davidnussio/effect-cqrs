@@ -113,6 +113,11 @@ What happens inside `lend`:
 4. The command returns the events, the book's new version and the event's position in the
    whole store, which part 3 uses.
 
+The result is a receipt: what was recorded, and where in the log. It is not the book as a
+screen would show it. That is a question, and questions go to `readModel` or to the read
+models of part 3. Keeping the two apart is Bertrand Meyer's command-query separation, the
+idea CQRS takes its name from: asking a question should not change the answer.
+
 Commands on one book from one process take turns, so they never race. Writers in different
 processes race optimistically: the loser gets the store's refusal, reloads, decides again,
 and gives up with `ConcurrencyConflict` after a few tries.
