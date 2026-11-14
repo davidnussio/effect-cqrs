@@ -202,7 +202,8 @@ export default defineConfig({
             "blog/tests-schema-changes-and-production",
             "blog/the-saga-you-skipped",
             "blog/three-ways-to-read",
-            "blog/fix-the-code-not-the-data"
+            "blog/fix-the-code-not-the-data",
+            "blog/the-wrong-event"
           ]
         }
       ]

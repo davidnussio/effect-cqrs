@@ -1,7 +1,6 @@
 ---
 title: Fix the code, not the data
 description: "A loans table with a bug that loses loans, fixed twice: in a database, where the fix stops the damage and the lost rows stay lost, and in a read model, where a replay brings them back."
-next: false
 ---
 
 import { Aside, Code } from "@astrojs/starlight/components"
@@ -117,7 +116,7 @@ A replay rebuilds read models. It doesn't change what the commands decided.
 - **A bug on the write side stays in the log.** If `lend` had stored the wrong member, the
   event says so for good, and replays reproduce it faithfully. That is fixed forward: a
   command that records the correction as a new event, which read models handle like any
-  other. An event whose *shape* is wrong is read through an upcaster, as in
+  other, as [The wrong event](../the-wrong-event/) shows. An event whose *shape* is wrong is read through an upcaster, as in
   [part 5](../tests-schema-changes-and-production/).
 - **What an event concludes is fixed with it.** The library's `BookReturned` carries `late`,
   worked out by `returnBook` when the book came back. If the rule for lateness had a bug,

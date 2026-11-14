@@ -1,0 +1,139 @@
+---
+title: The wrong event
+description: "A bug in a command stores wrong due dates for a week. A replay can't fix it, and editing the log would hide it, so the fix records a correction: one more event, with its reason."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import wrongEvent from "../../../../../examples/blog/wrong-event.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/the-wrong-event.webp"
+
+export const file = "examples/blog/wrong-event.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="A librarian pins a new, clearly marked correction card next to an older loan card on a ribbon of cards, without removing the old one" />
+
+[Fix the code, not the data](../fix-the-code-not-the-data/) ended on a warning: a replay
+rebuilds read models, and it can't change what the commands decided. A bug in a view model
+is fixed by its own handlers. A bug in a command writes wrong facts into the log, and the
+log is never edited.
+
+This post is about that bug: what you do when the log itself says something false. Every
+snippet runs in
+[`examples/blog/wrong-event.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/wrong-event.test.ts).
+
+## A week of short loans
+
+A release changes how the loan period is written, and the new line says hours where it
+meant days. The library's `lend` command is the one from the series, with the period made a
+parameter so the example can run both versions:
+
+<Code code={region(wrongEvent, "book")} lang="ts" title={file} />
+
+For a week, every `BookLent` says the book is due 21 hours after it went out. That is not a
+read model getting it wrong. The command decided it, the event recorded it, and the reminder
+job reads it from a read model that does exactly what it should:
+
+<Code code={region(wrongEvent, "open-loans")} lang="ts" title={file} />
+
+Alice borrows *Dune* during the bad week. The fix is deployed, and Bob borrows
+*Neuromancer* after it:
+
+<Code code={region(wrongEvent, "with-the-bug")} lang="ts" title={file} />
+
+<Code code={region(wrongEvent, "after-the-fix")} lang="ts" title={file} />
+
+Bob's loan is right. Alice's is still due the day after she took it, and two days later the
+reminder job tells her she is late. Fixing the code stopped new damage. It didn't touch the
+event that says Alice's book was due on Tuesday, and no replay will, because a replay reads
+that event as faithfully as the first time.
+
+## Three things not to do
+
+**Don't edit the event.** It is tempting: one `UPDATE` on the events table and the date is
+right. But the log is what everything else trusts to never change. Read models have already
+handled the old value and won't see the new one, since their checkpoints are past it. An
+outbox may have published it to another service. A test or an audit that compares the log
+with what happened now finds the past rewritten, with no trace of who did it or why.
+
+**Don't hide it in an upcaster.** An upcaster reads events of an old schema version as the
+current shape, as in [part 5](../tests-schema-changes-and-production/). The week's events
+have the same version as every other `BookLent`, so an upcaster can't even tell them apart.
+And if you found a way, the fix would live in the read path forever, invisible in the log,
+changing what the aggregate decided after the fact. An upcaster is for a change of *shape*,
+true of every old event. This is a change of *value*, true of some.
+
+**Don't patch the read models.** Correcting the due date in the reminder job's table fixes
+the reminders until the next replay brings the 21 hours back. And the book itself still
+believes it: its own state, folded from the same event, has the wrong `dueOn`, so when Alice
+returns it on day ten, `returnBook` marks her late.
+
+## Record the correction
+
+The log is a record of what happened, and something did happen: the library found a mistake
+and fixed it. That is a fact like any other, so it gets an event:
+
+<Code code={region(wrongEvent, "events")} lang="ts" title={file} />
+
+The book handles it like any other event. Its projection replaces the due date, and the
+`correctDueDate` command in the aggregate above checks that the loan is the one the book is
+on, and records nothing if the date is already right, so the script that sends it can run
+twice.
+
+The script finds the loans to correct from the read model: every open loan due sooner than
+21 days after it began came from the bug. Then it sends one command per loan, with the
+reason:
+
+<Code code={region(wrongEvent, "correct")} lang="ts" title={file} />
+
+Everything that follows the log picks the correction up in order. The reminder job's read
+model handles `DueDateCorrected` and moves the date. The book's own state has the new date,
+so when Alice brings *Dune* back on day ten, the test shows `returnBook` deciding she is on
+time. And `history` tells the whole story: lent with the wrong date, then corrected, by
+which command, with which reason.
+
+<Aside>
+A correction is a command like any other, so it gets everything commands get: validation,
+the aggregate's rules and a version check against concurrent writers. `Metadata.withMetadata`
+adds what the command carries beside its payload, here the script that ran it, and every
+event it writes records it. Put the user who ran the script there too, and the log says who
+corrected it.
+</Aside>
+
+## What a table would have done
+
+With a `loans` table, the fix is an `UPDATE`:
+
+```sql
+UPDATE loans SET due_on = lent_on + interval '21 days'
+WHERE lent_on BETWEEN '2026-11-02' AND '2026-11-09' AND returned = false;
+```
+
+The rows are right afterwards. Everything else is gone: that Alice's row ever said Tuesday,
+that she got a reminder because of it, that anyone changed it. If she disputes a fine next
+month, the table says she was never late and has no idea why she was told so. Unless
+someone built an audit table beforehand, the database now holds a cleaner past than the one
+that happened.
+
+## Rules of thumb
+
+- **A wrong fact is corrected by a new fact.** Name it after what happened, `DueDateCorrected`
+  rather than `BookLentAgain`, and give it a reason.
+- **Make the correction a command on the aggregate.** It goes through the same rules and the
+  same version check as everything else, and the aggregate's state learns from it.
+- **Find what to correct with a read model, fix it with commands.** The query can be thrown
+  away after the script runs. The corrections stay.
+- **Design for the corrections you will need.** A domain where people make mistakes, which
+  is every domain, needs a way to say "that was wrong". Events like `DueDateCorrected`,
+  `PaymentReversed` or `AddressAmended` are part of the model, not an embarrassment.
+- **Some consequences are already out.** Alice got the reminder. A view model or a saga that
+  handles `DueDateCorrected` can send her an apology, which a silent `UPDATE` never could.
+
+## Next
+
+[Fix the code, not the data](../fix-the-code-not-the-data/) covers the other half: bugs in
+read models, which a replay repairs. The [aggregates guide](../../guides/aggregates/) covers
+commands, projections and history.
