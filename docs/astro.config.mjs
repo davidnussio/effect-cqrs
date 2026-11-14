@@ -52,6 +52,16 @@ export default defineConfig({
             title: "effect-cqrs blog",
             href: `${base.replace(/\/$/, "")}/blog/rss.xml`
           }
+        },
+        // Page views, counted by GoatCounter without cookies. It skips localhost, so a dev
+        // server or a preview counts nothing.
+        {
+          tag: "script",
+          attrs: {
+            "data-goatcounter": "https://effect-cqrs.goatcounter.com/count",
+            async: true,
+            src: "https://gc.zgo.at/count.js"
+          }
         }
       ],
       customCss: ["./src/styles/custom.css"],
