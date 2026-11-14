@@ -3,7 +3,7 @@ import { type FormEvent, useCallback, useEffect, useState } from "react"
 import type { Me, Session } from "../../api.ts"
 import { maxDeposit } from "../../domain/account.ts"
 import type { LedgerEntry, Participant } from "../../domain/bank.ts"
-import { call, type Outcome, session } from "./client.ts"
+import { call, type Outcome, read, session } from "./client.ts"
 import { useLiveRefresh, useRoom } from "./live.ts"
 import { Avatar, Button, Card, credits, inputClass } from "./ui.tsx"
 
@@ -15,11 +15,10 @@ interface Data {
 
 /** Reads the account, its movements and the participants, waiting for `position` when given. */
 const load = async (position?: number): Promise<Outcome<Data>> => {
-  const query = position === undefined ? {} : { position }
   const [me, ledger, participants] = await Promise.all([
     call((client) => client.me.get()),
-    call((client) => client.me.ledger({ query })),
-    call((client) => client.bank.participants({ query }))
+    read((client, headers) => client.me.ledger({ headers }), position),
+    read((client, headers) => client.bank.participants({ headers }), position)
   ])
   if (!me.ok) return me
   if (!ledger.ok) return ledger

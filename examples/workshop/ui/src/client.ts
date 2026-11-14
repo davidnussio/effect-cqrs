@@ -6,7 +6,7 @@ import { type Duration, Effect, Exit, Layer, Predicate } from "effect"
 import { FetchHttpClient, HttpClientRequest } from "effect/http"
 import { HttpApiClient, HttpApiMiddleware } from "effect/http-api"
 import { useSyncExternalStore } from "react"
-import { Api, Authorization, type Health, type Session } from "../../api.ts"
+import { Api, Authorization, type Health, readAfter, type Session } from "../../api.ts"
 
 /**
  * Where the server is: `VITE_API_URL`, or `http://localhost:3000` without it. `/`
@@ -84,7 +84,8 @@ const messages: Record<string, (error: Record<string, unknown>) => string> = {
   Unauthorized: (error) => `Sessione non valida: ${error.message}`,
   HttpClientError: () => "Il server non risponde",
   SchemaError: () => "Valore non valido",
-  TimeoutError: () => "Il server non ha risposto in tempo"
+  TimeoutError: () => "Il server non ha risposto in tempo",
+  NotCaughtUp: () => "Il server è rimasto indietro: riprova tra poco"
 }
 
 const describe = (error: unknown): { tag: string; message: string } => {
@@ -112,6 +113,22 @@ export const call = async <A, E>(
   const { message, tag } = describe(failure?._tag === "Fail" ? failure.error : exit.cause)
   if (tag === "Unauthorized") session.set(undefined)
   return { ok: false, tag, message }
+}
+
+/** The headers of a read: `Read-After` with the position to wait for, or none. */
+export type ReadHeaders = ReturnType<typeof readAfter>
+
+/**
+ * Reads after `position`, so the screen shows the caller's own writes. When the view
+ * models don't get there in time the server answers `NotCaughtUp`, and the read runs
+ * again without waiting: an older screen beats an error.
+ */
+export const read = async <A, E>(
+  f: (client: Client, headers: ReadHeaders) => Effect.Effect<A, E>,
+  position?: number
+): Promise<Outcome<A>> => {
+  const outcome = await call((client) => f(client, readAfter(position)))
+  return !outcome.ok && outcome.tag === "NotCaughtUp" ? call((client) => f(client, {})) : outcome
 }
 
 // ---------------------------------------------------------------------------

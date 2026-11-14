@@ -4,7 +4,7 @@ import { EventStore, PersonalData } from "effect-cqrs"
 import { HttpClientRequest, HttpServer } from "effect/http"
 import { HttpApiMiddleware, HttpApiTest } from "effect/http-api"
 import { TestClock } from "effect/testing"
-import { Api, Authorization } from "./api.ts"
+import { Api, Authorization, readAfter } from "./api.ts"
 import { forgotten } from "./domain/account.ts"
 import {
   Bot,
@@ -150,19 +150,19 @@ describe("workshop", () => {
         assert.strictEqual(nobody._tag, "RecipientNotFound")
 
         // The saga credits Bob after the command returns: wait for the view models to see it.
-        const ledger = yield* asAlice.me.ledger({ query: { position: sent.position } })
+        const ledger = yield* asAlice.me.ledger({ headers: readAfter(sent.position) })
         assert.deepStrictEqual(ledger.map(({ amount, type }) => [type, amount]), [
           ["TransferSent", -30],
           ["MoneyDeposited", 100]
         ])
         const credited = yield* waitFor(asBob.me.get(), (me) => me.balance === 30)
         assert.strictEqual(credited.balance, 30)
-        const bobLedger = yield* asBob.me.ledger({ query: {} })
+        const bobLedger = yield* asBob.me.ledger({ headers: {} })
         assert.deepStrictEqual(bobLedger.map(({ counterparty, type }) => [type, counterparty]), [
           ["TransferReceived", alice.user.id]
         ])
 
-        const participants = yield* asBob.bank.participants({ query: {} })
+        const participants = yield* asBob.bank.participants({ headers: {} })
         assert.deepStrictEqual(participants.map(({ balance, nickname }) => [nickname, balance]), [
           ["Alice", 70],
           ["Bob", 30]
@@ -183,7 +183,7 @@ describe("workshop", () => {
         assert.strictEqual(refused._tag === "Unauthorized" && refused.message, "The account is closed")
 
         const asBob = yield* clientAs(bob.token)
-        const participants = yield* asBob.bank.participants({ query: { position: closed.position } })
+        const participants = yield* asBob.bank.participants({ headers: readAfter(closed.position) })
         const row = participants.find(({ id }) => id === alice.user.id)
         assert.deepStrictEqual(row && { nickname: row.nickname, status: row.status, balance: row.balance }, {
           nickname: forgotten,
@@ -292,13 +292,13 @@ describe("workshop shop", () => {
           payload: { productId: "cuffie", quantity: 1, backorder: true }
         })
         yield* waitLive(
-          client.me.orders({ query: { position } }),
+          client.me.orders({ headers: readAfter(position) }),
           (orders) => orders.some((order) => order.id === orderId && order.status === "backordered")
         )
         placed.push(orderId)
       }
       const [first, second, third] = placed as [string, string, string]
-      const queued = yield* buyers[0]!.client.shop.products({ query: {} })
+      const queued = yield* buyers[0]!.client.shop.products({ headers: {} })
       assert.deepStrictEqual(queued.find((p) => p.id === "cuffie")?.queue.map((w) => w.orderId), placed)
 
       const refused = yield* Effect.flip(buyers[0]!.client.admin.restock({
@@ -334,7 +334,7 @@ describe("workshop shop", () => {
         payload: { productId: "caffe", quantity: 1, backorder: false }
       })
       const orders = yield* waitLive(
-        poor.client.me.orders({ query: { position } }),
+        poor.client.me.orders({ headers: readAfter(position) }),
         (list) => list.some((order) => order.id === orderId && settled(order.status))
       )
       assert.deepStrictEqual(orders.map(({ reason, status }) => [status, reason]), [[
@@ -352,7 +352,7 @@ describe("workshop shop", () => {
       const orders = yield* Orders
       yield* waitLive(orders.readModel(orderId), (state) => state.status === "backordered")
       // The view the close reads from has to know the order is waiting.
-      yield* waitLive(leaving.client.me.orders({ query: {} }), (list) => list[0]?.status === "backordered")
+      yield* waitLive(leaving.client.me.orders({ headers: {} }), (list) => list[0]?.status === "backordered")
 
       yield* leaving.client.me.close()
       const accounts = yield* Accounts
@@ -531,7 +531,10 @@ describe("workshop live", () => {
       const { position } = yield* anna.client.shop.order({
         payload: { productId: "caffe", quantity: 2, backorder: false }
       })
-      yield* waitLive(anna.client.me.orders({ query: { position } }), (list) => list[0]?.status === "fulfilled")
+      yield* waitLive(
+        anna.client.me.orders({ headers: readAfter(position) }),
+        (list) => list[0]?.status === "fulfilled"
+      )
 
       const measured = yield* waitLive(metrics, (m) => m.invariant === "ok" && m.balances === 144)
       assert.deepStrictEqual(measured.books.deposited, 150)
@@ -566,11 +569,11 @@ describe("workshop live", () => {
   it.live("rebuilds a view model from the log", () =>
     Effect.gen(function*() {
       const presenter = yield* participant("Presenter", 40, adminCode)
-      const before = yield* presenter.client.bank.participants({ query: {} })
+      const before = yield* presenter.client.bank.participants({ headers: {} })
       const replayed = yield* presenter.client.admin.replay({ payload: { viewModel: "participants" } })
       assert.deepStrictEqual(replayed.viewModels, ["participants"])
       assert.isAbove(replayed.eventCount, 0)
-      const after = yield* waitLive(presenter.client.bank.participants({ query: {} }), (list) =>
+      const after = yield* waitLive(presenter.client.bank.participants({ headers: {} }), (list) =>
         list.length === before.length)
       assert.deepStrictEqual(after, before)
     }).pipe(Effect.provide(Server), quiet), 30_000)

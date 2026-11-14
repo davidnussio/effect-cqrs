@@ -3,6 +3,7 @@
  * it to call the server with `HttpApiClient`.
  */
 import { Context, Schema } from "effect"
+import { CommandApi } from "effect-cqrs"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/http-api"
 import {
   AccountNotOpen,
@@ -109,8 +110,15 @@ export const Auth = HttpApiGroup.make("auth").add(
 // The caller's account
 // ---------------------------------------------------------------------------
 
-/** A view model's position to wait for, from an earlier receipt: read your own writes. */
-const positionQuery = { position: Schema.optionalKey(Schema.NumberFromString) }
+/**
+ * A position from an earlier receipt, in a `Read-After` header: the read waits until
+ * the view models have handled it, so the caller reads its own writes. Declared on the
+ * read endpoints so that the typed client can send it; `CommandApi.ReadAfter` waits.
+ */
+const readAfterHeaders = { "read-after": Schema.optionalKey(Schema.String) }
+
+/** The headers of a read that waits for `position`, or of one that doesn't wait. */
+export const readAfter = (position?: number) => position === undefined ? {} : { "read-after": String(position) }
 
 export const Me = Schema.Struct({
   id: Schema.String,
@@ -121,7 +129,7 @@ export const Me = Schema.Struct({
 })
 export type Me = typeof Me.Type
 
-/** What a command left: the position to wait for and the balance after it. */
+/** What a command left: the position to read after and the balance after it. */
 export const Receipt = Schema.Struct({
   position: Schema.Number,
   balance: Schema.Number
@@ -136,7 +144,7 @@ export class Forbidden extends Schema.TaggedError<Forbidden>()("Forbidden", {
   message: Schema.String
 }, { httpApiStatus: 403 }) {}
 
-/** Where a command left the log, to pass as `position` to the reads that follow. */
+/** Where a command left the log, to send as `Read-After` with the reads that follow. */
 export const Ack = Schema.Struct({ position: Schema.Number })
 
 export class RecipientNotFound extends Schema.TaggedError<RecipientNotFound>()("RecipientNotFound", {
@@ -163,11 +171,13 @@ export const MyAccount = HttpApiGroup.make("me")
     }).annotate(OpenApi.Summary, "Sends money to another participant")
   )
   .add(
-    HttpApiEndpoint.get("ledger", "/me/ledger", { query: positionQuery, success: Schema.Array(LedgerEntry) })
+    HttpApiEndpoint.get("ledger", "/me/ledger", { headers: readAfterHeaders, success: Schema.Array(LedgerEntry) })
+      .middleware(CommandApi.ReadAfter)
       .annotate(OpenApi.Summary, "The caller's movements, newest first")
   )
   .add(
-    HttpApiEndpoint.get("orders", "/me/orders", { query: positionQuery, success: Schema.Array(ShopOrder) })
+    HttpApiEndpoint.get("orders", "/me/orders", { headers: readAfterHeaders, success: Schema.Array(ShopOrder) })
+      .middleware(CommandApi.ReadAfter)
       .annotate(OpenApi.Summary, "The caller's orders, newest first")
   )
   .add(
@@ -193,9 +203,11 @@ export const MyAccount = HttpApiGroup.make("me")
 export const Bank = HttpApiGroup.make("bank")
   .add(
     HttpApiEndpoint.get("participants", "/participants", {
-      query: positionQuery,
+      headers: readAfterHeaders,
       success: Schema.Array(Participant)
-    }).annotate(OpenApi.Summary, "Everyone who joined, with their balance")
+    })
+      .middleware(CommandApi.ReadAfter)
+      .annotate(OpenApi.Summary, "Everyone who joined, with their balance")
   )
   .middleware(Authorization)
 
@@ -206,9 +218,11 @@ export const Bank = HttpApiGroup.make("bank")
 export const Shop = HttpApiGroup.make("shop")
   .add(
     HttpApiEndpoint.get("products", "/shop/products", {
-      query: positionQuery,
+      headers: readAfterHeaders,
       success: Schema.Array(CatalogProduct)
-    }).annotate(OpenApi.Summary, "What the shop sells, with stock and the queue of waiting orders")
+    })
+      .middleware(CommandApi.ReadAfter)
+      .annotate(OpenApi.Summary, "What the shop sells, with stock and the queue of waiting orders")
   )
   .add(
     HttpApiEndpoint.post("order", "/shop/orders", {

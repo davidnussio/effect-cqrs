@@ -196,7 +196,7 @@ Ogni fase finisce con `pnpm check` e `pnpm test` verdi e con il deploy aggiornat
    personale non serve, perché la UI rilegge i suoi dati quando il log avanza.
    Presenze, metriche con l'invariante dei soldi (view model `books` contro
    `participants`), `/asyncapi.json` da `EventCatalog.document` più i due stream. Tutti
-   i view model stanno in un solo layer, così `?position=` aspetta davvero tutti.
+   i view model stanno in un solo layer, così `Read-After` aspetta davvero tutti.
    Il documento AsyncAPI non è passato da un validatore esterno: lo controllano i test.
 7. **UI partecipante.** *Fatta.* Mobile first: conto e movimenti, ricarica, bonifico,
    catalogo, ordini con stato in diretta, backorder e annullamento, chiusura del conto

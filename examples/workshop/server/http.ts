@@ -3,7 +3,7 @@
  * account: the account id is the user id in the token, never one from the request.
  */
 import { Clock, Config, Context, DateTime, Effect, Layer, Option, Predicate, Redacted, Stream } from "effect"
-import { EventStore, Ids, Metadata, PersonalData, ViewModel } from "effect-cqrs"
+import { CommandApi, EventStore, Ids, Metadata, PersonalData, ViewModel } from "effect-cqrs"
 import { HttpApiBuilder } from "effect/http-api"
 import {
   Api,
@@ -66,15 +66,6 @@ const expecting = <const Tags extends ReadonlyArray<string>>(...tags: Tags) =>
     Predicate.hasProperty(error, "_tag") && tags.includes(error._tag as string)
       ? Effect.fail(error as Extract<E, { readonly _tag: Tags[number] }>)
       : Effect.die(error))
-
-/** Waits a little for the view models to reach `position`, so a client reads its own writes. */
-const makeCatchUp = ViewModel.ViewModels.use((viewModels) =>
-  Effect.succeed((position: number | undefined) =>
-    position === undefined
-      ? Effect.void
-      : viewModels.caughtUp(position).pipe(Effect.timeout("5 seconds"), Effect.ignore)
-  )
-)
 
 const tokenProblems: Record<InvalidToken["reason"], string> = {
   malformed: "The token is not one this server issued",
@@ -162,7 +153,6 @@ const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
     const accounts = yield* Accounts
     const products = yield* Products
     const orders = yield* Orders
-    const catchUp = yield* makeCatchUp
     const ledgers = yield* LedgerStore
     const orderList = yield* OrdersStore
     const forgetting = yield* Effect.context<PersonalData.Keys | EventStore.EventStore>()
@@ -221,23 +211,22 @@ const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
           )
           return { position: result.position, balance: yield* balanceOf(user.id), transferId }
         }))
-      .handle("ledger", ({ query }) =>
+      // `CommandApi.ReadAfter` has waited for the position in `Read-After`, if there is one.
+      .handle("ledger", () =>
         Effect.gen(function*() {
           const user = yield* CurrentUser
-          yield* catchUp(query.position)
           return yield* ledgerOf(user.id).pipe(Effect.provideService(LedgerStore, ledgers))
         }))
-      .handle("orders", ({ query }) =>
+      .handle("orders", () =>
         Effect.gen(function*() {
           const user = yield* CurrentUser
-          yield* catchUp(query.position)
           return yield* ordersOf(user.id).pipe(Effect.provideService(OrdersStore, orderList))
         }))
       .handle("cancelOrder", ({ params: { orderId } }) =>
         Effect.gen(function*() {
           const user = yield* CurrentUser
           const { result } = yield* cancel(user.id, orderId)
-          // The refund follows in a saga, which `position` doesn't wait for.
+          // The refund follows in a saga, which reading after `position` doesn't wait for.
           return { position: result.position }
         }))
       .handle("close", () =>
@@ -272,26 +261,20 @@ const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
 
 const BankHandlers = HttpApiBuilder.group(Api, "bank", (handlers) =>
   Effect.gen(function*() {
-    const catchUp = yield* makeCatchUp
     const participants = yield* ParticipantsStore
-    return handlers.handle("participants", ({ query }) =>
-      Effect.andThen(
-        catchUp(query.position),
-        listParticipants.pipe(Effect.provideService(ParticipantsStore, participants))
-      ))
+    return handlers.handle("participants", () =>
+      listParticipants.pipe(Effect.provideService(ParticipantsStore, participants)))
   }))
 
 const ShopHandlers = HttpApiBuilder.group(Api, "shop", (handlers) =>
   Effect.gen(function*() {
     const products = yield* Products
     const orders = yield* Orders
-    const catchUp = yield* makeCatchUp
     const catalog = yield* CatalogStore
     const bot = yield* Bot
     return handlers
       .handle("bot", () => bot.status)
-      .handle("products", ({ query }) =>
-        Effect.andThen(catchUp(query.position), listCatalog.pipe(Effect.provideService(CatalogStore, catalog))))
+      .handle("products", () => listCatalog.pipe(Effect.provideService(CatalogStore, catalog)))
       .handle("order", ({ payload: { backorder, productId, quantity } }) =>
         Effect.gen(function*() {
           const user = yield* CurrentUser
@@ -364,7 +347,10 @@ const LiveHandlers = HttpApiBuilder.group(Api, "live", (handlers) =>
       .handle("control", () => asAdmin(Effect.succeed(sseResponse(controlStream.pipe(Stream.provideContext(context))))))
   }))
 
-/** Every group of the API, needing the bank's and the shop's services and the authorization middleware. */
+/**
+ * Every group of the API, needing the bank's and the shop's services, with the
+ * authorization middleware and the one that waits for `Read-After`.
+ */
 export const Handlers = Layer.mergeAll(
   SystemHandlers,
   AuthHandlers,
@@ -374,5 +360,6 @@ export const Handlers = Layer.mergeAll(
   AdminHandlers,
   LiveHandlers
 ).pipe(
-  Layer.provideMerge(AuthorizationLayer)
+  Layer.provideMerge(AuthorizationLayer),
+  Layer.provideMerge(CommandApi.layerReadAfter())
 )

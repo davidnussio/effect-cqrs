@@ -9,7 +9,7 @@ import { type SpanEntry, upsertSpan } from "../../../devtools/tracing.ts"
 import type { LiveEvent, Metrics, Presence } from "../../api.ts"
 import { expectedBalances } from "../../domain/bank.ts"
 import type { CatalogProduct } from "../../domain/shop.ts"
-import { call } from "./client.ts"
+import { call, read } from "./client.ts"
 import { ControlScreen } from "./ControlScreen.tsx"
 import { follow, type LiveStatus } from "./live.ts"
 import { Avatar, Button, colorOf } from "./ui.tsx"
@@ -459,7 +459,7 @@ const StockPanel = ({ position }: { readonly position: number | undefined }) => 
   useEffect(() => {
     const timer = setTimeout(
       () =>
-        void call((client) => client.shop.products({ query: position === undefined ? {} : { position } })).then(
+        void read((client, headers) => client.shop.products({ headers }), position).then(
           (outcome) => {
             if (outcome.ok) setProducts(outcome.value)
           }

@@ -87,9 +87,13 @@ server named by `VITE_API_URL`.
 | `GET /openapi.json` | The OpenAPI document |
 
 Every route under `/me`, `/participants`, `/shop` and `/admin` needs `Authorization: Bearer <token>`. In
-Scalar, call `/auth/join`, copy the token and paste it in the bearer field of **Authentication**. The reads
-take a `position` from an earlier answer and wait until the view models have seen it,
-so a client reads its own writes.
+Scalar, call `/auth/join`, copy the token and paste it in the bearer field of **Authentication**.
+
+Commands answer with the `position` of their last event. `GET /me/ledger`, `/me/orders`,
+`/participants` and `/shop/products` take it back in a `Read-After` header and wait,
+through `CommandApi.ReadAfter`, until the view models have seen it, so a client reads its
+own writes. After 5 seconds they answer `503` with `NotCaughtUp`, and the UI then reads
+again without the header.
 
 ## The shop
 

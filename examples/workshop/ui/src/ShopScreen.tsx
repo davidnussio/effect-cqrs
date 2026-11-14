@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react"
 import type { Session } from "../../api.ts"
 import type { BotStatus } from "../../domain/automation.ts"
 import { type CatalogProduct, maxQuantity, type ShopOrder } from "../../domain/shop.ts"
-import { call, type Outcome } from "./client.ts"
+import { call, type Outcome, read } from "./client.ts"
 import { useLiveRefresh } from "./live.ts"
 import { Button, Card, credits } from "./ui.tsx"
 
@@ -15,10 +15,9 @@ interface Data {
 }
 
 const load = async (position?: number): Promise<Outcome<Data>> => {
-  const query = position === undefined ? {} : { position }
   const [products, orders, bot] = await Promise.all([
-    call((client) => client.shop.products({ query })),
-    call((client) => client.me.orders({ query })),
+    read((client, headers) => client.shop.products({ headers }), position),
+    read((client, headers) => client.me.orders({ headers }), position),
     call((client) => client.shop.bot())
   ])
   if (!products.ok) return products

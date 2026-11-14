@@ -138,10 +138,10 @@ const program = Effect.gen(function*() {
       // The tuple's requirements infer as `any`: they are none, as for every call of the client.
       const screen = Effect.all([
         client.me.get(),
-        client.me.ledger({ query: {} }),
-        client.bank.participants({ query: {} }),
-        client.shop.products({ query: {} }),
-        client.me.orders({ query: {} }),
+        client.me.ledger({ headers: {} }),
+        client.bank.participants({ headers: {} }),
+        client.shop.products({ headers: {} }),
+        client.me.orders({ headers: {} }),
         client.shop.bot()
       ], {
         concurrency: "unbounded"
@@ -171,7 +171,7 @@ const program = Effect.gen(function*() {
           const to = yield* Random.choice(ids.filter((other) => other !== id))
           yield* measure("transfer", client.me.transfer({ payload: { to, amount: 1 } }))
         } else {
-          yield* measure("orders", client.me.orders({ query: {} }))
+          yield* measure("orders", client.me.orders({ headers: {} }))
         }
       }
     },
