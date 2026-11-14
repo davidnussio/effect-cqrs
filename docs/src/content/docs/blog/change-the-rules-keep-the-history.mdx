@@ -1,0 +1,128 @@
+---
+title: Change the rules, keep the history
+description: "The loan period goes from four weeks to three, and every open loan's due date moves with it. Rules change all the time: store the decisions they made, run them only when deciding, and never in a projection."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import changeTheRules from "../../../../../examples/blog/change-the-rules.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/change-the-rules-keep-the-history.webp"
+
+export const file = "examples/blog/change-the-rules.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="A librarian on a ladder hangs a new rules board next to the old one, while at the desk below a colleague stamps a new card in a different colour beside a row of cards stamped before" />
+
+Every summer the library relaxes its rules: five books instead of three, four weeks instead of
+three. On the first of September the old rules come back. In the CRUD version of the library,
+the loan period is a setting, and due dates are worked out when they are shown:
+
+```sql
+SELECT title, lent_on + (SELECT loan_days FROM settings) * interval '1 day' AS due_on
+FROM loans WHERE returned = false;
+```
+
+On September 1st someone changes `loan_days` from 28 to 21. Every loan made in August is now
+a week shorter, and the reminder job emails a few hundred members that their books are
+overdue. They were told four weeks, and they were right.
+
+Business rules change: prices, limits, periods, fees, eligibility. This post shows where they
+belong in an event-sourced system so that a change applies to new decisions and leaves the old
+ones alone. Every snippet runs in
+[`examples/blog/change-the-rules.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/change-the-rules.test.ts),
+which moves the clock from August to September.
+
+## Rules with a date
+
+The library's rules are a list, each with the day it starts:
+
+<Code code={region(changeTheRules, "policies")} lang="ts" title={file} />
+
+A rule change is a new entry, deployed before its date. The old entries stay, because they
+say what the rules *were*, and that will be asked.
+
+## Decide with the rules, record the decision
+
+The member aggregate runs the rules in one place, the command handler, on the day it decides:
+
+<Code code={region(changeTheRules, "member")} lang="ts" title={file} />
+
+Two choices in it carry the whole post:
+
+- **`BookBorrowed` stores the due date**, not the date it was lent plus a period to add later.
+  The due date is what the member was told. It is a decision, made once, under the rules of
+  that day, and it is a fact from then on.
+- **It also stores which policy decided it.** A member who asks why her book is due on the
+  17th gets an answer: the summer rules. So does an auditor.
+
+## August
+
+<Code code={region(changeTheRules, "summer")} lang="ts" title={file} />
+
+Alice borrows four books under the summer rules, each due in four weeks.
+
+## September
+
+The standard rules are back. Alice's state, and a few commands:
+
+<Code code={region(changeTheRules, "autumn")} lang="ts" title={file} />
+
+- **Her four books load**, with the due dates from August. Nothing moved, because nothing was
+  worked out again.
+- **Her fifth request is refused** under the new limit of three, although she has four. The
+  rule runs on the decision being made now, with today's rules.
+- **After she brings two back, she borrows again**, and the new loan is due in three weeks,
+  under `standard-2026`.
+
+## Never check rules in a projection
+
+Look at the projection again: it checks nothing. A member with four books when the limit is
+three is a state it folds without complaint. That is on purpose.
+
+A projection runs on every load, over every event ever recorded, with today's code. If it
+checked today's limit, Alice's stream would fail to load the moment the rules changed, and
+she could neither borrow nor return a book. Worse, the projection would be judging decisions
+made under rules it doesn't know about. Events are what happened. A projection that disagrees
+with them is wrong, not the events.
+
+So rules go in command handlers, where they decide about the future, and projections only
+record what was decided.
+
+<Aside>
+The same goes for read models. A report of "members over the limit" in September lists Alice,
+correctly: she has four books and the limit is three. Whether that is a problem is a question
+for the report, which can say she got them under the summer rules, because the events say so.
+</Aside>
+
+## Facts and conclusions
+
+[Fix the code, not the data](../fix-the-code-not-the-data/) recommended working out conclusions
+in read models, so that a replay can fix them. This post stores the due date in the event.
+Both hold, because they are different things:
+
+- **A decision someone was told is a fact.** The due date on Alice's slip, the price on an
+  invoice, the fee in a confirmation email. Store it in the event, with what decided it.
+- **A judgment you may revise is a conclusion.** Whether a member is a frequent borrower,
+  which books are popular, whether a return was late by a newer definition. Work it out in a
+  read model, from the facts.
+
+If you are unsure which one you have, ask whether a customer would be upset if it changed
+after the fact. If yes, it is a fact.
+
+## Rules of thumb
+
+- **Rules run in command handlers, on the day of the decision.** Never in projections.
+- **Store the outcome, not the inputs and a formula.** `dueOn`, not `lentOn` plus a setting.
+- **Record which rule decided.** A name or a version in the event answers "why" for years.
+- **Keep old rules around with their dates.** They explain the history, and a rule that takes
+  effect later is deployed before its date like any other entry.
+- **Load whatever the log says.** A state that today's rules wouldn't allow is a state that
+  older rules did.
+
+## Next
+
+[The wrong event](../the-wrong-event/) covers the other kind of change: a decision that was
+wrong when it was made, and how to correct it.

@@ -63,7 +63,9 @@ const covers: Record<string, string> = {
   "forget-me-from-the-backups-too":
     "In the library's archive room, a librarian drops a single small key into a paper shredder. Behind her, shelves of sealed archive boxes, each closed with a small padlock, stay neatly in place, untouched.",
   "from-a-table-to-a-log":
-    "At a long library desk, a librarian copies the rows of an old leather ledger, one card per row, onto the beginning of a long ribbon of stamped loan cards that continues across the desk and out of view. The old ledger lies open beside a small stack of finished cards."
+    "At a long library desk, a librarian copies the rows of an old leather ledger, one card per row, onto the beginning of a long ribbon of stamped loan cards that continues across the desk and out of view. The old ledger lies open beside a small stack of finished cards.",
+  "change-the-rules-keep-the-history":
+    "Above the library front desk, a librarian on a small step ladder swaps an old rules board for a new one, both boards shown only as simple shapes and icons with no writing. On the desk below, a ribbon of already stamped loan cards keeps its stamps unchanged, while one fresh card is being stamped with a slightly different coloured stamp."
 }
 
 const args = process.argv.slice(2)
