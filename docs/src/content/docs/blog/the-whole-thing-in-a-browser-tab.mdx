@@ -1,0 +1,186 @@
+---
+title: The whole thing in a browser tab
+description: "An aggregate, three read models and a saga run in a React page with no server. A command that can say no, a typed refusal in the component, and time travel in ten lines."
+date: 2026-11-14
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import account from "../../../../../examples/bank-ui/src/domain/account.ts?raw"
+import engine from "../../../../../examples/bank-ui/src/engine.ts?raw"
+import views from "../../../../../examples/bank-ui/src/domain/views.ts?raw"
+import hooks from "../../../../../examples/bank-ui/src/hooks.ts?raw"
+import bankApp from "../../../../../examples/bank-ui/src/components/BankApp.tsx?raw"
+import { demoUrl, region, sourceUrl } from "../../../source.ts"
+
+export const accountFile = "examples/bank-ui/src/domain/account.ts"
+export const engineFile = "examples/bank-ui/src/engine.ts"
+export const viewsFile = "examples/bank-ui/src/domain/views.ts"
+export const hooksFile = "examples/bank-ui/src/hooks.ts"
+export const bankAppFile = "examples/bank-ui/src/components/BankApp.tsx"
+
+*A post on the <a href={demoUrl}>bank demo</a>, which runs in your browser. November 2026.*
+
+Alice has €10 in her account and clicks "withdraw €200". Where does the page say no?
+
+In most front ends the answer is "wherever someone remembered to": an `if` in the click
+handler, a disabled button, a check inside a reducer that then has to return the old state
+and report the problem some other way. A reducer can't refuse. By the time it runs, the
+action has happened.
+
+Then comes the transfer, which takes money from one account and gives it to another, and
+must give it back when the second account turns out to be closed. That is a process with
+steps, a failure and an undo. Front ends have had libraries for it for years, and most teams
+that tried them remember generator functions nobody wanted to touch six months later.
+
+Event sourcing has names for both: a *command* is a request that can be refused, and a
+*saga* is a process across several things. effect-cqrs is written for servers, but nothing
+in it needs one. The <a href={demoUrl}>bank demo</a> runs the whole framework in a tab, with
+React on top, and this post walks through the code that joins the two. Every snippet is
+quoted from the demo's source, in
+<a href={sourceUrl("examples/bank-ui/src")}><code>examples/bank-ui</code></a>.
+
+## A command that can say no
+
+An account is an aggregate. Its state is folded from its events, and each command is a
+function that reads that state and either returns events or fails. These are the two
+commands of a transfer:
+
+<Code code={region(account, "transfer")} lang="ts" title={accountFile} />
+
+`sendTransfer` has three ways to refuse, and each is a class with fields:
+`InsufficientFunds` carries the balance and the amount asked for. When the handler fails,
+no event is stored and nothing changes. There is no old state to hand back, because the
+state was never touched.
+
+Nothing in this file knows about the browser. It imports `effect` and `effect-cqrs`, and it
+is the same file you would put behind an HTTP API with PostgreSQL under it.
+
+## One runtime for the page
+
+On a server, an effect-cqrs application is a layer: an event store, the aggregate's
+service, the view models, the sagas. Here it is the same layer with the in-memory stores,
+and the page builds it once:
+
+<Code code={region(engine, "runtime")} lang="ts" title={engineFile} />
+
+A `ManagedRuntime` is the bridge between Effect and code that isn't Effect, which is what a
+React component is. Everything below is either `runtime.runPromise(...)` or a plain store
+that React subscribes to. The [bank tutorial](../../tutorial/bank/#wiring-it-together) shows
+the layer itself.
+
+## Sending a command from a component
+
+The service has one typed function per command. The demo wraps them in one function that
+returns a promise:
+
+<Code code={region(engine, "command")} lang="ts" title={engineFile} />
+
+Two things about its type. The command's name picks the payload, so
+`engine.command("withdraw", id, { amout: 50 })` doesn't compile, and neither does a command
+that doesn't exist. And the promise never rejects for a refusal: `Effect.result` turns the
+failure into a value, a `Result` with the errors that command can fail with.
+
+<Aside>
+The bus in that snippet belongs to the demo's devtools. It shows each command in a panel
+and holds it at every stage so you can watch it. Without it, the body is
+`bank.commands[type](aggregateId, payload)`.
+</Aside>
+
+The component calls it and looks at what came back:
+
+<Code code={region(bankApp, "component")} lang="tsx" title={bankAppFile} />
+
+A refusal is state like any other: the card keeps it, shakes, and shows it for three
+seconds. What it shows comes from a `switch` on the error's tag:
+
+<Code code={region(hooks, "explain")} lang="ts" title={hooksFile} />
+
+Inside `case "InsufficientFunds"`, `error.balance` and `error.requested` are numbers, and
+the compiler knows it. The message "the balance is €10, the request €200" is built from the
+same fields the handler filled in, with no string to parse on the way.
+
+## Reading
+
+Components don't read aggregates. They read *view models*, which follow the log and keep
+data in the shape a screen needs. The one behind the account cards keeps a row per account:
+
+<Code code={region(views, "accounts-view")} lang="ts" title={viewsFile} />
+
+`devstore` is a plain object with `get`, `subscribe` and a few functions that replace its
+state, and `everyEvent` gives the same handler to every event type. On a server this
+handler would write to a table. Here it writes to memory, and React reads it with the hook
+it has for stores that live outside it:
+
+<Code code={region(hooks, "use-snapshot")} lang="ts" title={hooksFile} />
+
+That is the whole binding on the read side. A component picks what it needs:
+
+<Code code={region(bankApp, "read")} lang="tsx" title={bankAppFile} />
+
+The view model runs after the command, not inside it, so for a moment the card shows the
+old balance. In the demo you can stretch that moment with a slider and watch the read side
+trail the log. It is the same lag a server has between its log and its tables, and seeing
+it in a page makes it easier to design for.
+
+## A process across two accounts
+
+A transfer touches two aggregates, and a command touches one. `sendTransfer` only takes the
+money out and records `TransferSent`. A saga does the rest:
+
+<Code code={region(engine, "saga")} lang="ts" title={engineFile} />
+
+Read the workflow top to bottom: credit the other account, and if that is refused because
+the account isn't open, refund the sender. The failure it handles is the typed error from
+the aggregate, caught by its tag. The transfer's id is the idempotency key, so starting the
+same transfer twice joins the run under way, and `receiveTransfer` ignores an id it has
+already seen.
+
+This is the part front ends usually get wrong, because it is spread over a click handler,
+two requests and a `catch`. Here it is one function that says what the process is.
+
+## Time travel in ten lines
+
+An aggregate's state is a fold of its events, and the fold is a function you can call. The
+demo's time slider calls it on the events up to a position:
+
+<Code code={region(hooks, "fold-at")} lang="ts" title={hooksFile} />
+
+`evolve` applies one event with the aggregate's own projection, the one the command side
+uses to decide. There is no second copy of the rules for the debugger, so what the slider
+shows is what a command at that position would have seen.
+
+## What this is not
+
+It is a demo of how little joins the two, and it stops where the hard part starts.
+
+- **The store lives as long as the page.** Reload and the bank is gone. The demo uses the
+  in-memory event store on purpose.
+- **Nothing is synchronised with a server.** Running the same aggregate on both sides, so
+  the page can refuse a command at once and the server has the last word, is the
+  interesting next step. It needs an answer for what happens when they disagree, and this
+  post doesn't have one.
+- **There is no package of hooks.** `engine.command` and `useSnapshot` are about twenty
+  lines in the demo, written for one aggregate. Whether they deserve a library depends on
+  whether anyone wants one.
+
+## Rules of thumb
+
+- **Put the rule where it can refuse.** A command handler decides before anything is
+  stored, so there is nothing to undo.
+- **Return a refusal, don't throw it.** A `Result` with typed errors lets the component
+  `switch` on the tag and read the fields.
+- **Let components read view models.** One store, one `useSyncExternalStore`, and the read
+  side is done.
+- **Write a process as one function.** A saga with its failure and its undo in one place is
+  easier to read than the same steps spread over handlers.
+
+## Next
+
+Open the <a href={demoUrl}>bank demo</a> and withdraw more than an account holds, then drag
+one card onto another to send a transfer and watch the saga's commands in the devtools.
+The [bank tutorial](../../tutorial/bank/) covers the rest of its code, and
+[Sagas](../sagas/) builds one from the start.
+
+If you would use effect-cqrs in a front end and want the hooks as a package, say so in an
+[issue](https://github.com/davidnussio/effect-cqrs/issues).

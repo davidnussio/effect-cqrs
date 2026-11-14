@@ -452,7 +452,10 @@ const seed: ReadonlyArray<CommandInput> = [
   { aggregateId: "alice", type: "withdraw", payload: { amount: 40 } }
 ]
 
+// #region runtime
+// One runtime for the page: it builds the layer once and runs every effect in it.
 let runtime = ManagedRuntime.make(Main)
+// #endregion
 
 const start = () =>
   runtime.runPromise(Effect.gen(function*() {

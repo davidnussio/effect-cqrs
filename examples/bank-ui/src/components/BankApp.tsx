@@ -30,11 +30,13 @@ const rowsAt = (events: ReadonlyArray<EventEntry>, position: number): Record<str
 }
 
 export const BankApp = ({ travel, onExitTravel }: { travel: number | undefined; onExitTravel: () => void }) => {
+  // #region read
   const events = useSnapshot((s) => s.events)
   const accountsView = useSnapshot((s) => s.views.accounts)
   const totalsView = useSnapshot((s) => s.views.totals)
   const feedView = useSnapshot((s) => s.views.feed)
   const commands = useSnapshot((s) => s.commands)
+  // #endregion
   const [transfer, setTransfer] = useState<{ from: string; to?: string } | undefined>(undefined)
   const [dragging, setDragging] = useState<string | undefined>(undefined)
 

@@ -249,7 +249,8 @@ export default defineConfig({
                 "blog/three-ways-to-read",
                 "blog/forget-me-from-the-backups-too",
                 "blog/from-a-table-to-a-log",
-                "blog/change-the-rules-keep-the-history"
+                "blog/change-the-rules-keep-the-history",
+                "blog/the-whole-thing-in-a-browser-tab"
               ]
             }
           ]
