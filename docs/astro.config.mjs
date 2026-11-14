@@ -207,7 +207,8 @@ export default defineConfig({
             "blog/the-double-write",
             "blog/i-clicked-twice",
             "blog/the-form-that-overwrites",
-            "blog/the-message-that-blocks-the-queue"
+            "blog/the-message-that-blocks-the-queue",
+            "blog/what-it-looked-like-last-tuesday"
           ]
         }
       ]

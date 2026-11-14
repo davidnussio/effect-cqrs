@@ -1,0 +1,125 @@
+---
+title: What it looked like last Tuesday
+description: "A member was refused a book that is on the shelf today, and asks why. A table only knows today. The log can show the book as it was at that moment, and every event the request caused, across aggregates."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import lastTuesday from "../../../../../examples/blog/last-tuesday.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/what-it-looked-like-last-tuesday.webp"
+
+export const file = "examples/blog/last-tuesday.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="A librarian lays a transparent sheet over one card in a ribbon of loan cards on the desk, while a puzzled member waits beside her and a past day is circled on the wall calendar" />
+
+Monday morning, Bob is at the desk. Last Tuesday he asked for *Dune* on the website, and the
+library refused. Today *Dune* is on the shelf. Was the website broken? Is he being treated
+differently? He would like to know, and so would the librarian.
+
+Support tickets look like this everywhere: why did the system do *that*, back *then*? This
+post answers Bob's from the library's log. Every snippet runs in
+[`examples/blog/last-tuesday.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/last-tuesday.test.ts),
+which lets the days pass in between.
+
+## Tuesday
+
+This is what happened, with the library and the borrowing saga of
+[the series](../sagas/):
+
+<Code code={region(lastTuesday, "tuesday")} lang="ts" title={file} />
+
+Alice asked first and got the book. Bob asked a moment later, and the saga cancelled his
+loan. On Friday Alice brought it back.
+
+## What a table can say
+
+The `books` table says *Dune* is available, `lent_to` empty. That is true, and it is all the
+table knows. Was it available last Tuesday at 10:04? It doesn't say. Why was Bob refused? A
+request log might have a line, if it is still kept, if it was logged at all, and if someone
+can find it among a million others. Most support tickets like Bob's end with "we can't tell,
+sorry", or with a developer reading code and guessing.
+
+The log can say more, because it never threw anything away.
+
+<Code code={region(lastTuesday, "what-bob-sees")} lang="ts" title={file} />
+
+## Start from Bob
+
+Bob's own history says what happened to his request, with the reason the saga recorded:
+
+<Code code={region(lastTuesday, "bobs-history")} lang="ts" title={file} />
+
+`LoanCancelled`, reason `BookAlreadyLent`, on Tuesday. Two more fields come with every event:
+
+- the **causation id** names what directly caused it: `member/bob@2`, the second event in
+  Bob's stream, his own `LoanRequested`. The saga that cancelled the loan was started by his
+  request, and said so.
+- the **correlation id** is shared by everything that followed from the same original
+  request, however many steps and aggregates away.
+
+## The book, back then
+
+Was the book really lent? Ask the book, as it was at the moment of the refusal:
+
+<Code code={region(lastTuesday, "back-then")} lang="ts" title={file} />
+
+`state` with a `finishTime` folds the book's events up to that instant, the same fold that
+gives today's state, cut short. At the moment Bob was refused, the book was lent to Alice,
+with its due date. The refusal was right, and the librarian can show why, with the
+evidence.
+
+This isn't a feature added for support. It falls out of keeping events: a state is a fold
+of events, and a fold can stop anywhere. Every aggregate can be seen as it was at any
+instant, for free, from the day the first event was written.
+
+## One request, end to end
+
+The correlation id goes further. Gather every event that shares it, from every aggregate:
+
+<Code code={region(lastTuesday, "one-request")} lang="ts" title={file} />
+
+Bob's request is two events: asked, cancelled. The book has none, because it refused and a
+refusal writes nothing. Alice's request, read the same way, is three events in two
+aggregates: she asked, the book was lent, her loan was confirmed. The whole saga, in order,
+from a single id.
+
+<Aside>
+Reading the whole log to filter it is fine in a test or a support script. For a screen
+support uses every day, keep a read model indexed by correlation id, written by a view
+model like any other.
+</Aside>
+
+## What else it answers
+
+The same two tools, a state at an instant and events by correlation, answer questions that
+are hard or impossible with tables:
+
+- **Disputes.** "I returned it on time." The `BookReturned` has a timestamp and the `late`
+  decision, and the state just before it has the due date.
+- **Audits.** Who changed what, when, as a result of which request. With
+  [metadata](../the-wrong-event/), also by which user or script.
+- **Bug reports.** "It said available, then refused me." The events of that request, and the
+  state each aggregate was in, are the reproduction.
+- **Reports as of a date.** Fold the events before a date into a report, and it says what
+  the numbers were then, not what they are now with today's corrections mixed in.
+
+## Rules of thumb
+
+- **Record the reason in the event.** `LoanCancelled { reason }` answers Bob in one line. A
+  bare `LoanCancelled` sends someone to read code.
+- **Keep correlation and causation flowing.** effect-cqrs carries them through commands, view
+  models and sagas. Bring the correlation id in from the edge, the HTTP request or the
+  message, and the trail starts where the user did.
+- **Answer support from the log, not from logs.** Application logs are for operators, rotate
+  away, and say what the code thought. The event log says what the system decided, and it is
+  kept.
+
+## Next
+
+[Sagas](../sagas/) in the series builds the borrowing process this post investigates, and the
+[aggregates guide](../../guides/aggregates/) covers state, history, correlation and
+causation.

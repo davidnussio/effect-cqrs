@@ -53,7 +53,9 @@ const covers: Record<string, string> = {
   "the-form-that-overwrites":
     "Two librarians at separate desks each fill in their own copy of the same catalog card at the same time. On the wall between them, a single large catalog card shows only one of their changes, with a faint smudge where the other one was erased.",
   "the-message-that-blocks-the-queue":
-    "A short conveyor belt of books runs through a small spine-labelling machine in the library workroom. The machine is jammed on one old book, a line of books waiting behind it, while a librarian calmly lifts that one book onto a small side cart so the others can move on."
+    "A short conveyor belt of books runs through a small spine-labelling machine in the library workroom. The machine is jammed on one old book, a line of books waiting behind it, while a librarian calmly lifts that one book onto a small side cart so the others can move on.",
+  "what-it-looked-like-last-tuesday":
+    "At the front desk, a librarian lays a transparent sheet over one section of a long ribbon of stamped loan cards, highlighting a single moment from the week before. A member stands at the desk waiting with a puzzled look, a wall calendar behind them with one past day circled."
 }
 
 const args = process.argv.slice(2)
