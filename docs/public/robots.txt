@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://effect-cqrs.dambox.ch/sitemap-index.xml
