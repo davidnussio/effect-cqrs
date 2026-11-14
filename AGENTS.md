@@ -2,6 +2,8 @@
 
 CQRS and event sourcing for Effect v4, inspired by `repos/moleculer-cqrs`.
 
+Rules and knowledge shared across David's projects (decisions, git and release flow, toolchain, DNS): `~/Developer/repos/dev-commons/AGENTS.md`.
+
 ## Commands
 
 - `pnpm check`: typecheck
