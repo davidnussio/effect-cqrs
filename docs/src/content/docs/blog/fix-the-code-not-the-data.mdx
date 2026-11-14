@@ -1,0 +1,155 @@
+---
+title: Fix the code, not the data
+description: "A loans table with a bug that loses loans, fixed twice: in a database, where the fix stops the damage and the lost rows stay lost, and in a read model, where a replay brings them back."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import fixTheCode from "../../../../../examples/blog/fix-the-code.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/fix-the-code-not-the-data.webp"
+
+export const file = "examples/blog/fix-the-code.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="One librarian frowns at a single card from a card drawer, while another rebuilds a board of loans from a long ribbon of stamped loan cards, a wrench on the desk beside her" />
+
+Every team has fixed this bug. Some code writes the wrong thing to a table, for weeks,
+until someone notices. The fix is a few lines and the tests pass. Then someone asks about
+the rows the bug already wrote, and the few lines turn into a migration, a script to run on
+production, a dig through the backups, or an apology.
+
+With event sourcing the same bug ends with the code fix. The read model is rebuilt from the
+log by the fixed code, and nothing in the database has to be edited by hand. This post shows
+both, on the library of the series. Every snippet runs in
+[`examples/blog/fix-the-code.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/fix-the-code.test.ts).
+
+## The bug, in a table
+
+The library wants a history of its loans, so it gets a `loans` table. Someone writes it
+with one row per book, the way you'd store where a book is now:
+
+```sql
+INSERT INTO loans (book_id, loan_id, member_id, returned)
+VALUES ('book-1', 'loan-1', 'alice', false)
+ON CONFLICT (book_id) DO UPDATE
+  SET loan_id = excluded.loan_id, member_id = excluded.member_id, returned = false;
+```
+
+Alice borrows *Dune* and brings it back. Bob borrows it. Bob's loan lands on Alice's row,
+and Alice's loan is gone. A month later a member of staff asks why Alice has never
+borrowed anything, and the bug is found.
+
+The fix is to key the table by loan. From the next loan on, every row is right. Alice's
+loan is not coming back, though: the `UPDATE` wrote over the only copy of it, and nothing
+else in the database remembers it. If you're lucky, it's in last night's backup, or in an
+application log, and someone pieces it back together by hand.
+
+A gentler bug, one that works out a value wrong without destroying anything, still costs
+twice. The code fix covers new rows, and a migration has to repair the old ones: the same
+logic written again in SQL, run once, on production, with no test that the two agree.
+
+## The same bug, in a read model
+
+Now the same history as a read model, kept by a view model like the catalog of
+[part 3](../read-models/). It lives in memory here, and it would be the same with a table:
+
+<Code code={region(fixTheCode, "history")} lang="ts" title={file} />
+
+And the same bug, with the record kept under the book's id:
+
+<Code code={region(fixTheCode, "buggy")} lang="ts" title={file} />
+
+The day goes the same way:
+
+<Code code={region(fixTheCode, "with-the-bug")} lang="ts" title={file} />
+
+Alice's loan is gone from the read model, exactly as it was gone from the table. The
+difference is in what the bug could reach. The view model only writes its own read model.
+The log, where `BookLent` for `loan-1` was appended by the book's command, is written by the
+commands alone, and the bug never touched it.
+
+## Fix the code
+
+The fix is the same few lines:
+
+<Code code={region(fixTheCode, "fixed")} lang="ts" title={file} />
+
+To see what a deploy does, the example keeps the storage apart from the code that runs on
+it. The log, the checkpoints and the read model live through the deploy. The view model is
+replaced:
+
+<Code code={region(fixTheCode, "deploy")} lang="ts" title={file} />
+
+Then the new version starts:
+
+<Code code={region(fixTheCode, "with-the-fix")} lang="ts" title={file} />
+
+Deploying alone changes nothing for the past. The view model picks up from its checkpoint,
+after every event the bug handled, so new loans are right and Alice's is still missing.
+`replay` is the step that repairs it: it resets the checkpoint, clears the read model with
+`dispose`, and runs the fixed handlers over the whole log. Alice's loan is back, worked out
+from the same `BookLent` the bug read wrong.
+
+There was no migration, no script and no `UPDATE`. The log didn't change, through the bug or
+through the fix. The handler that will record tomorrow's loans is the one that rebuilt
+yesterday's, so there is one piece of code to test, not a fix and a migration that have to
+agree.
+
+## Why it works
+
+- **The truth and the copy are apart.** Commands write the log, and view models only read it.
+  A bug in a view model can damage the copy it keeps, never the facts it was made from.
+- **The past and the future go through the same code.** A replay is the view model running
+  as it always does, from the first event instead of from its checkpoint.
+- **Nothing is lost while it's wrong.** Every event the bug mishandled is still in the log,
+  waiting for a handler that reads it right.
+
+This is the same reason [part 1](../why-cqrs-and-event-sourcing/) could count loans with a
+`timesLent` written after them. A wrong read model and a missing one are fixed the same way.
+
+## What a replay can't fix
+
+A replay rebuilds read models. It doesn't change what the commands decided.
+
+- **A bug on the write side stays in the log.** If `lend` had stored the wrong member, the
+  event says so for good, and replays reproduce it faithfully. That is fixed forward: a
+  command that records the correction as a new event, which read models handle like any
+  other. An event whose *shape* is wrong is read through an upcaster, as in
+  [part 5](../tests-schema-changes-and-production/).
+- **What an event concludes is fixed with it.** The library's `BookReturned` carries `late`,
+  worked out by `returnBook` when the book came back. If the rule for lateness had a bug,
+  every return it judged keeps the wrong answer. A read model that worked out lateness from
+  `dueOn` and the time of the return would be fixed with a replay. Deciding what an event
+  states and what read models work out is the main choice in designing one.
+- **A replay takes time.** It reads the whole log, and the read model is cleared while it
+  runs. For a large one, deploy the fix under a new name, say `loan-history-2`, with its own
+  storage: it starts from the first event next to the old one, and queries move over once it
+  has caught up.
+- **Handlers should only write their read model.** A handler that sends an email sends it
+  again on every replay. Work that must happen once belongs in a
+  [saga](../sagas/), which records what it has done.
+
+<Aside>
+A view model whose read model is in SQL can keep its checkpoint in the same database and
+commit both in one transaction, with `transaction: ViewModel.sqlTransaction`. A replay then
+clears and rebuilds the table the same way. See
+[checkpoints in a transaction](../../guides/view-models/#checkpoints-in-a-transaction).
+</Aside>
+
+## Rules of thumb
+
+- **Keep facts in events, and conclusions in read models.** What happened can't be wrong
+  later. What it means can, and a read model can work it out again.
+- **When a read model is wrong, fix the handler and replay.** Don't patch its data by hand:
+  the next replay rebuilds it from the handlers and throws the patch away.
+- **When an event is wrong, add one.** The log records the mistake and the correction, which
+  is what an auditor wants to see anyway.
+
+## Next
+
+The [view models guide](../../guides/view-models/) covers replays, checkpoints and failing
+handlers in full, and [part 3](../read-models/) builds the library's read models from the
+start.

@@ -110,6 +110,7 @@ A read model is not the truth, the log is. So you can throw one away and build i
 `replay` resets the checkpoint, runs `dispose`, reads the log from the start and returns
 once the view model has caught up. This is how you fix a read model that a bug damaged, or
 one whose shape changed: deploy the new handlers and replay.
+[Fix the code, not the data](../fix-the-code-not-the-data/) walks through one.
 
 A brand new view model needs no replay at all. Its checkpoint starts at zero, so it begins
 with the first event ever stored. In part 1, `timesLent` answered a question nobody had

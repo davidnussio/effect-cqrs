@@ -86,6 +86,18 @@ ones lent before anyone thought of counting. That is the main argument for event
 - **Decisions you can explain.** A refused command can say which earlier event it was
   refused because of.
 
+Why not keep a `loans` table instead? With one, `timesLent` is a `SELECT count(*)`, and
+just as right. The difference is when the table was made and what it holds. It has the
+loans recorded since someone created it, in the columns they thought of then, and the next
+question, about late returns or renewals, needs another table that starts empty. It also
+says the same thing as `books.lent_to`, so the two are kept in step by hand, and when they
+disagree nothing tells you which one is right. The log is the one place a fact is written,
+and every other shape is worked out from it. That doesn't take the table away: with CQRS,
+below, a `loans` table becomes a read model filled by replaying the log from the first
+event, so it holds the loans from before it existed, and you can drop it and build it
+again when it is wrong, as [Fix the code, not the data](../fix-the-code-not-the-data/)
+shows.
+
 ## Where CQRS comes in
 
 The log is a great way to *write*, and a poor way to *read*. "Which books are available

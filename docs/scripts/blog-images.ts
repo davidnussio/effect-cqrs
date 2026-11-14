@@ -41,7 +41,9 @@ const covers: Record<string, string> = {
   "the-saga-you-skipped":
     "A single copy of a book on a desk with two members on either side, each holding a loan card for the same book, a subtle tangle of crossed lines between them. In the background, a calm courier with a satchel waits by a dotted path, ready to do it properly.",
   "three-ways-to-read":
-    "Three readers look at the same lent book in three ways: one holds the book itself at the desk, one reads a catalog board on the wall, and one waits beside the board holding a numbered ticket, an hourglass at their feet. Light lines connect the board to a ribbon of loan cards."
+    "Three readers look at the same lent book in three ways: one holds the book itself at the desk, one reads a catalog board on the wall, and one waits beside the board holding a numbered ticket, an hourglass at their feet. Light lines connect the board to a ribbon of loan cards.",
+  "fix-the-code-not-the-data":
+    "On one side, a librarian looks at a torn index card in a card drawer, its missing half nowhere to be found. On the other side, a second librarian calmly rebuilds a display board of loans from an intact ribbon of stamped loan cards, a small wrench resting on the desk beside a single corrected card."
 }
 
 const args = process.argv.slice(2)
