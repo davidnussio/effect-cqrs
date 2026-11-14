@@ -1,0 +1,123 @@
+---
+title: The message that blocks the queue
+description: "One event a handler can't read stops everything behind it, at three in the morning. Stop and wait, or set it aside and carry on: when each is right, and how a parked event comes back once the bug is fixed."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import blockedQueue from "../../../../../examples/blog/blocked-queue.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/the-message-that-blocks-the-queue.webp"
+
+export const file = "examples/blog/blocked-queue.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="A line of books waits on a conveyor at a spine-labelling machine, while a librarian lifts the one book it jammed on onto a side cart" />
+
+Every queue consumer meets it eventually: the *poison message*. One message the code can't
+handle, because of a bug, or data nobody expected. The consumer fails, retries, fails again,
+and everything behind it waits. In the morning the dashboard shows a lag of six hours and one
+error, repeated forty thousand times.
+
+View models are consumers of the log, so they meet it too. This post shows what effect-cqrs
+does by default, why, and the other choice. Every snippet runs in
+[`examples/blog/blocked-queue.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/blocked-queue.test.ts).
+
+## Shelf marks
+
+The library prints a shelf mark on every spine: the first three letters of the author's
+surname. A view model works them out as books are added, and it has a bug, an assumption
+every developer has made about names:
+
+<Code code={region(blockedQueue, "shelf-marks")} lang="ts" title={file} />
+
+It works for Frank Herbert and William Gibson. Then a librarian adds *The Odyssey*:
+
+<Code code={region(blockedQueue, "three-books")} lang="ts" title={file} />
+
+Homer has one name. `split(" ")[1]` is `undefined`, and `.slice` throws.
+
+## Stop and wait
+
+By default, a view model that fails on an event stops there and tries again: after 100
+milliseconds, then twice as long each time, up to every 30 seconds. It never skips the event
+and never handles a later one first:
+
+<Code code={region(blockedQueue, "stalled")} lang="ts" title={file} />
+
+The shelf marks are stuck at position 1, after *Dune*. *Neuromancer* has no shelf mark
+either, although nothing is wrong with it: it is behind Homer. The catalog, a different view
+model over the same events, has all three books. Each view model reads the log on its own,
+from its own checkpoint, so one that is stuck holds up no one else.
+
+That's the default because it is the safe one. A view model that is stalled is *visibly*
+wrong: `status` shows where it stopped and why, a health check can alert on it, and the
+moment the bug is fixed and deployed it carries on from Homer, in order, and is right again.
+A view model that skipped an event would be wrong in a way nothing shows, for as long as it
+lives. For an account balance, a stock level, or anything where every event changes a total,
+missing one is worse than being late.
+
+<Aside>
+`caughtUp` doesn't return while a view model is stalled, since it waits for every view model
+to reach a position. Put a timeout on it where a request is waiting.
+</Aside>
+
+## Or set it aside
+
+Shelf marks are not a balance. A book without a label for a day is a small problem. Every
+book after it without a label is a big one. For a read model like this, a gap is better than
+a stop, and `park` says so:
+
+<Code code={region(blockedQueue, "parking")} lang="ts" title={file} />
+
+After three failed attempts, the view model records the event in `ParkedEvents` and moves on:
+
+<Code code={region(blockedQueue, "parked")} lang="ts" title={file} />
+
+Gibson has his shelf mark. Homer is parked: the event's position and id, the error, and how
+many times it was tried. That list is the to-do list for the morning, and it's in one place,
+not spread over forty thousand log lines.
+
+## Bring it back
+
+The fix takes the last word as the surname, so a single name is all surname. Deploy it, and
+hand the parked event to the fixed handler:
+
+<Code code={region(blockedQueue, "fixed")} lang="ts" title={file} />
+
+<Code code={region(blockedQueue, "retried")} lang="ts" title={file} />
+
+`retryParked` handles the parked events again, in order of position. Those that succeed
+leave the list. Those that fail again stay, with the new error, so a fix that didn't work is
+as visible as the bug was.
+
+## What parking costs
+
+- **Order.** Homer's shelf mark was written after Gibson's. For shelf marks that doesn't
+  matter: each book has its own. For a read model where events of the same thing must be
+  applied in order, a later event can be handled before the parked one, and the result can
+  be wrong in a way the retry won't undo. Park only where events don't depend on each other.
+- **Replays skip parked events** until they are retried, since the handler would fail on
+  them again.
+- **Someone has to look.** A parked event is a bug report the system filed for you. Keep
+  `ParkedEvents` in the database with `ParkedEvents.layerSql()` rather than in memory, watch
+  the `parked` count in `status`, and alert on it.
+
+## Rules of thumb
+
+- **Stall by default.** A view model that is visibly behind is better than one that is
+  silently wrong.
+- **Park where a gap is better than a stop:** labels, search indexes, notifications,
+  statistics. Never where events add up to a total.
+- **Read models are independent.** One stuck view model holds up nothing but itself, which
+  is a reason to split read models by purpose rather than build one that does everything.
+- **Fix, deploy, retry.** The parked event is still in the log, unchanged, waiting for a
+  handler that can read it.
+
+## Next
+
+The [view models guide](../../guides/view-models/#failing-handlers) covers failures, parking
+and retries in full, and [Fix the code, not the data](../fix-the-code-not-the-data/) covers
+the bug that doesn't fail: a handler that writes the wrong thing.

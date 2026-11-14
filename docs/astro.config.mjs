@@ -206,7 +206,8 @@ export default defineConfig({
             "blog/the-wrong-event",
             "blog/the-double-write",
             "blog/i-clicked-twice",
-            "blog/the-form-that-overwrites"
+            "blog/the-form-that-overwrites",
+            "blog/the-message-that-blocks-the-queue"
           ]
         }
       ]

@@ -51,7 +51,9 @@ const covers: Record<string, string> = {
   "i-clicked-twice":
     "A member at the library front desk presses a brass desk bell twice, while the calm librarian holds up a single receipt. A second, identical payment slip is set aside on a desk spike, unprocessed.",
   "the-form-that-overwrites":
-    "Two librarians at separate desks each fill in their own copy of the same catalog card at the same time. On the wall between them, a single large catalog card shows only one of their changes, with a faint smudge where the other one was erased."
+    "Two librarians at separate desks each fill in their own copy of the same catalog card at the same time. On the wall between them, a single large catalog card shows only one of their changes, with a faint smudge where the other one was erased.",
+  "the-message-that-blocks-the-queue":
+    "A short conveyor belt of books runs through a small spine-labelling machine in the library workroom. The machine is jammed on one old book, a line of books waiting behind it, while a librarian calmly lifts that one book onto a small side cart so the others can move on."
 }
 
 const args = process.argv.slice(2)
