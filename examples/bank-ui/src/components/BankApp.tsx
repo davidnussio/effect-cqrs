@@ -1,9 +1,10 @@
+import { Result } from "effect"
 import { AnimatePresence, motion, useAnimate } from "motion/react"
 import { useMemo, useState } from "react"
-import type { AccountRow, CommandEntry, EventEntry, Outcome, Totals, ViewData } from "../devstore.ts"
+import type { AccountRow, CommandEntry, EventEntry, Totals, ViewData } from "../devstore.ts"
 import { balanceDelta } from "../domain/account.ts"
-import { engine, newTransferId, palette } from "../engine.ts"
-import { eventColor, foldAt, head, money, signed, useSnapshot } from "../hooks.ts"
+import { engine, newTransferId, palette, type Rejection } from "../engine.ts"
+import { eventColor, explain, foldAt, head, money, signed, useSnapshot } from "../hooks.ts"
 import { AnimatedNumber, Button, Code, Pill } from "./ui.tsx"
 
 /** Accounts as a fold of the events up to `position`, shaped like the read model's rows. */
@@ -205,19 +206,24 @@ const AccountCard = (
     onTransfer: () => void
   }
 ) => {
-  const [error, setError] = useState<Outcome | undefined>(undefined)
+  const [error, setError] = useState<Rejection | undefined>(undefined)
   const [scope, animate] = useAnimate<HTMLDivElement>()
   const closed = row.status === "closed"
   const isTarget = dragging !== undefined && dragging !== row.id && !closed
 
-  const refused = (outcome: Outcome | undefined) => {
-    if (outcome === undefined || outcome.ok) return
-    setError(outcome)
+  // #region component
+  const refused = (result: Result.Result<unknown, Rejection>) => {
+    if (Result.isSuccess(result)) return
+    const { failure } = result
+    setError(failure)
     void animate(scope.current, { x: [0, -10, 9, -6, 4, 0] }, { duration: 0.45 })
-    setTimeout(() => setError((current) => (current === outcome ? undefined : current)), 3200)
+    setTimeout(() => setError((current) => (current === failure ? undefined : current)), 3200)
   }
-  const send = async (type: string, payload: unknown) =>
-    refused(await engine.send({ aggregateId: row.id, type, payload }))
+
+  const move = (type: "deposit" | "withdraw", amount: number) => engine.command(type, row.id, { amount }).then(refused)
+
+  const close = () => engine.command("closeAccount", row.id, {}).then(refused)
+  // #endregion
 
   const series = useMemo(() => {
     let balance = 0
@@ -322,14 +328,14 @@ const AccountCard = (
           {!closed && (
             <>
               {quick.map((q) => (
-                <Button key={q.label} onClick={() => void send(q.type, { amount: q.amount })}>
+                <Button key={q.label} onClick={() => void move(q.type, q.amount)}>
                   <span className={q.type === "deposit" ? "text-emerald-300" : "text-amber-300"}>{q.label}</span>
                 </Button>
               ))}
               <Button onClick={onTransfer} title="Or drag the card onto another one">⇄</Button>
               <Button
                 tone="ghost"
-                onClick={() => void send("closeAccount", {})}
+                onClick={() => void close()}
                 title="Only an empty account can close"
               >
                 ✕
@@ -339,7 +345,7 @@ const AccountCard = (
           {row.owner !== "[forgotten]" && (
             <Button
               tone="danger"
-              onClick={async () => refused(await engine.forget(row.id))}
+              onClick={() => void engine.forget(row.id).then(refused)}
               title={closed
                 ? "Forget the owner: destroys the key that encrypts their name, the events stay"
                 : "Pays out the balance and closes the account, then forgets the owner"}
@@ -358,7 +364,7 @@ const AccountCard = (
             exit={{ opacity: 0, height: 0 }}
             className="mt-1.5 overflow-hidden rounded-lg border border-rose-400/30 bg-rose-500/10 px-2.5 py-1.5 font-mono text-[10px] text-rose-200"
           >
-            <b>{error.ok ? "" : error.tag}</b> {error.ok ? "" : error.message}
+            <b>{error._tag}</b> {explain(error)}
             <div className="text-rose-200/50">Rejected by the aggregate, so no event was stored.</div>
           </motion.div>
         )}
@@ -409,13 +415,13 @@ const OpenAccountCard = ({ existing }: { existing: ReadonlyArray<AccountRow> }) 
 
   const submit = async () => {
     const id = owner.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-") || "anonymous"
-    const outcome = await engine.send({ aggregateId: id, type: "openAccount", payload: { owner: owner.trim(), color } })
-    if (outcome.ok) {
+    const result = await engine.command("openAccount", id, { owner: owner.trim(), color })
+    if (Result.isSuccess(result)) {
       setOpen(false)
       setOwner("")
       setError(undefined)
     } else {
-      setError(`${outcome.tag}: ${outcome.message}`)
+      setError(`${result.failure._tag}: ${explain(result.failure)}`)
     }
   }
 
@@ -490,7 +496,7 @@ const TransferDialog = (
   const [to, setTo] = useState(initialTo ?? accounts.find((account) => account.id !== from)?.id ?? "")
   const [amount, setAmount] = useState(Math.min(50, Math.max(5, source?.balance ?? 50)))
   const send = () => {
-    void engine.send({ aggregateId: from, type: "sendTransfer", payload: { transferId: newTransferId(), to, amount } })
+    void engine.command("sendTransfer", from, { transferId: newTransferId(), to, amount })
     onClose()
   }
   return (

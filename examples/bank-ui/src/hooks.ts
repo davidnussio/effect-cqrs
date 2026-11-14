@@ -2,12 +2,16 @@ import { evolve } from "effect-cqrs/Aggregate"
 import { useSyncExternalStore } from "react"
 import { devstore, type EventEntry, type Snapshot } from "./devstore.ts"
 import { Account, type AccountState, initialAccount } from "./domain/account.ts"
+import type { Rejection } from "./engine.ts"
 
+// #region use-snapshot
 export const useSnapshot = <A>(select: (snapshot: Snapshot) => A): A =>
   useSyncExternalStore(devstore.subscribe, () => select(devstore.get()))
+// #endregion
 
 export const head = (events: ReadonlyArray<EventEntry>) => events.at(-1)?.position ?? 0
 
+// #region fold-at
 /**
  * The aggregate's state is a left fold of its events. This is the same
  * projection the command side uses, run on the events up to `position`.
@@ -20,8 +24,26 @@ export const foldAt = (events: ReadonlyArray<EventEntry>, position: number): Rec
   }
   return states
 }
+// #endregion
 
 export const money = (amount: number) => `€${Math.round(amount).toLocaleString("en-US")}`
+
+// #region explain
+/** Each case narrows the error to its class, so its fields are typed. */
+export const explain = (error: Rejection): string => {
+  switch (error._tag) {
+    case "InsufficientFunds":
+      return `the balance is ${money(error.balance)}, the request ${money(error.requested)}`
+    case "BalanceNotZero":
+      return `${money(error.balance)} are still in the account`
+    case "AccountNotOpen":
+    case "AccountAlreadyOpened":
+      return `account ${error.aggregateId}`
+    default:
+      return error.message
+  }
+}
+// #endregion
 
 export const signed = (amount: number) => (amount > 0 ? `+${money(amount)}` : amount < 0 ? `−${money(-amount)}` : "€0")
 

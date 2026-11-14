@@ -99,10 +99,16 @@ it has already applied:
 view model stalls on that event and retries with backoff, while the other two carry on.
 Turn it off and it catches up, without skipping anything.
 
-## Commands, through `dispatch`
+## Commands, typed and untyped
 
-Every command in the demo, from the customer app, the saga, the autopilot or the raw JSON
-console, goes through `dispatch`, the entry point for untyped input:
+The customer app knows which command it sends, so it calls the typed function the service
+has for it. The command's name picks the type of the payload and the errors the handler
+declares, and a refusal reaches the component as a value:
+
+<Code code={region(engine, "command")} lang="ts" title={engineFile} />
+
+The saga, the autopilot and the raw JSON console send envelopes, which go through
+`dispatch`, the entry point for untyped input:
 
 <Code code={region(engine, "dispatch")} lang="ts" title={engineFile} />
 

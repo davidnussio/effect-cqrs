@@ -14,12 +14,14 @@ import {
   ManagedRuntime,
   Metric,
   Option,
+  type Result,
   Schedule,
   Schema,
   Semaphore,
   Stream,
   Tracer
 } from "effect"
+import type * as Aggregate from "effect-cqrs/Aggregate"
 import * as AggregateService from "effect-cqrs/AggregateService"
 import * as Checkpoints from "effect-cqrs/Checkpoints"
 import * as EventStore from "effect-cqrs/EventStore"
@@ -77,10 +79,20 @@ const describeError = (error: unknown): Outcome => {
 }
 
 type Dispatched = ReturnType<Bank["Service"]["dispatch"]>
+type Accepted = Effect.Success<Dispatched>
+
+export type AccountCommand = Aggregate.CommandName<typeof Account>
+
+/** How a command can be refused: by its own handler, or by the service before or after it. */
+export type Rejection<K extends AccountCommand = AccountCommand> =
+  | Aggregate.CommandError<typeof Account, K>
+  | AggregateService.CommandFailure
 
 class Bus extends Context.Service<Bus, {
-  /** Runs a command through the bus, failing as `dispatch` does. */
-  run(input: CommandInput, origin: Origin): Effect.Effect<Effect.Success<Dispatched>, Effect.Error<Dispatched>>
+  /** Shows a command in the devtools and holds it at each stage, then runs it. */
+  through<E>(input: CommandInput, origin: Origin, command: Effect.Effect<Accepted, E>): Effect.Effect<Accepted, E>
+  /** Runs a JSON envelope through the bus, failing as `dispatch` does. */
+  run(input: CommandInput, origin: Origin): Effect.Effect<Accepted, Effect.Error<Dispatched>>
   /** Runs a command through the bus and reports how it went. */
   submit(input: CommandInput, origin: Origin): Effect.Effect<Outcome>
 }>()("bank-ui/Bus") {}
@@ -109,7 +121,7 @@ const BusLayer = Layer.effect(
     // One command at a time, so the pipeline reads like a queue.
     const lane = yield* Semaphore.make(1)
 
-    const run = (input: CommandInput, origin: Origin) =>
+    const through = <E>(input: CommandInput, origin: Origin, command: Effect.Effect<Accepted, E>) =>
       Effect.gen(function*() {
         const id = devstore.addCommand({ origin, ...input })
         return yield* lane.withPermit(Effect.gen(function*() {
@@ -124,21 +136,23 @@ const BusLayer = Layer.effect(
           yield* advance("loading")
           yield* advance("deciding")
           yield* advance("appending")
-          // #region dispatch
-          // `dispatch` is the real entry point: it validates the JSON envelope and
-          // payload, rehydrates the aggregate, runs the handler and appends.
-          return yield* bank.dispatch(input).pipe(
+          return yield* command.pipe(
             // Recorded on the events beside the app version the service was built with.
             Metadata.withMetadata({ origin }),
             Effect.tap((result) => Effect.sync(() => devstore.finish(id, toOutcome(result)))),
             Effect.tapError((error) => Effect.sync(() => devstore.finish(id, describeError(error)))),
             Effect.tapDefect((defect) => Effect.sync(() => devstore.finish(id, describeError(defect))))
           )
-          // #endregion
         }))
       }).pipe(
         Effect.withSpan(`bus.${input.type}`, { attributes: { origin, "aggregate.id": input.aggregateId } })
       )
+
+    // #region dispatch
+    // `dispatch` is the entry point for untyped input: it validates the JSON envelope
+    // and payload, rehydrates the aggregate, runs the handler and appends.
+    const run = (input: CommandInput, origin: Origin) => through(input, origin, bank.dispatch(input))
+    // #endregion
 
     const submit = (input: CommandInput, origin: Origin) =>
       run(input, origin).pipe(
@@ -147,7 +161,7 @@ const BusLayer = Layer.effect(
         Effect.catchDefect((defect) => Effect.succeed(describeError(defect)))
       )
 
-    return Bus.of({ run, submit })
+    return Bus.of({ through, run, submit })
   })
 )
 
@@ -449,7 +463,26 @@ const start = () =>
 void start()
 
 export const engine = {
-  send: (input: CommandInput, origin: Origin = "app"): Promise<Outcome> =>
+  // #region command
+  /**
+   * Runs one of the account's commands. The name picks the payload's type and the
+   * errors the handler declares, and a refusal comes back as a value, not a throw.
+   */
+  command: <K extends AccountCommand>(
+    type: K,
+    aggregateId: string,
+    payload: Aggregate.Payload<typeof Account, K>
+  ): Promise<Result.Result<Accepted, Rejection<K>>> =>
+    runtime.runPromise(Effect.gen(function*() {
+      const bank = yield* Bank
+      const bus = yield* Bus
+      const command = bank.commands[type](aggregateId, payload)
+      return yield* Effect.result(bus.through({ aggregateId, type, payload }, "app", command))
+    })),
+  // #endregion
+
+  /** Sends a JSON envelope, as the console and the autopilot do. */
+  send: (input: CommandInput, origin: Origin): Promise<Outcome> =>
     runtime.runPromise(Bus.use((bus) => bus.submit(input, origin))),
 
   /**
@@ -493,7 +526,7 @@ export const engine = {
    * Stored events stay as they were, view models erase the name in `onForget`,
    * and the events tab decodes the log again to show the replacement.
    */
-  forget: (subject: string): Promise<Outcome | undefined> =>
+  forget: (subject: string): Promise<Result.Result<void, Rejection<"withdraw" | "closeAccount">>> =>
     runtime.runPromise(
       Effect.gen(function*() {
         const bank = yield* Bank
@@ -502,9 +535,18 @@ export const engine = {
           const { balance, status } = yield* bank.state(subject)
           if (status !== "open") return
           if (balance > 0) {
-            yield* bus.run({ aggregateId: subject, type: "withdraw", payload: { amount: balance } }, "app")
+            const payload = { amount: balance }
+            yield* bus.through(
+              { aggregateId: subject, type: "withdraw", payload },
+              "app",
+              bank.commands.withdraw(subject, payload)
+            )
           }
-          yield* bus.run({ aggregateId: subject, type: "closeAccount", payload: {} }, "app")
+          yield* bus.through(
+            { aggregateId: subject, type: "closeAccount", payload: {} },
+            "app",
+            bank.commands.closeAccount(subject, {})
+          )
         })
         // Money can move between reading the balance and closing, so read it again and retry.
         yield* close.pipe(
@@ -513,15 +555,17 @@ export const engine = {
             times: 3
           })
         )
-        yield* PersonalData.forget(subject).pipe(Metadata.withMetadata({ origin: "app" }))
-        const decode = AggregateService.makeEventDecoder(Account, yield* PersonalData.Keys)
-        const entries = devstore.get().events.filter((entry) => entry.aggregateId === subject)
-        const decoded = yield* Effect.forEach(entries, (entry) => decode(entry.stored))
-        devstore.redecoded(new Map(entries.map((entry, index) => [entry.position, decoded[index]!])))
-        return undefined
+        // The in-memory keys and the log the demo just wrote don't fail: a failure here is a bug.
+        yield* Effect.gen(function*() {
+          yield* PersonalData.forget(subject).pipe(Metadata.withMetadata({ origin: "app" }))
+          const decode = AggregateService.makeEventDecoder(Account, yield* PersonalData.Keys)
+          const entries = devstore.get().events.filter((entry) => entry.aggregateId === subject)
+          const decoded = yield* Effect.forEach(entries, (entry) => decode(entry.stored))
+          devstore.redecoded(new Map(entries.map((entry, index) => [entry.position, decoded[index]!])))
+        }).pipe(Effect.orDie)
       }).pipe(
         // The account stays as it was when it can't be closed, and the card says why.
-        Effect.catch((error) => Effect.succeed(describeError(error)))
+        Effect.result
       )
     ),
   // #endregion
