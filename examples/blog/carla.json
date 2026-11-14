@@ -1,0 +1,35 @@
+[
+  {
+    "_tag": "MemberJoined"
+  },
+  {
+    "_tag": "LoanRequested",
+    "loanId": "loan-1",
+    "bookId": "dune"
+  },
+  {
+    "_tag": "LoanCancelled",
+    "loanId": "loan-1",
+    "reason": "BookAlreadyLent"
+  },
+  {
+    "_tag": "LoanRequested",
+    "loanId": "loan-2",
+    "bookId": "emma"
+  },
+  {
+    "_tag": "LoanCancelled",
+    "loanId": "loan-2",
+    "reason": "BookAlreadyLent"
+  },
+  {
+    "_tag": "LoanRequested",
+    "loanId": "loan-3",
+    "bookId": "ulysses"
+  },
+  {
+    "_tag": "LoanCancelled",
+    "loanId": "loan-3",
+    "reason": "BookAlreadyLent"
+  }
+]

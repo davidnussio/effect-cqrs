@@ -1,0 +1,133 @@
+---
+title: The bug that won't reproduce
+description: "A member can't borrow anything, and every test passes. The data that triggers the bug is in production, as a history nobody can rebuild by hand. With events, that history is a file: copy the stream into a fixture, and the bug report is a failing test."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import wontReproduce from "../../../../../examples/blog/wont-reproduce.ts?raw"
+import wontReproduceTest from "../../../../../examples/blog/wont-reproduce.test.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/the-bug-that-wont-reproduce.webp"
+
+export const file = "examples/blog/wont-reproduce.ts"
+export const testFile = "examples/blog/wont-reproduce.test.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="A librarian cuts a short strip from a long roll of loan cards and drops it into a small glass box on the workbench, next to a magnifying glass" />
+
+The ticket says: *Carla can't borrow anything. The website says she has reached her limit of
+three books. She has none.* The developer tries it: a new member, a loan, it works. Three
+loans, a fourth refused, correct. Every test is green. *Cannot reproduce*, and the ticket
+waits for more information that never comes.
+
+Bugs like this depend on history, a sequence of things that happened to one record over
+weeks. Nobody can guess the sequence, and a database row doesn't keep it. Every snippet
+here runs in
+[`examples/blog/wont-reproduce.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/wont-reproduce.test.ts).
+
+## The member
+
+This member aggregate is a variant of the one in [the series](../sagas/). At some point
+someone wanted members to see their cancelled loans on their page, so a cancelled loan is
+now kept, marked `cancelled`, instead of removed:
+
+<Code code={region(wontReproduce, "member")} lang="ts" title={file} />
+
+The change looked harmless and the tests passed: none of them cancels a loan and then asks
+for another.
+
+## Works for me
+
+The developer's test is the obvious one, and it passes:
+
+<Code code={region(wontReproduceTest, "works-for-me")} lang="ts" title={testFile} />
+
+What happened to Carla is not obvious. Over a few weeks she asked for three books that were
+out, and the saga cancelled each request. Then she asked for a fourth:
+
+<Code code={region(wontReproduce, "production")} lang="ts" title={file} />
+
+With a table, all the developer would find is a row with `open_loans = 3`, or three rows in a
+`loans` table with a status. How did they get there? In which order? Was the counter ever
+right? The row is the end of a story, and the story is gone.
+
+## Copy the stream
+
+With events, the story is the data. Carla's stream can be exported as it is, as JSON, by a
+support script with read access:
+
+<Code code={region(wontReproduce, "export")} lang="ts" title={file} />
+
+The result is short and readable, which is half the diagnosis already:
+
+```json title="examples/blog/carla.json"
+[
+  { "_tag": "MemberJoined" },
+  { "_tag": "LoanRequested", "loanId": "loan-1", "bookId": "dune" },
+  { "_tag": "LoanCancelled", "loanId": "loan-1", "reason": "BookAlreadyLent" },
+  { "_tag": "LoanRequested", "loanId": "loan-2", "bookId": "emma" },
+  { "_tag": "LoanCancelled", "loanId": "loan-2", "reason": "BookAlreadyLent" },
+  { "_tag": "LoanRequested", "loanId": "loan-3", "bookId": "ulysses" },
+  { "_tag": "LoanCancelled", "loanId": "loan-3", "reason": "BookAlreadyLent" }
+]
+```
+
+The file goes into the repository next to the test, and the test reads it:
+
+<Code code={region(wontReproduceTest, "carla")} lang="ts" title={testFile} />
+
+<Aside type="caution">
+A stream can hold personal data: names, addresses, notes. Leave it out or replace it before it
+leaves production. With [personal data fields](../../guides/personal-data/), `history`
+returns decrypted values, so the export script is the place to redact them.
+</Aside>
+
+## A failing test
+
+A fixture runs a command against a given history, without a database, in milliseconds. Given
+Carla's history:
+
+<Code code={region(wontReproduceTest, "reproduced")} lang="ts" title={testFile} />
+
+It fails the same way production did. The bug report is now a test, and the cause is one
+`inspectState` away: three loans in `state.loans`, all `cancelled`, all counted by the limit
+check.
+
+The fix counts only the loans that are open:
+
+<Code code={region(wontReproduce, "fixed")} lang="ts" title={file} />
+
+And Carla's history becomes a regression test that stays in the suite:
+
+<Code code={region(wontReproduceTest, "regression")} lang="ts" title={testFile} />
+
+## Carla's account fixes itself
+
+There is no data to repair. Carla's stream says what happened, and it was right all along:
+she asked, the books were out, the requests were cancelled. The member's state, the one the
+limit check reads, is folded from those events every time, so the moment the fix is
+deployed, her state counts zero open loans and her next request goes through. The same goes
+for every other member who hit it, whether or not they filed a ticket.
+
+With an `open_loans` counter in a table, the fix would also need a migration to recompute the
+counter for everyone, from data that may not say what it should be.
+
+## Rules of thumb
+
+- **Ask for the aggregate id, not for steps to reproduce.** The stream *is* the steps.
+- **Keep a support script that exports a stream as JSON**, encoded with the events' own
+  schema, and redacting personal data.
+- **Turn every such bug into a fixture with the real history.** It's the shortest
+  reproduction there is, and it keeps the bug from coming back.
+- **When a change adds a state, test the commands that read it.** Here a new status,
+  `cancelled`, changed what the limit check counted, and no test asked for a loan after a
+  cancellation.
+
+## Next
+
+[Tests, schema changes and production](../tests-schema-changes-and-production/) in the series
+covers fixtures and invariant tests, and the [testing guide](../../guides/testing/) covers
+`Fixture` in full.

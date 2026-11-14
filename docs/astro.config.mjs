@@ -208,7 +208,8 @@ export default defineConfig({
             "blog/i-clicked-twice",
             "blog/the-form-that-overwrites",
             "blog/the-message-that-blocks-the-queue",
-            "blog/what-it-looked-like-last-tuesday"
+            "blog/what-it-looked-like-last-tuesday",
+            "blog/the-bug-that-wont-reproduce"
           ]
         }
       ]
