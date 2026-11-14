@@ -82,6 +82,47 @@ in full are listed in `errors`. They are answered with `422`, or with their own
 `HttpApiTest.groups(Api, ["todo"])` gives a typed client that calls the handlers without a
 server, which is how `test/CommandApi.test.ts` tests them.
 
+### Reading your own writes
+
+`GET /todo/:aggregateId` folds the aggregate's events on every request, so it always shows
+the latest command. Your own query endpoints read view models, which run a moment behind.
+A client that runs a command and then reads a list can miss its own change.
+
+Every command answers with the store position of its last event, as `position` in the body
+and in an `Event-Position` header. Add `CommandApi.ReadAfter` to the query endpoints, and a
+request that sends the position back as `Read-After` waits until the view models of this
+process have handled it:
+
+```ts
+const Catalog = HttpApiGroup.make("catalog")
+  .add(HttpApiEndpoint.get("available", "/books/available", { success: Books }))
+  .middleware(CommandApi.ReadAfter)
+
+class Api extends HttpApi.make("api").add(BookApi).add(Catalog) {}
+
+const Server = HttpApiBuilder.layer(Api).pipe(
+  Layer.provide([BookHandlers, CatalogHandlers]),
+  Layer.provide(CommandApi.layerReadAfter({ timeout: "2 seconds" })),
+  Layer.provide(ViewModel.layer([CatalogViewModel]))
+)
+```
+
+```ts
+const response = await fetch("/book/book-1/lend", { method: "POST", body })
+const position = response.headers.get("event-position")!
+const books = await fetch("/books/available", { headers: { "read-after": position } })
+```
+
+A request without the header runs at once. One that waits longer than `timeout`, 5 seconds
+by default, is answered with `503` and `NotCaughtUp`: a view model is far behind, or stalled
+on a failing handler, and `viewModels.status` says which. A header that isn't a position is
+answered with `400`. In a browser on another origin, list `Event-Position` in
+`Access-Control-Expose-Headers` so the page can read it.
+
+`layerReadAfter` waits for the view models that run in the same process, as
+[`caughtUp`](../view-models/#reading-your-own-writes) does. With several replicas, send the
+read to a replica that runs the view models it needs.
+
 ## Event catalog
 
 `EventCatalog` describes events and commands as JSON Schema, for teams that consume them:

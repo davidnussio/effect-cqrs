@@ -33,11 +33,14 @@
     "CommandRejected",
     "ConcurrencyConflictError",
     "InvalidCommandError",
+    "NotCaughtUp",
+    "ReadAfter",
     "WrongExpectedVersionError",
     "commandResult",
     "group",
     "historyEntry",
-    "layer"
+    "layer",
+    "layerReadAfter"
   ],
   "CommandGateway": [
     "UnroutableCommand",

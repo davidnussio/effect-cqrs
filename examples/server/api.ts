@@ -20,16 +20,16 @@ export const TodoCommands = CommandApi.group(Todo, {
   errors: [TodoAlreadyCreated, TodoNotFound, TodoAlreadyDeleted]
 })
 
-/** The view model. */
-export const TodoQueries = HttpApiGroup.make("todoList").add(
-  HttpApiEndpoint.get("list", "/todos", {
-    query: {
-      // A command's `position`: waits until the list has caught up with it.
-      position: Schema.optionalKey(Schema.Int)
-    },
-    success: Schema.Array(TodoItem)
-  }).annotate(OpenApi.Summary, "Lists the todos that are not deleted")
-)
+/**
+ * The view model. A request with a `Read-After` header, the `Event-Position` a command
+ * answered with, waits until the list has caught up with that command.
+ */
+export const TodoQueries = HttpApiGroup.make("todoList")
+  .add(
+    HttpApiEndpoint.get("list", "/todos", { success: Schema.Array(TodoItem) })
+      .annotate(OpenApi.Summary, "Lists the todos that are not deleted")
+  )
+  .middleware(CommandApi.ReadAfter)
 
 export class Api extends HttpApi.make("todo-api")
   .add(TodoCommands)

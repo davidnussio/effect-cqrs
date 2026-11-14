@@ -7,7 +7,9 @@ import { Aside } from "@astrojs/starlight/components"
 
 A view model folds events into whatever shape a query needs: a list, a total, a table.
 Each one reads the event store from its own checkpoint, so it catches up after downtime
-and can't miss an event.
+and can't miss an event. It runs after the command has stored its events, not in the same
+transaction, so it is a moment behind the write side: see
+[reading your own writes](#reading-your-own-writes).
 
 ```ts
 import { Checkpoints, ViewModel } from "effect-cqrs"
@@ -95,6 +97,20 @@ does that once per attempt.
 A command returns the position of its last event. `viewModels.caughtUp(position)` waits
 until every view model has processed it, so a client can read what it just wrote.
 Without a position it waits for the latest event in the store.
+Over HTTP, [`CommandApi.ReadAfter`](../integration/#reading-your-own-writes) does the
+same for a request that sends the position back in a `Read-After` header.
+
+There are three ways to read, from the most current to the most flexible:
+
+| Read | Up to date | For |
+| --- | --- | --- |
+| [`readModel(id)`](../commands/#reading), which folds one aggregate's events | Always | One aggregate, by id |
+| A view model after `caughtUp(position)` | Includes the caller's own commands | The screen after a command |
+| A view model | A moment behind | Lists, searches, totals |
+
+effect-cqrs has no query handlers of its own. A view model writes to whatever storage
+you choose, and a query is your own code that reads it: a `Ref`, a SQL `SELECT`, a search
+index.
 
 ## Failing handlers
 

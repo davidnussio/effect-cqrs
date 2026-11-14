@@ -15,16 +15,20 @@ pnpm example:server
 | `POST /todo/:id/deleteTodo` | Deletes it, body `{ "message": "..." }` |
 | `GET /todo/:id` | The state of one todo, folded from its events |
 | `GET /todo/:id/history?payload=true` | Its events |
-| `GET /todos?position=N` | The view model, after it has seen position `N` |
+| `GET /todos` | The view model. With a `Read-After: N` header, after it has seen position `N` |
 | `GET /docs` | Scalar documentation |
 | `GET /openapi.json` | The OpenAPI document |
 
 ```bash
 curl -X POST localhost:3000/todo/t1/createTodo -H 'content-type: application/json' -d '{"title":"Buy milk"}'
-curl -X POST localhost:3000/todo/t1/completeTodo
+curl -i -X POST localhost:3000/todo/t1/completeTodo
 curl localhost:3000/todo/t1
-curl 'localhost:3000/todos?position=2'
+curl localhost:3000/todos -H 'read-after: 2'
 ```
+
+A command answers with an `Event-Position` header, the position of its last event. Send it
+back as `Read-After` and the list waits until it includes that command, for up to 5
+seconds, then answers `503` if it is still behind.
 
 An invalid payload is answered with `400`, a declared domain error such as
 `TodoAlreadyCreated` with `422` and its fields, and a lost race with `409`.

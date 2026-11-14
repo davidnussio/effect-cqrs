@@ -27,21 +27,13 @@ const CommandHandlers = CommandApi.layer(Api, "todo", AggregateService.make(Todo
 const QueryHandlers = HttpApiBuilder.group(
   Api,
   "todoList",
-  (handlers) =>
-    handlers.handle("list", ({ query }) =>
-      Effect.gen(function*() {
-        if (query.position !== undefined) {
-          const viewModels = yield* ViewModel.ViewModels
-          // Reading your own writes: wait a little for the list to see the command.
-          yield* viewModels.caughtUp(query.position).pipe(Effect.timeout("5 seconds"), Effect.ignore)
-        }
-        return yield* listTodos
-      }))
+  (handlers) => handlers.handle("list", () => listTodos)
 )
 
 const Routes = Layer.mergeAll(
   HttpApiBuilder.layer(Api, { openapiPath: "/openapi.json" }).pipe(
-    Layer.provide([CommandHandlers, QueryHandlers])
+    Layer.provide([CommandHandlers, QueryHandlers]),
+    Layer.provide(CommandApi.layerReadAfter())
   ),
   HttpApiScalar.layer(Api, { path: "/docs" })
 )

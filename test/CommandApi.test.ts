@@ -1,8 +1,8 @@
 import { assert, describe, it, layer } from "@effect/vitest"
-import { Effect, Layer, References, Schema } from "effect"
-import { AggregateService, CommandApi, EventStore } from "effect-cqrs"
+import { type Duration, Effect, Fiber, Layer, References, Schema } from "effect"
+import { AggregateService, Checkpoints, CommandApi, EventStore, ViewModel } from "effect-cqrs"
 import { HttpRouter, HttpServer } from "effect/http"
-import { HttpApi, HttpApiBuilder, HttpApiTest, OpenApi } from "effect/http-api"
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApiTest, OpenApi } from "effect/http-api"
 import { Todo, TodoAlreadyCreated, TodoAlreadyDeleted } from "./fixtures/todo.ts"
 
 const TodoState = Schema.Union([
@@ -210,4 +210,109 @@ describe("CommandApi over HTTP", () => {
       const response = yield* post(handler, "/todo/a/createTodo", JSON.stringify({ title: "Buy Milk" }))
       assert.strictEqual(response.status, 500)
     }).pipe(Effect.provideService(References.MinimumLogLevel, "None")))
+})
+
+// A view model that only moves on when the test opens the gate, so the test controls
+// whether it has caught up.
+const makeGate = () => {
+  let open = () => {}
+  const opened = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  return { open: () => open(), wait: Effect.promise(() => opened) }
+}
+
+const readAfterApp = (gate: ReturnType<typeof makeGate>, timeout: Duration.Input) => {
+  const titles: Array<string> = []
+  const Titles = ViewModel.make({
+    name: "titles",
+    aggregates: [Todo],
+    dispose: Effect.sync(() => titles.splice(0)),
+    handlers: {
+      TodoCreated: ({ title }) => Effect.andThen(gate.wait, Effect.sync(() => titles.push(title)))
+    }
+  })
+  const Queries = HttpApiGroup.make("queries")
+    .add(HttpApiEndpoint.get("titles", "/titles", { success: Schema.Array(Schema.String) }))
+    .middleware(CommandApi.ReadAfter)
+  class ReadApi extends HttpApi.make("read").add(TodoApi).add(Queries) {}
+
+  const store = Layer.merge(EventStore.layerMemory, Checkpoints.layerMemory)
+  const app = HttpApiBuilder.layer(ReadApi).pipe(
+    Layer.provide(CommandApi.layer(ReadApi, "todo", AggregateService.make(Todo))),
+    Layer.provide(
+      HttpApiBuilder.group(
+        ReadApi,
+        "queries",
+        (handlers) => handlers.handle("titles", () => Effect.sync(() => [...titles]))
+      )
+    ),
+    Layer.provide(CommandApi.layerReadAfter({ timeout })),
+    Layer.provide(ViewModel.layer([Titles])),
+    Layer.provide(store),
+    Layer.provide(HttpServer.layerServices)
+  )
+  return HttpRouter.toWebHandler(app, { disableLogger: true })
+}
+
+const get = (handler: (request: Request) => Promise<Response>, path: string, headers?: Record<string, string>) =>
+  Effect.promise(async () => {
+    const response = await handler(new Request(`http://localhost${path}`, headers === undefined ? {} : { headers }))
+    return { status: response.status, body: await response.text() }
+  })
+
+describe("CommandApi.ReadAfter", () => {
+  it.live("waits for the view models to reach the position a command answered with", () =>
+    Effect.gen(function*() {
+      const gate = makeGate()
+      const { dispose, handler } = readAfterApp(gate, "5 seconds")
+      yield* Effect.addFinalizer(() => Effect.promise(dispose))
+
+      const created = yield* Effect.promise(() =>
+        handler(
+          new Request("http://localhost/todo/a/createTodo", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ title: "Buy Milk" })
+          })
+        )
+      )
+      const position = created.headers.get("event-position")
+      const body = yield* Effect.promise(() => created.json() as Promise<{ position: number }>)
+      assert.strictEqual(position, String(body.position))
+
+      // Without the header the read runs at once, before the view model has the title.
+      assert.deepStrictEqual(JSON.parse((yield* get(handler, "/titles")).body), [])
+
+      const waiting = yield* Effect.forkChild(get(handler, "/titles", { "read-after": position! }))
+      yield* Effect.sleep("20 millis")
+      assert.isUndefined(waiting.pollUnsafe())
+
+      gate.open()
+      const read = yield* Fiber.join(waiting)
+      assert.strictEqual(read.status, 200)
+      assert.deepStrictEqual(JSON.parse(read.body), ["Buy Milk"])
+    }))
+
+  it.live("answers 503 when the view models don't catch up in time", () =>
+    Effect.gen(function*() {
+      const { dispose, handler } = readAfterApp(makeGate(), "20 millis")
+      yield* Effect.addFinalizer(() => Effect.promise(dispose))
+
+      const response = yield* get(handler, "/titles", { "read-after": "1000" })
+      assert.strictEqual(response.status, 503)
+      assert.strictEqual(JSON.parse(response.body)._tag, "NotCaughtUp")
+      assert.strictEqual(JSON.parse(response.body).position, 1000)
+    }))
+
+  it.live("answers 400 to a header that isn't a position", () =>
+    Effect.gen(function*() {
+      const { dispose, handler } = readAfterApp(makeGate(), "20 millis")
+      yield* Effect.addFinalizer(() => Effect.promise(dispose))
+
+      for (const value of ["abc", "-1", "1.5"]) {
+        const response = yield* get(handler, "/titles", { "read-after": value })
+        assert.strictEqual(response.status, 400, value)
+      }
+    }))
 })

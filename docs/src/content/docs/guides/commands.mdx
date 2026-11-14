@@ -39,6 +39,10 @@ aggregate's id, the payload and optionally a `commandId` and an `expectedVersion
 | `position` | The store position of the last event, for [`caughtUp`](../view-models/#reading-your-own-writes) |
 | `correlationId` | The correlation its events joined, see [causation](#causation) |
 
+The result is a receipt for what was stored, not an answer to a question. A screen that
+shows the change reads it as any other screen does, from [`readModel`](#reading) or a
+[view model](../view-models/), and `position` lets that read wait for the command.
+
 `dispatch` takes the envelope a transport hands over, `{ aggregateId, type, payload }`, as
 `unknown`. It checks the envelope and decodes the payload with the command's JSON codec, so
 an ISO string becomes a `DateTime`. This is the entry point to wire into an HTTP or RPC

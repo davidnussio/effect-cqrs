@@ -23,15 +23,30 @@
  * The group is an ordinary `HttpApiGroup`, so it takes middleware, a different
  * prefix and OpenAPI annotations like any other, and `HttpApiClient` calls it.
  *
+ * A command's response carries the store position of its last event, in the body
+ * and in an `Event-Position` header. {@link ReadAfter} is middleware for your own
+ * query endpoints: a request with a `Read-After` header waits until the view models
+ * have handled that position, so a client reads what it just wrote.
+ *
  * @module
  */
-import { Effect, type Layer, Predicate, Schema, SchemaAST, type Scope } from "effect"
-import type { HttpServerRequest } from "effect/http"
-import { type HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/http-api"
+import { type Duration, Effect, Layer, Option, Predicate, Schema, SchemaAST, type Scope } from "effect"
+import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/http"
+import {
+  type HttpApi,
+  HttpApiBuilder,
+  HttpApiEndpoint,
+  HttpApiError,
+  HttpApiGroup,
+  HttpApiMiddleware,
+  HttpApiSchema,
+  OpenApi
+} from "effect/http-api"
 import type * as Aggregate from "./Aggregate.ts"
 import { type AggregateService, type CommandResult, InvalidCommand, WrongExpectedVersion } from "./AggregateService.ts"
 import { ConcurrencyConflict } from "./EventStore.ts"
 import { Metadata } from "./Metadata.ts"
+import { ViewModels } from "./ViewModel.ts"
 
 /**
  * `Idempotency-Key` becomes the command id, so a client retrying after a timeout
@@ -340,8 +355,94 @@ export const layer = <
                 ...retryHeaders(request.headers)
               })
             ),
+            Effect.tap((result) =>
+              HttpEffect.appendPreResponseHandler((_, response) =>
+                Effect.succeed(HttpServerResponse.setHeader(response, "event-position", String(result.position)))
+              )
+            ),
             Effect.catch(reject)
           ))
       }
       return result
     })) as any
+
+/**
+ * The view models didn't reach the position a `Read-After` header asked for in
+ * time, because they are behind or stalled on a failing handler. Answered with
+ * `503`: the client can try again, or read without the header and accept an older
+ * answer.
+ */
+export class NotCaughtUp extends Schema.TaggedError<NotCaughtUp>()("NotCaughtUp", {
+  /** The position the request asked for. */
+  position: Schema.Int,
+  message: Schema.String
+}, { httpApiStatus: 503 }) {}
+
+/**
+ * Middleware for query endpoints that read view models. A request with a
+ * `Read-After: <position>` header waits until every view model of this process has
+ * handled that position, the one a command answered with, before the endpoint
+ * runs. A request without the header runs at once. A header that isn't a position
+ * is answered with `400`.
+ *
+ * ```ts
+ * const Catalog = HttpApiGroup.make("catalog")
+ *   .add(HttpApiEndpoint.get("available", "/books/available", { success: Books }))
+ *   .middleware(CommandApi.ReadAfter)
+ *
+ * const ReadAfterLive = CommandApi.layerReadAfter({ timeout: "2 seconds" })
+ * ```
+ *
+ * Implement it with {@link layerReadAfter}.
+ */
+export class ReadAfter extends HttpApiMiddleware.Service<ReadAfter>()("effect-cqrs/CommandApi/ReadAfter", {
+  error: [NotCaughtUp, HttpApiError.BadRequest]
+}) {}
+
+export interface ReadAfterOptions {
+  /** How long a request waits before it is answered with {@link NotCaughtUp}. Defaults to 5 seconds. */
+  readonly timeout?: Duration.Input | undefined
+}
+
+const decodePosition = Schema.decodeUnknownOption(
+  Schema.FiniteFromString.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))
+)
+
+/**
+ * Implements {@link ReadAfter} with the `ViewModels` of this process. View models
+ * that another process holds are not waited for, as with `ViewModels.caughtUp`.
+ */
+export const layerReadAfter = (options?: ReadAfterOptions): Layer.Layer<ReadAfter, never, ViewModels> =>
+  Layer.effect(
+    ReadAfter,
+    Effect.gen(function*() {
+      const viewModels = yield* ViewModels
+      const timeout = options?.timeout ?? "5 seconds"
+      return (httpEffect) =>
+        Effect.gen(function*() {
+          const request = yield* HttpServerRequest.HttpServerRequest
+          const header = request.headers["read-after"]?.trim()
+          if (header === undefined || header === "") {
+            return yield* httpEffect
+          }
+          const position = decodePosition(header)
+          if (Option.isNone(position)) {
+            return yield* Effect.fail(new HttpApiError.BadRequest({}))
+          }
+          yield* viewModels.caughtUp(position.value).pipe(
+            Effect.orDie,
+            Effect.timeoutOrElse({
+              duration: timeout,
+              orElse: () =>
+                Effect.fail(
+                  new NotCaughtUp({
+                    position: position.value,
+                    message: `The view models have not handled position ${position.value} yet`
+                  })
+                )
+            })
+          )
+          return yield* httpEffect
+        })
+    })
+  )
