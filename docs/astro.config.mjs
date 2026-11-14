@@ -204,7 +204,8 @@ export default defineConfig({
             "blog/three-ways-to-read",
             "blog/fix-the-code-not-the-data",
             "blog/the-wrong-event",
-            "blog/the-double-write"
+            "blog/the-double-write",
+            "blog/i-clicked-twice"
           ]
         }
       ]

@@ -47,7 +47,9 @@ const covers: Record<string, string> = {
   "the-wrong-event":
     "A librarian pins a new correction card, marked with a small coral tab, right next to an older loan card on a long ribbon of stamped loan cards, leaving the old card in place. Beside the desk, a reminder letter is being folded back into its envelope.",
   "the-double-write":
-    "A librarian files a loan card in a big ledger at the desk while, at the door, a courier with a satchel takes neat copies straight from the ledger's pages into the satchel. A small mail cart outside waits under a passing rain cloud."
+    "A librarian files a loan card in a big ledger at the desk while, at the door, a courier with a satchel takes neat copies straight from the ledger's pages into the satchel. A small mail cart outside waits under a passing rain cloud.",
+  "i-clicked-twice":
+    "A member at the library front desk presses a brass desk bell twice, while the calm librarian holds up a single receipt. A second, identical payment slip is set aside on a desk spike, unprocessed."
 }
 
 const args = process.argv.slice(2)

@@ -1,0 +1,121 @@
+---
+title: I clicked twice
+description: "A payment request times out and the client sends it again. Disabling the button doesn't help, a unique column helps half way. Commands that carry their own id, or an id per request, run once however often they arrive."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import clickedTwice from "../../../../../examples/blog/clicked-twice.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/i-clicked-twice.webp"
+
+export const file = "examples/blog/clicked-twice.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="A member at the front desk presses a desk bell twice while the librarian holds up a single receipt, a second identical slip set aside on a spike" />
+
+Alice owes the library two fines and pays one on the website. The spinner turns, the page
+times out, and she presses the button again. Behind the page, the first request had gone
+through: only its answer was lost. She has now paid twice.
+
+Everyone has seen this bug, on one side of it or the other. It isn't caused by impatient
+users. It is what every retry looks like from the server, and retries are everywhere: the
+browser, the mobile app that reconnects, the load balancer, the HTTP client library, the
+queue that redelivers. Every snippet runs in
+[`examples/blog/clicked-twice.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/clicked-twice.test.ts).
+
+## A member's account
+
+The library keeps what each member owes as an aggregate: fines charged, payments received,
+and a balance in cents. One rule: there must be something to pay.
+
+<Code code={region(clickedTwice, "account")} lang="ts" title={file} />
+
+## The same request, twice
+
+<Code code={region(clickedTwice, "twice")} lang="ts" title={file} />
+
+Two `PaymentReceived` events for one click. The balance even looks right, which is the worst
+part: Alice owed 6 euros and paid 6, and only she knows she meant to pay 3. Nobody notices
+until she reads her bank statement.
+
+Notice the rule didn't help. With one fine, the second payment would have been refused,
+because there was nothing left to pay. That makes the bug rarer, not gone: it only shows
+when a member owes more than one fine, which is when it costs the most to explain. Business
+rules catch duplicates by luck.
+
+## What the usual fixes miss
+
+**Disabling the button** stops the double click and nothing else. The retry that matters is
+the one the user never sees: the HTTP client that tries again after a timeout, the phone that
+resends when it gets its signal back, the message that a queue delivers twice.
+
+**A unique constraint** is the right instinct. Add a `request_id` column to the payments
+table, unique, and the second insert fails. But then:
+
+- the second request gets an error, while the first succeeded, so the client shows "payment
+  failed" for a payment that went through. To answer it properly, the server has to find the
+  first payment and return what it returned then, which means keeping the response too.
+- every table that can be written by a retried request needs the column, the index and the
+  code that looks it up. A fine, a loan, a reservation, a renewal.
+- someone has to decide how long ids are kept, and clean them up.
+
+## Give the request an id
+
+The client makes an id once, when Alice clicks, and sends it with every attempt. effect-cqrs
+calls it a `commandId`:
+
+<Code code={region(clickedTwice, "with-id")} lang="ts" title={file} />
+
+The second attempt didn't run the handler. The service recognized the id, read back the
+events the first attempt wrote, and returned the same result: same version, same position,
+same events. The client can't tell a retry from the first try, which is the point. It gets
+the answer it lost.
+
+Where are the ids kept? In the log. The id is recorded in the metadata of the events the
+command wrote, so there is no extra table, and nothing to keep in step: the payment and the
+proof that it was paid by this request are written in the same append. Each aggregate
+remembers the ids of its last 100 commands, rebuilt from its events when its state is loaded.
+
+An id belongs to one request. Sent again with another command, it is refused rather than
+answered with a result that isn't the caller's:
+
+<Code code={region(clickedTwice, "reused")} lang="ts" title={file} />
+
+<Aside>
+Over HTTP, `CommandApi` reads the `Idempotency-Key` header as the command id, so a browser or
+another service only has to send a UUID it made once per request. See
+[Three ways to read](../three-ways-to-read/) for `CommandApi`.
+</Aside>
+
+## Or make the command idempotent itself
+
+Sometimes the domain already has an id that makes a repeat recognizable. A loan in this
+library has one, chosen by the client, and the book's `lend` command records nothing if the
+book is already lent for that loan:
+
+<Code code={region(clickedTwice, "naturally")} lang="ts" title={file} />
+
+That is the best kind of idempotency, because it doesn't depend on remembering anything: a
+retry next month is still harmless. It is why the [saga](../sagas/) in the series can repeat
+any of its steps. Not every command has such an id. "Pay 3 euros" twice is two payments,
+unless something says they are the same request.
+
+## Rules of thumb
+
+- **Every command that can be retried needs a way to be recognized.** Prefer an id in the
+  domain, like `loanId`. Where there isn't one, send a `commandId`.
+- **The client makes the id, once per intention.** A UUID made when the user clicks, kept
+  across retries. An id the server makes can't help, because the retry doesn't know it.
+- **A retry gets the first answer, not an error.** The caller needs the result it lost.
+- **Don't count on business rules to catch duplicates.** They catch some, by luck.
+- **The window is bounded.** An aggregate remembers its last 100 command ids by default,
+  `commandIdsPerStream`. Retries come within seconds or minutes, so that's plenty for a
+  member's account, and an aggregate with heavy traffic can keep more.
+
+## Next
+
+The [commands guide](../../guides/commands/#retries-and-command-ids) covers command ids in
+full, including two processes running the same command at once.
