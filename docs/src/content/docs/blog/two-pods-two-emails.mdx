@@ -1,0 +1,135 @@
+---
+title: Two pods, two emails
+description: "The service is scaled to two replicas, and every member gets every email twice. Background work that reads the log has to run in one place, and take over somewhere else when that place goes away."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import twoPods from "../../../../../examples/blog/two-pods.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/two-pods-two-emails.webp"
+
+export const file = "examples/blog/two-pods.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="Two clerks at identical desks each put the same letter into an envelope, while one of them reaches for the single brass key hanging on the wall between them" />
+
+The library service runs fine on one machine. Then traffic grows, or someone wants zero
+downtime deploys, and the Kubernetes deployment goes from one replica to two. Commands are
+fine: both replicas append to the same store, and optimistic concurrency settles any race.
+The next morning a member writes in: *why did I get two emails for one loan?*
+
+Everything that reads the log in the background, view models, sagas and outboxes, now runs
+twice. This post shows what goes wrong and the fix. Every snippet runs in
+[`examples/blog/two-pods.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/two-pods.test.ts).
+
+## Emails through an outbox
+
+The library emails a member when a book is lent to them. An email is something that must
+happen once, outside the system, so it goes through an [outbox](../the-double-write/), which
+reads the log from its checkpoint and sends what it finds:
+
+<Code code={region(twoPods, "mailer")} lang="ts" title={file} />
+
+Each replica runs the outbox, against what they share: the event store, the checkpoints and
+the mail service.
+
+<Code code={region(twoPods, "replica")} lang="ts" title={file} />
+
+## Two replicas
+
+<Code code={region(twoPods, "two-replicas")} lang="ts" title={file} />
+
+With nothing else, `afterOneLoan` holds Alice's email twice. Each replica read the
+`BookLent`, from the same checkpoint, and each sent it. Both did their job. Neither knew the
+other existed.
+
+It's not only emails. Every view model in both replicas handles every event:
+
+- **Read models in a shared database** get every update twice. Setting a value twice is
+  harmless, but adding to a count, appending to a list or inserting a row is not.
+- **Checkpoints race.** Both replicas save their position under the same name, and the slower
+  one can move it back, so events are handled again after a restart.
+- **Sagas start twice.** The trigger is a view model. The workflow engine's idempotency key
+  catches the duplicate start, if it is durable and shared, but every trigger still runs on
+  both.
+
+Read models kept in each replica's memory are the exception: each replica *should* build its
+own. That's why running everything everywhere is the default.
+
+## One holder, one standby
+
+The fix is to decide, for each view model, which replica runs it. effect-cqrs calls this a
+*lease*: `ViewModel.layer` takes one per view model before running it, from the `Leases`
+service in context. The replica holding the lease runs the view model, and the others wait
+as standbys.
+
+In production that is `Leases.layerPostgres()`, which holds each lease as a PostgreSQL
+advisory lock, on the same database as the events:
+
+```ts
+const Live = Layer.mergeAll(ViewModel.layer([Catalog]), Outbox.layer([Notifications])).pipe(
+  Layer.provideMerge(Layer.mergeAll(
+    PostgresEventStore.layer(),
+    PostgresEventStore.layerCheckpoints(),
+    Leases.layerPostgres()
+  ))
+)
+```
+
+The example runs both replicas in one test, so it uses leases in memory that work the same
+way: the first to ask holds the lease, and the next one in line gets it when the holder goes
+away.
+
+<Code code={region(twoPods, "shared-leases")} lang="ts" title={file} />
+
+With them, the same two replicas send Alice one email. Replica A holds the lease and runs
+the outbox. Replica B's outbox waits, and its `status` says `holdsLease: false`.
+
+## The holder goes away
+
+Replicas don't live forever. A deploy replaces them, a node is drained, a process runs out
+of memory. When the holder stops, its lease is released, and the standby takes over from the
+checkpoint the holder saved:
+
+<Code code={region(twoPods, "failover")} lang="ts" title={file} />
+
+Bob gets his email from replica B. Nothing was sent twice and nothing was skipped, because
+the checkpoint is shared and only ever moved by the holder.
+
+With PostgreSQL, the lock lives on a database connection, so it goes when the process dies or
+loses its connection. Standbys try to take over every 5 seconds by default.
+
+<Aside type="caution">
+A holder notices it lost its connection at its next check, so for up to one interval the old
+holder and the new one can both handle the same events. A lease makes duplicates rare, not
+impossible. Consumers of an outbox still deduplicate on the message id, and handlers that
+write to a shared database still write idempotently.
+</Aside>
+
+## What else changes with replicas
+
+- **`caughtUp` waits only for local view models.** On a standby it doesn't wait for the
+  view models another replica runs, since nothing in this process moves them. Read your own
+  writes where the view model runs, or from the shared read model directly.
+- **`replay` and `retryParked` run on the holder.** A standby refuses them.
+- **In an Effect cluster**, `Singleton` from `effect/cluster` does the same job with the
+  cluster's shard ownership, and needs no leases.
+
+## Rules of thumb
+
+- **Commands scale out, background work runs once.** Any number of replicas can take
+  commands. Each view model, saga trigger and outbox runs in one of them at a time.
+- **Turn leases on before the second replica.** The first duplicate email is the cheapest
+  reminder you will get.
+- **Read models in memory run everywhere, shared ones run once.** Leases are for view models
+  whose data, or effects, are shared.
+- **Stay idempotent anyway.** Failover has a window, and at-least-once delivery has always
+  allowed a repeat.
+
+## Next
+
+The [view models guide](../../guides/view-models/#several-processes) covers leases and
+standbys in full, and [The double write](../the-double-write/) covers outboxes.

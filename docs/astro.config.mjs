@@ -209,7 +209,8 @@ export default defineConfig({
             "blog/the-form-that-overwrites",
             "blog/the-message-that-blocks-the-queue",
             "blog/what-it-looked-like-last-tuesday",
-            "blog/the-bug-that-wont-reproduce"
+            "blog/the-bug-that-wont-reproduce",
+            "blog/two-pods-two-emails"
           ]
         }
       ]
