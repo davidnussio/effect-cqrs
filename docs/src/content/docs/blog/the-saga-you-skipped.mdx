@@ -7,11 +7,15 @@ import { Aside, Code } from "@astrojs/starlight/components"
 import library from "../../../../../examples/blog/library.ts?raw"
 import withoutSaga from "../../../../../examples/blog/without-saga.ts?raw"
 import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/the-saga-you-skipped.webp"
 
 export const file = "examples/blog/without-saga.ts"
 export const libraryFile = "examples/blog/library.ts"
 
 *A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="Two members hold loan cards for the same single copy of a book, their lines tangled, while a courier waits by a dotted path in the background" />
 
 Sagas are the part of CQRS that teams skip most often. Aggregates and read models make
 sense on day one, while a saga looks like ceremony: a workflow, a trigger, an engine, just to

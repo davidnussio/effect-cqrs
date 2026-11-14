@@ -6,10 +6,14 @@ description: "Part 3 of the series: view models that follow the log, catch up af
 import { Aside, Code } from "@astrojs/starlight/components"
 import library from "../../../../../examples/blog/library.ts?raw"
 import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/read-models.webp"
 
 export const file = "examples/blog/library.ts"
 
 *Part 3 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+<Image src={cover} alt="One shelf of loan cards feeds three boards on the wall, a catalog, a board of members and a chart, while a librarian takes one board down to rebuild it" />
 
 In [part 2](../your-first-aggregate/) the book became an aggregate: commands decide on
 events, and `readModel("book-1")` folds one book's events into its state. That is the

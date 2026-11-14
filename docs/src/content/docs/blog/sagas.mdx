@@ -6,10 +6,14 @@ description: "Part 4 of the series: borrowing a book touches the member and the 
 import { Aside, Code } from "@astrojs/starlight/components"
 import library from "../../../../../examples/blog/library.ts?raw"
 import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/sagas.webp"
 
 export const file = "examples/blog/library.ts"
 
 *Part 4 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+<Image src={cover} alt="A courier carries a loan card along a dotted path from the member's desk to the book's desk, under a row of steps with the first one checked" />
 
 So far a member was just a string on a loan. The library has a rule about members too: **a
 member may have at most three books at a time.** Together with the book's own rule, one

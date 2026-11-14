@@ -6,10 +6,14 @@ description: "Part 2 of the series: a book as an aggregate, with events as schem
 import { Code } from "@astrojs/starlight/components"
 import library from "../../../../../examples/blog/library.ts?raw"
 import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/your-first-aggregate.webp"
 
 export const file = "examples/blog/library.ts"
 
 *Part 2 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+<Image src={cover} alt="One book stands in a glowing frame on the librarian's desk; request cards pass through it on a belt, and one is refused with a red mark" />
 
 In [part 1](../why-cqrs-and-event-sourcing/) we wrote event sourcing by hand: a list of
 events, an `evolve` function that folds them into a state, and a `lend` function that

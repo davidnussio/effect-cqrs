@@ -7,10 +7,14 @@ import { Code } from "@astrojs/starlight/components"
 import Flow from "../../../components/Flow.astro"
 import byHand from "../../../../../examples/blog/by-hand.ts?raw"
 import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/why-cqrs-and-event-sourcing.webp"
 
 export const file = "examples/blog/by-hand.ts"
 
 *Part 1 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+<Image src={cover} alt="A librarian stamps loan cards onto a long paper ribbon that runs across the library to display boards where readers look at what it records" />
 
 Most applications keep the current state of things. A library keeps a table of books, and
 lending one updates a row:

@@ -8,12 +8,16 @@ import library from "../../../../../examples/blog/library.ts?raw"
 import tests from "../../../../../examples/blog/library.test.ts?raw"
 import storage from "../../../../../examples/blog/storage.ts?raw"
 import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/tests-schema-changes-and-production.webp"
 
 export const file = "examples/blog/library.ts"
 export const testFile = "examples/blog/library.test.ts"
 export const storageFile = "examples/blog/storage.ts"
 
 *Part 5 of 5 of [CQRS with effect-cqrs](../). November 2026.*
+
+<Image src={cover} alt="A brass machine turns an old yellowed loan card into a new one, beside databases, a checklist of passing tests and a drawer where one card is erased" />
 
 Over the last four posts the library grew books, members, read models and a saga, all in
 memory. This last post is about living with it: testing the rules, changing an event that

@@ -9,8 +9,10 @@
     "preview": "astro preview"
   },
   "devDependencies": {
+    "@ai-sdk/openai": "^4.0.118",
     "@astrojs/markdown-satteri": "^0.4.6",
     "@astrojs/starlight": "^0.42.7",
+    "ai": "^7.0.173",
     "astro": "^7.4.4",
     "effect-cqrs-examples": "workspace:*",
     "starlight-llms-txt": "^0.12.0",

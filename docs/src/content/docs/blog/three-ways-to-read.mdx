@@ -7,10 +7,14 @@ next: false
 import { Code } from "@astrojs/starlight/components"
 import reading from "../../../../../examples/blog/reading.ts?raw"
 import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/three-ways-to-read.webp"
 
 export const file = "examples/blog/reading.ts"
 
 *A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="Three readers and one book: one reads the book itself, one studies the catalog board, and one waits with a numbered ticket beside an hourglass" />
 
 Alice borrows *Dune* at the front desk, and the catalog on the screen still shows it on the
 shelf. She reloads, and it's gone. Nothing is broken: the catalog is a read model, and read
