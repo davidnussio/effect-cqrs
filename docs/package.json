@@ -11,6 +11,7 @@
   "devDependencies": {
     "@ai-sdk/openai": "^4.0.118",
     "@astrojs/markdown-satteri": "^0.4.6",
+    "@astrojs/rss": "^4.0.19",
     "@astrojs/starlight": "^0.42.7",
     "ai": "^7.0.173",
     "astro": "^7.4.4",

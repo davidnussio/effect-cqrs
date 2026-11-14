@@ -42,7 +42,17 @@ export default defineConfig({
       head: [
         { tag: "link", attrs: { rel: "preconnect", href: "https://fonts.googleapis.com" } },
         { tag: "link", attrs: { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: true } },
-        { tag: "link", attrs: { rel: "stylesheet", href: fonts } }
+        { tag: "link", attrs: { rel: "stylesheet", href: fonts } },
+        // The blog's feed, from src/pages/blog/rss.xml.ts, so readers find it from any page.
+        {
+          tag: "link",
+          attrs: {
+            rel: "alternate",
+            type: "application/rss+xml",
+            title: "effect-cqrs blog",
+            href: `${base.replace(/\/$/, "")}/blog/rss.xml`
+          }
+        }
       ],
       customCss: ["./src/styles/custom.css"],
       plugins: [
