@@ -45,7 +45,9 @@ const covers: Record<string, string> = {
   "fix-the-code-not-the-data":
     "On one side, a librarian looks at a torn index card in a card drawer, its missing half nowhere to be found. On the other side, a second librarian calmly rebuilds a display board of loans from an intact ribbon of stamped loan cards, a small wrench resting on the desk beside a single corrected card.",
   "the-wrong-event":
-    "A librarian pins a new correction card, marked with a small coral tab, right next to an older loan card on a long ribbon of stamped loan cards, leaving the old card in place. Beside the desk, a reminder letter is being folded back into its envelope."
+    "A librarian pins a new correction card, marked with a small coral tab, right next to an older loan card on a long ribbon of stamped loan cards, leaving the old card in place. Beside the desk, a reminder letter is being folded back into its envelope.",
+  "the-double-write":
+    "A librarian files a loan card in a big ledger at the desk while, at the door, a courier with a satchel takes neat copies straight from the ledger's pages into the satchel. A small mail cart outside waits under a passing rain cloud."
 }
 
 const args = process.argv.slice(2)

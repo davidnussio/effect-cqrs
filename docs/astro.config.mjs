@@ -203,7 +203,8 @@ export default defineConfig({
             "blog/the-saga-you-skipped",
             "blog/three-ways-to-read",
             "blog/fix-the-code-not-the-data",
-            "blog/the-wrong-event"
+            "blog/the-wrong-event",
+            "blog/the-double-write"
           ]
         }
       ]

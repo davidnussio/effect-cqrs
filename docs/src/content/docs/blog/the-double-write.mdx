@@ -1,0 +1,142 @@
+---
+title: The double write
+description: "Store the loan, then tell the other systems, or the other way round: each order breaks on a bad day, and no transaction spans a database and a broker. With event sourcing the log is already the outbox."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import doubleWrite from "../../../../../examples/blog/double-write.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/the-double-write.webp"
+
+export const file = "examples/blog/double-write.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="A librarian files a loan card in a ledger at the desk while a courier at the open door puts copies of the cards into his satchel, a mail cart waiting outside in the rain" />
+
+Sooner or later the library has to tell someone else. The notifications service emails
+members their due dates, the statistics team counts loans, the city's network of libraries
+wants to know which books are out. They live in other processes, and they hear about loans
+through a message broker: Kafka, NATS, SQS, RabbitMQ.
+
+So a loan is two writes: one to our database, one to the broker. This post is about the
+moment between them, which is where a whole class of production bugs lives. Every snippet
+runs in
+[`examples/blog/double-write.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/double-write.test.ts).
+
+## A broker that is sometimes down
+
+The example's broker keeps messages in memory and can be told to fail the next few sends,
+the way a real one does when the network drops or it is restarting:
+
+<Code code={region(doubleWrite, "broker")} lang="ts" title={file} />
+
+## Store, then send
+
+The obvious version stores the loan, then publishes it:
+
+<Code code={region(doubleWrite, "store-then-send")} lang="ts" title={file} />
+
+On a day the broker hiccups for one send:
+
+<Code code={region(doubleWrite, "store-then-send-run")} lang="ts" title={file} />
+
+The loan is stored. The message is lost. And the request failed, so the front desk tells
+Alice that the loan didn't work while the library's own records say she has the book. If the
+desk sends the same request again, `lend` records nothing for a loan it already has, and the
+send gets through this time. If nobody does, because Alice walked off with the book or tried
+another one, the notifications service never emails her a due date, and the statistics are
+one loan short, forever.
+
+A crash between the two lines does the same: a deploy, an out-of-memory kill, a pod moved to
+another node. There is no line of code that can run "after the commit, guaranteed". A retry
+around the send helps with a short hiccup and does nothing for a process that is gone.
+
+## Send, then store
+
+So swap them. If the message must not be lost, send it first:
+
+<Code code={region(doubleWrite, "send-then-store")} lang="ts" title={file} />
+
+Now the failure goes the other way:
+
+<Code code={region(doubleWrite, "send-then-store-run")} lang="ts" title={file} />
+
+The broker accepted the message. Then the book refused, because Alice has it. Every
+consumer now believes Bob borrowed *Dune*: Bob gets an email with a due date for a book he
+doesn't have, and the statistics count a loan that never happened. The command could also
+fail for duller reasons, a lost connection or a version conflict, with the same result.
+
+Sending first means announcing a decision before it is made, and the aggregate is the one
+that makes it.
+
+<Aside>
+What about a transaction around both? A database transaction covers the database. The broker
+is another system, with its own idea of committed, and the protocols that span the two,
+such as two-phase commit, are slow, fragile and mostly unsupported by brokers. In practice
+there is no transaction to put them in.
+</Aside>
+
+## The outbox
+
+The usual fix in a CRUD application is the *transactional outbox*: in the same transaction
+as the change, insert a row into an `outbox` table, and let a separate process read that
+table and publish what it finds, marking rows as sent. One transaction, one database, and the
+broker is only ever written from a table that already committed.
+
+With event sourcing you already have that table. The events are written in one append, they
+are never changed, and they have a position. A process that reads the log from where it last
+stopped and publishes what it finds is an outbox, without the extra table and without anyone
+having to remember to insert into it. effect-cqrs calls it `Outbox`:
+
+<Code code={region(doubleWrite, "outbox")} lang="ts" title={file} />
+
+`messages` turns domain events into integration events: a type with a version in it, and a
+payload that is a contract with other teams, which is not the same as the event's shape.
+Events without a mapping, like `BookAdded`, are not published.
+
+The same bad day, with the outbox:
+
+<Code code={region(doubleWrite, "outbox-run")} lang="ts" title={file} />
+
+The command succeeded although the broker was down, because the broker was never on its
+path: a command only appends. The outbox runs in the background, like a view model. It read
+the `BookLent`, failed to publish it, waited, tried again with growing pauses, and got
+through when the broker came back. Alice was told the truth at the desk, and everybody else
+heard about her loan a little later.
+
+## What it costs
+
+- **Delivery is at least once.** The outbox saves its checkpoint after a batch is published.
+  If the process dies in between, the batch is published again after the restart. Each
+  message has an `id`, the event's id, such as `book/book-1@2`, which never changes, so
+  consumers keep the ids they have handled and skip repeats. Exactly once is not on offer
+  from any broker either: at least once plus deduplication is how it's done.
+- **The others hear a little later.** Usually milliseconds: a batch goes out when it is full
+  or after `linger`, ten milliseconds by default. While the broker is down, it is longer, and
+  `status` shows the outbox retrying.
+- **Order is per log.** Messages leave in the order the events were stored, and a failed
+  batch is retried before anything after it. A consumer that reads in parallel has to keep
+  order per aggregate itself, as Kafka does with partition keys.
+- **The checkpoint must be durable.** With checkpoints in memory, an outbox publishes the whole
+  log again after every restart. Keep them in the database, next to the events.
+
+## Rules of thumb
+
+- **Never write to two systems in one request.** One of the writes has to come from the
+  other, after it has committed.
+- **A command only stores.** Whatever has to happen because of a decision reads it from the
+  log: read models, sagas and outboxes.
+- **Publish integration events, not your events.** Map them in the outbox, give them a
+  versioned type, and leave out what other teams shouldn't depend on, or keep: personal data
+  in particular.
+- **Consumers deduplicate on the message id.** It is the same every time a message is
+  published.
+
+## Next
+
+The [integration guide](../../guides/integration/#outbox) covers `Outbox` in full, and
+[The saga you skipped](../the-saga-you-skipped/) shows the same two-writes problem between
+two aggregates, where a saga plays the outbox's part.
