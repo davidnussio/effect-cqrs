@@ -3,6 +3,7 @@
  * engine writes into it and components subscribe with `useSyncExternalStore`.
  */
 import type { StoredEvent } from "effect-cqrs/EventStore"
+import type { EngineStatus } from "../../devtools/SagaSteps.tsx"
 import { type SpanEntry, upsertSpan } from "../../devtools/tracing.ts"
 import type { AccountEvent } from "./domain/account.ts"
 
@@ -149,6 +150,19 @@ export const emptyMetrics: AggregateMetrics = {
   commands: []
 }
 
+/** A transfer's saga: the execution its `TransferSent` started, and what the engine says about it. */
+export interface TransferRun {
+  readonly executionId: string
+  /** From `Transfer.poll`, missing until the trigger has started it. */
+  readonly status?: EngineStatus
+}
+
+/** From `Sagas.status`: how far the saga's trigger has read the log. */
+export interface TriggerStatus {
+  readonly position: number
+  readonly error?: string
+}
+
 export interface Snapshot {
   readonly events: ReadonlyArray<EventEntry>
   readonly commands: ReadonlyArray<CommandEntry>
@@ -158,6 +172,9 @@ export interface Snapshot {
   readonly metrics: AggregateMetrics
   /** Every span the tracer saw, for the trace tab. */
   readonly spans: ReadonlyArray<SpanEntry>
+  /** By transfer id. */
+  readonly transfers: Readonly<Record<string, TransferRun>>
+  readonly trigger: TriggerStatus
   readonly epoch: number
 }
 
@@ -199,6 +216,8 @@ const initial = (settings: Settings, epoch: number): Snapshot => ({
   pulses: [],
   metrics: emptyMetrics,
   spans: [],
+  transfers: {},
+  trigger: { position: 0 },
   epoch
 })
 
@@ -296,6 +315,17 @@ export const devstore = {
     // Polled several times a second, so only a change is worth a render.
     if (JSON.stringify(metrics) === JSON.stringify(state.metrics)) return
     set((s) => ({ ...s, metrics }))
+  },
+  transfers: (runs: Readonly<Record<string, TransferRun>>) => {
+    const changed = Object.entries(runs).filter(([id, run]) =>
+      state.transfers[id]?.executionId !== run.executionId || state.transfers[id]?.status !== run.status
+    )
+    if (changed.length === 0) return
+    set((s) => ({ ...s, transfers: { ...s.transfers, ...Object.fromEntries(changed) } }))
+  },
+  trigger: (trigger: TriggerStatus) => {
+    if (state.trigger.position === trigger.position && state.trigger.error === trigger.error) return
+    set((s) => ({ ...s, trigger }))
   },
   status: (name: ViewName, position: number, error: string | undefined) => {
     const view = state.views[name]

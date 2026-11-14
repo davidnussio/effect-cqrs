@@ -8,10 +8,12 @@ import {
   DateTime,
   Duration,
   Effect,
+  Exit,
   Latch,
   Layer,
   ManagedRuntime,
   Metric,
+  Option,
   Schedule,
   Schema,
   Semaphore,
@@ -28,6 +30,7 @@ import * as ViewModel from "effect-cqrs/ViewModel"
 import { KeyValueStore } from "effect/persistence"
 import { WorkflowEngine } from "effect/workflow"
 import { version as appVersion } from "../../../package.json"
+import type { EngineStatus } from "../../devtools/SagaSteps.tsx"
 import { makeRecordingTracer } from "../../devtools/tracing.ts"
 import {
   type AggregateMetrics,
@@ -36,6 +39,7 @@ import {
   type Origin,
   type Outcome,
   type Stage,
+  type TransferRun,
   viewModelNames,
   type ViewName
 } from "./devstore.ts"
@@ -216,9 +220,59 @@ const Transfers = Saga.make({
 
 const TransferSaga = Saga.layer([Transfers]).pipe(
   Layer.provideMerge(TransferWorkflow),
-  Layer.provide(WorkflowEngine.layerMemory)
+  Layer.provideMerge(WorkflowEngine.layerMemory)
 )
 // #endregion
+
+/**
+ * Asks the engine how each transfer's execution stands, and the trigger how far
+ * it has read, for the saga tab. Finished executions aren't asked again, and the
+ * polls open no spans, so they stay out of the trace tab.
+ */
+const SagaPoll = Layer.effectDiscard(Effect.gen(function*() {
+  const sagas = yield* Saga.Sagas
+  yield* Effect.gen(function*() {
+    const [trigger] = yield* sagas.status
+    const position = trigger?.position ?? 0
+    devstore.trigger({
+      position,
+      ...(trigger !== undefined && Option.isSome(trigger.lastError)
+        ? { error: formatViewError(trigger.lastError.value) }
+        : {})
+    })
+    const { events, transfers } = devstore.get()
+    const runs: Record<string, TransferRun> = {}
+    for (const entry of events) {
+      if (entry.event._tag !== "TransferSent") continue
+      const { amount, to, transferId } = entry.event
+      const known = transfers[transferId]
+      if (known?.status === "succeeded" || known?.status === "failed") continue
+      // The engine names the execution after the workflow's idempotency key, the transfer id.
+      const executionId = known?.executionId ?? (yield* Transfer.executionId({
+        transferId,
+        from: entry.aggregateId,
+        to,
+        amount,
+        causation: { correlationId: "", causationId: "" }
+      }))
+      const result = yield* Transfer.poll(executionId)
+      const status: EngineStatus | undefined = Option.isNone(result)
+        // Nothing to report yet: running once the trigger has read the event that starts it.
+        ? (entry.position <= position ? "running" : undefined)
+        : result.value._tag === "Suspended"
+        ? "suspended"
+        : Exit.isSuccess(result.value.exit)
+        ? "succeeded"
+        : "failed"
+      runs[transferId] = { executionId, ...(status === undefined ? {} : { status }) }
+    }
+    devstore.transfers(runs)
+  }).pipe(
+    Effect.withTracerEnabled(false),
+    Effect.repeat(Schedule.spaced("200 millis")),
+    Effect.forkScoped
+  )
+}))
 
 /** Polls `ViewModels.status` so the devtools show each checkpoint and stall. */
 const StatusPoll = Layer.effectDiscard(Effect.gen(function*() {
@@ -362,7 +416,8 @@ const Core = Layer.merge(BankService, ViewModel.layer(allViews)).pipe(Layer.prov
 
 const WithBus = BusLayer.pipe(Layer.provideMerge(Core))
 
-const Main = Layer.mergeAll(Bridge, TransferSaga, StatusPoll, MetricsPoll, Autopilot).pipe(
+const Main = Layer.mergeAll(Bridge, SagaPoll, StatusPoll, MetricsPoll, Autopilot).pipe(
+  Layer.provideMerge(TransferSaga),
   Layer.provideMerge(WithBus),
   // Every command records the version of the software that ran it.
   Layer.provide(Metadata.layer({ appVersion })),
@@ -431,18 +486,44 @@ export const engine = {
 
   // #region forget
   /**
-   * Forgets the owner of an account: the key that encrypts their name is
-   * destroyed. Stored events stay as they were, view models erase the name in
-   * `onForget`, and the events tab decodes the log again to show the replacement.
+   * Forgets the owner of an account. The account is closed first, so nothing
+   * more happens to it: what is left on it is paid out, and `closeAccount`
+   * records the end. A transfer sent to it afterwards is refused, and the saga
+   * refunds the sender. Then the key that encrypts the owner's name is destroyed.
+   * Stored events stay as they were, view models erase the name in `onForget`,
+   * and the events tab decodes the log again to show the replacement.
    */
-  forget: (subject: string) =>
-    runtime.runPromise(Effect.gen(function*() {
-      yield* PersonalData.forget(subject).pipe(Metadata.withMetadata({ origin: "app" }))
-      const decode = AggregateService.makeEventDecoder(Account, yield* PersonalData.Keys)
-      const entries = devstore.get().events.filter((entry) => entry.aggregateId === subject)
-      const decoded = yield* Effect.forEach(entries, (entry) => decode(entry.stored))
-      devstore.redecoded(new Map(entries.map((entry, index) => [entry.position, decoded[index]!])))
-    })),
+  forget: (subject: string): Promise<Outcome | undefined> =>
+    runtime.runPromise(
+      Effect.gen(function*() {
+        const bank = yield* Bank
+        const bus = yield* Bus
+        const close = Effect.gen(function*() {
+          const { balance, status } = yield* bank.state(subject)
+          if (status !== "open") return
+          if (balance > 0) {
+            yield* bus.run({ aggregateId: subject, type: "withdraw", payload: { amount: balance } }, "app")
+          }
+          yield* bus.run({ aggregateId: subject, type: "closeAccount", payload: {} }, "app")
+        })
+        // Money can move between reading the balance and closing, so read it again and retry.
+        yield* close.pipe(
+          Effect.retry({
+            while: (error) => error._tag === "BalanceNotZero" || error._tag === "InsufficientFunds",
+            times: 3
+          })
+        )
+        yield* PersonalData.forget(subject).pipe(Metadata.withMetadata({ origin: "app" }))
+        const decode = AggregateService.makeEventDecoder(Account, yield* PersonalData.Keys)
+        const entries = devstore.get().events.filter((entry) => entry.aggregateId === subject)
+        const decoded = yield* Effect.forEach(entries, (entry) => decode(entry.stored))
+        devstore.redecoded(new Map(entries.map((entry, index) => [entry.position, decoded[index]!])))
+        return undefined
+      }).pipe(
+        // The account stays as it was when it can't be closed, and the card says why.
+        Effect.catch((error) => Effect.succeed(describeError(error)))
+      )
+    ),
   // #endregion
 
   setPaused,

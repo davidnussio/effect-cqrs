@@ -6,11 +6,12 @@ import { CommandsTab } from "./CommandsTab.tsx"
 import { EventsTab } from "./EventsTab.tsx"
 import { MetricsTab } from "./MetricsTab.tsx"
 import { ProjectionsTab } from "./ProjectionsTab.tsx"
+import { SagaTab } from "./SagaTab.tsx"
 import { TimeTravelTab } from "./TimeTravelTab.tsx"
 import { TraceTab } from "./TraceTab.tsx"
 import { Toggle } from "./ui.tsx"
 
-const tabs = ["Commands", "Event store", "Projections", "Time travel", "Trace", "Metrics"] as const
+const tabs = ["Commands", "Event store", "Projections", "Saga", "Time travel", "Trace", "Metrics"] as const
 type Tab = (typeof tabs)[number]
 
 export const DevTools = (
@@ -21,6 +22,7 @@ export const DevTools = (
   const eventCount = useSnapshot((s) => s.events.length)
   const stalled = useSnapshot((s) => Object.values(s.views).some((view) => view.error !== undefined))
   const autopilot = useSnapshot((s) => s.settings.autopilot)
+  const running = useSnapshot((s) => Object.values(s.transfers).filter((run) => run.status === "running").length)
 
   return (
     <aside className="flex min-h-0 flex-col border-white/[0.07] bg-[#0a0a12]/80 backdrop-blur-xl lg:border-l">
@@ -52,6 +54,7 @@ export const DevTools = (
             {name === "Commands" && <Badge color="#fbbf24" hidden={pending === 0}>{pending}</Badge>}
             {name === "Event store" && <Badge color="#a78bfa">{eventCount}</Badge>}
             {name === "Projections" && <Badge color="#fb7185" hidden={!stalled}>!</Badge>}
+            {name === "Saga" && <Badge color="#38bdf8" hidden={running === 0}>{running}</Badge>}
             {name === "Time travel" && <Badge color="#38bdf8" hidden={travel === undefined}>#{travel ?? 0}</Badge>}
             {tab === name && (
               <motion.span
@@ -75,6 +78,7 @@ export const DevTools = (
             {tab === "Commands" && <CommandsTab />}
             {tab === "Event store" && <EventsTab travel={travel} />}
             {tab === "Projections" && <ProjectionsTab />}
+            {tab === "Saga" && <SagaTab />}
             {tab === "Time travel" && <TimeTravelTab travel={travel} onTravel={onTravel} />}
             {tab === "Trace" && <TraceTab />}
             {tab === "Metrics" && <MetricsTab />}

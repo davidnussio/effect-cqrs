@@ -210,14 +210,14 @@ const AccountCard = (
   const closed = row.status === "closed"
   const isTarget = dragging !== undefined && dragging !== row.id && !closed
 
-  const send = async (type: string, payload: unknown) => {
-    const outcome = await engine.send({ aggregateId: row.id, type, payload })
-    if (!outcome.ok) {
-      setError(outcome)
-      void animate(scope.current, { x: [0, -10, 9, -6, 4, 0] }, { duration: 0.45 })
-      setTimeout(() => setError((current) => (current === outcome ? undefined : current)), 3200)
-    }
+  const refused = (outcome: Outcome | undefined) => {
+    if (outcome === undefined || outcome.ok) return
+    setError(outcome)
+    void animate(scope.current, { x: [0, -10, 9, -6, 4, 0] }, { duration: 0.45 })
+    setTimeout(() => setError((current) => (current === outcome ? undefined : current)), 3200)
   }
+  const send = async (type: string, payload: unknown) =>
+    refused(await engine.send({ aggregateId: row.id, type, payload }))
 
   const series = useMemo(() => {
     let balance = 0
@@ -339,10 +339,12 @@ const AccountCard = (
           {row.owner !== "[forgotten]" && (
             <Button
               tone="danger"
-              onClick={() => void engine.forget(row.id)}
-              title="Forget the owner: destroys the key that encrypts their name, the events stay"
+              onClick={async () => refused(await engine.forget(row.id))}
+              title={closed
+                ? "Forget the owner: destroys the key that encrypts their name, the events stay"
+                : "Pays out the balance and closes the account, then forgets the owner"}
             >
-              forget
+              {closed ? "forget" : "close & forget"}
             </Button>
           )}
         </div>
