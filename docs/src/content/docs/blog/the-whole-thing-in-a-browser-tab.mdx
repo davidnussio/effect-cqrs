@@ -25,16 +25,20 @@ Alice has €10 in her account and clicks "withdraw €200". Where does the page
 
 In most front ends the answer is "wherever someone remembered to": an `if` in the click
 handler, a disabled button, a check inside a reducer that then has to return the old state
-and report the problem some other way. A reducer can't refuse. By the time it runs, the
-action has happened.
+and report the problem some other way. If you have used Redux you know the shape: an action
+is a fact, and a reducer can't refuse it. By the time it runs, the action has happened.
 
 Then comes the transfer, which takes money from one account and gives it to another, and
 must give it back when the second account turns out to be closed. That is a process with
-steps, a failure and an undo. Front ends have had libraries for it for years, and most teams
-that tried them remember generator functions nobody wanted to touch six months later.
+steps, a failure and an undo. redux-saga was built for exactly this, and it had the right
+idea. Many teams that adopted it still ended up with generator functions nobody wanted to
+touch six months later, because the effects they yielded had no types and the rules they
+depended on lived somewhere else.
 
-Event sourcing has names for both: a *command* is a request that can be refused, and a
-*saga* is a process across several things. effect-cqrs is written for servers, but nothing
+Redux is already half of event sourcing: actions are events, and reducers fold them into
+state. The other half has names for what was missing. A *command* is a request that can be
+refused, and a *saga* is a process across several things, with typed failures.
+effect-cqrs is written for servers, but nothing
 in it needs one. The <a href={demoUrl}>bank demo</a> runs the whole framework in a tab, with
 React on top, and this post walks through the code that joins the two. Every snippet is
 quoted from the demo's source, in
