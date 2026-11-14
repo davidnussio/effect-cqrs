@@ -1,0 +1,128 @@
+---
+title: The form that overwrites
+description: "Two people edit the same record, and the second save quietly undoes the first. Event sourcing doesn't fix it by itself: commands that say what changed avoid most collisions, and an expected version catches the rest."
+next: false
+---
+
+import { Aside, Code } from "@astrojs/starlight/components"
+import formOverwrites from "../../../../../examples/blog/form-overwrites.ts?raw"
+import { region } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/the-form-that-overwrites.webp"
+
+export const file = "examples/blog/form-overwrites.ts"
+
+*A post after the series [CQRS with effect-cqrs](../), on its lending library. November 2026.*
+
+<Image src={cover} alt="Two librarians at separate desks each fill in their own copy of the same catalog card, while the large card on the wall between them shows one change and a smudge where the other was erased" />
+
+Bianca notices that the catalog spells Frank Herbert without its second R, and fixes it.
+A minute later Carlo, who opened the same record before her fix, moves the book to another
+shelf and saves. The typo is back. Nobody did anything wrong, nobody got an error, and the
+fix is gone until someone notices it again.
+
+This is the *lost update*, and it is as old as forms. It lives in admin panels, CMSs, CRMs
+and every screen with a Save button. This post shows that event sourcing doesn't fix it by
+itself, and what does. Every snippet runs in
+[`examples/blog/form-overwrites.test.ts`](https://github.com/davidnussio/effect-cqrs/blob/main/examples/blog/form-overwrites.test.ts).
+
+## The record and the screens
+
+A book's record in the catalog is an aggregate, `listing`, with a title, an author and a
+shelf. It has two kinds of commands on purpose: one that saves the whole form, as a CRUD
+screen does, and some that say what changed:
+
+<Code code={region(formOverwrites, "listing")} lang="ts" title={file} />
+
+The librarians' screens come from a read model. Next to the fields, it keeps the `version`
+of the record it shows, from the metadata of the last event it handled:
+
+<Code code={region(formOverwrites, "screen")} lang="ts" title={file} />
+
+## The whole form
+
+The CRUD version of a save is `UPDATE listings SET title = ?, author = ?, shelf = ? WHERE id
+= ?`, every field, from what the screen showed. The same thing as a command:
+
+<Code code={region(formOverwrites, "whole-form")} lang="ts" title={file} />
+
+Event sourcing didn't save us. The log has both `ListingSaved` events, so at least someone
+looking at the history can see what happened, which a table can't offer. But the state is
+wrong, because Carlo's command said "the author is Frank Herbet": his form sent back every
+field it showed, including the one he never touched.
+
+The problem isn't storage. It's that the command says more than the user meant.
+
+## Say what changed
+
+Bianca meant "correct the author". Carlo meant "move it to B1". Those are the commands:
+
+<Code code={region(formOverwrites, "what-changed")} lang="ts" title={file} />
+
+Both edits survive, in either order, because neither command carries a field it doesn't
+change. Most lost updates disappear this way, without locks, versions or error messages:
+two people working on the same record rarely change the same thing.
+
+This is what people mean by *task-based UI*: screens built around what users do, "correct
+author", "move to shelf", "withdraw", rather than around a table's columns. It costs more
+than one generic form. It also gives you events that say what happened, `AuthorCorrected`
+rather than `ListingSaved`, which every read model, report and audit after it will
+appreciate.
+
+## When two edits really collide
+
+Sometimes two people do change the same thing. Bianca retitles the book "Dune (Deluxe
+Edition)", and Carlo, from the screen he opened before, retitles it "Dune: 60th
+Anniversary". The last one would win, and Carlo would never know he overwrote a decision he
+hadn't seen.
+
+His screen knows which version it showed. Sending it back as the `expectedVersion` turns the
+silent overwrite into a question:
+
+<Code code={region(formOverwrites, "same-field")} lang="ts" title={file} />
+
+Bianca's command matched: the record was at version 1, as her screen said. Carlo's didn't:
+the record had moved to version 2. The command failed before its handler ran, with both
+versions in the error, and the screen can reload and show Carlo what changed. Then he decides,
+knowing.
+
+<Aside>
+Over HTTP, `CommandApi` reads the `If-Match` header as the expected version, as in
+`If-Match: 1`. A screen that read the record over HTTP can send it back from the version it
+was given.
+</Aside>
+
+`WrongExpectedVersion` is never retried. That is the difference from the other version check
+in effect-cqrs: when two *processes* append to the same aggregate at once, the loser reloads
+the state and runs the handler again, and the rules decide on the new state. That's safe
+because the handler sees what changed. A user doesn't, so deciding again for them would be
+the same silent overwrite.
+
+## When to send a version
+
+Not always. An expected version refuses any change in between, even one that didn't touch
+what the user is editing. With it on every command, Carlo's shelf move would have been
+refused because Bianca corrected the author, and he would have had to reload for nothing.
+
+- **Leave it out** for commands whose result doesn't depend on what the user saw: "move to
+  shelf B1" means the same whatever the title is. The aggregate's rules still run on the
+  current state.
+- **Send it** when the user's decision is based on what they read: a new title chosen while
+  looking at the old one, a price set while looking at the cost, an approval of a document
+  someone may have edited since.
+
+## Rules of thumb
+
+- **A command carries what the user changed, not what the screen showed.** Most lost updates
+  are a form that sends back fields nobody touched.
+- **Read models keep the version they show.** The `version` in an event's metadata is free,
+  and the screen will need it.
+- **Send `expectedVersion` when the decision depends on what was read.** It turns an
+  overwrite into a conflict the user can see.
+- **Never retry a conflict for the user.** Reload, show the change, and let them decide.
+
+## Next
+
+The [commands guide](../../guides/commands/#expected-version) covers expected versions and
+how they combine with command ids, and [I clicked twice](../i-clicked-twice/) covers the
+other kind of repeat: the same request arriving twice.

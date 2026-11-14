@@ -205,7 +205,8 @@ export default defineConfig({
             "blog/fix-the-code-not-the-data",
             "blog/the-wrong-event",
             "blog/the-double-write",
-            "blog/i-clicked-twice"
+            "blog/i-clicked-twice",
+            "blog/the-form-that-overwrites"
           ]
         }
       ]

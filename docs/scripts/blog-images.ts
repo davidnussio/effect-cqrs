@@ -49,7 +49,9 @@ const covers: Record<string, string> = {
   "the-double-write":
     "A librarian files a loan card in a big ledger at the desk while, at the door, a courier with a satchel takes neat copies straight from the ledger's pages into the satchel. A small mail cart outside waits under a passing rain cloud.",
   "i-clicked-twice":
-    "A member at the library front desk presses a brass desk bell twice, while the calm librarian holds up a single receipt. A second, identical payment slip is set aside on a desk spike, unprocessed."
+    "A member at the library front desk presses a brass desk bell twice, while the calm librarian holds up a single receipt. A second, identical payment slip is set aside on a desk spike, unprocessed.",
+  "the-form-that-overwrites":
+    "Two librarians at separate desks each fill in their own copy of the same catalog card at the same time. On the wall between them, a single large catalog card shows only one of their changes, with a faint smudge where the other one was erased."
 }
 
 const args = process.argv.slice(2)
