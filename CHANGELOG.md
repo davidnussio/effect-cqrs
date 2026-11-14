@@ -1,5 +1,11 @@
 # effect-cqrs
 
+## 0.4.1
+
+### Patch Changes
+
+- Document serving over HTTP in the README and in `LLMS.md`, the guide for coding agents that ships with the package. Both show `CommandApi` with `CommandApi.ReadAfter` for queries on view models, and list the missing inline projections among the limitations. `LLMS.md` says where `layerReadAfter` has to be provided and how a typed client sends `Read-After`, and no longer says that new events only reach the process that wrote them. The code is the same as 0.4.0.
+
 ## 0.4.0
 
 ### Minor Changes
