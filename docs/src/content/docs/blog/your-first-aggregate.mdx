@@ -118,7 +118,7 @@ What happens inside `lend`:
    whole store, which part 3 uses.
 
 The result is a receipt: what was recorded, and where in the log. It is not the book as a
-screen would show it. That is a question, and questions go to `readModel` or to the read
+screen would show it. That is a question, and questions go to `state` or to the read
 models of part 3. Keeping the two apart is Bertrand Meyer's command-query separation, the
 idea CQRS takes its name from: asking a question should not change the answer.
 
@@ -152,11 +152,11 @@ An ISO date in the JSON becomes a `DateTime`, and a payload that doesn't match f
 
 ## Reading
 
-`readModel` folds an aggregate's events into its state, and `history` lists them:
+`state` folds an aggregate's events into its state, and `history` lists them:
 
 <Code code={region(library, "read")} lang="ts" title={file} />
 
-`readModel` also takes a `finishTime`, which gives the state as it was at that moment: the
+`state` also takes a `finishTime`, which gives the state as it was at that moment: the
 time travel of part 1. `history` with `{ payload: true }` includes each event.
 
 To run all of this, provide the layer and run the effect:

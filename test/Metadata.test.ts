@@ -77,7 +77,7 @@ describe("Metadata", () => {
       yield* notes.commands.note("a", { text: "first" }).pipe(Metadata.withMetadata({ appVersion: "1" }))
       yield* notes.commands.note("a", { text: "second" }).pipe(Metadata.withMetadata({ appVersion: "2" }))
 
-      assert.deepStrictEqual(yield* notes.readModel("a"), [{ appVersion: "1" }, { appVersion: "2" }])
+      assert.deepStrictEqual(yield* notes.state("a"), [{ appVersion: "1" }, { appVersion: "2" }])
       const history = yield* notes.history("a")
       assert.deepStrictEqual(history.map((entry) => entry.metadata), [{ appVersion: "1" }, { appVersion: "2" }])
     }).pipe(Effect.provide(EventStore.layerMemory)))

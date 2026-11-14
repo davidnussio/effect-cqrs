@@ -1,7 +1,7 @@
 /**
  * Serves an aggregate over HTTP with `effect/http-api`: one `POST` endpoint per
  * command, and `GET` endpoints for `history` and, given a schema of the state,
- * `readModel`.
+ * `state`.
  *
  * ```ts
  * const TodoApi = CommandApi.group(Todo, {
@@ -17,7 +17,7 @@
  * | Endpoint | Does |
  * | --- | --- |
  * | `POST /todo/:aggregateId/createTodo` | Runs `createTodo` with the body as payload |
- * | `GET /todo/:aggregateId` | `readModel`, with an optional `finishTime` |
+ * | `GET /todo/:aggregateId` | `state`, with an optional `finishTime` |
  * | `GET /todo/:aggregateId/history` | `history`, with optional `payload`, `startTime`, `finishTime`, `afterVersion` and `limit` |
  *
  * The group is an ordinary `HttpApiGroup`, so it takes middleware, a different
@@ -112,7 +112,7 @@ export const historyEntry = <Events extends Aggregate.EventSchema<any>>(events: 
 
 const params = { aggregateId: Schema.String }
 
-const readModelQuery = { finishTime: Schema.optionalKey(Schema.DateTimeUtc) }
+const stateQuery = { finishTime: Schema.optionalKey(Schema.DateTimeUtc) }
 
 const historyQuery = {
   payload: Schema.optionalKey(Schema.Boolean),
@@ -156,12 +156,12 @@ type HistoryEndpoint<A extends Aggregate.Any> = HttpApiEndpoint.HttpApiEndpoint<
   Schema.toCodecJson<Schema.$Array<ReturnType<typeof historyEntry<A["events"]>>>>
 >
 
-type ReadModelEndpoint<State extends Schema.Top> = HttpApiEndpoint.HttpApiEndpoint<
-  "readModel",
+type StateEndpoint<State extends Schema.Top> = HttpApiEndpoint.HttpApiEndpoint<
+  "state",
   "GET",
   string,
   Params,
-  Schema.toCodecStringTree<Schema.Struct<typeof readModelQuery>>,
+  Schema.toCodecStringTree<Schema.Struct<typeof stateQuery>>,
   never,
   never,
   Schema.toCodecJson<State>
@@ -171,7 +171,7 @@ type ReadModelEndpoint<State extends Schema.Top> = HttpApiEndpoint.HttpApiEndpoi
 export type Endpoints<A extends Aggregate.Any, State extends Schema.Top, Errors extends Schema.Top> =
   | { readonly [K in Aggregate.CommandName<A>]: CommandEndpoint<A, K, Errors> }[Aggregate.CommandName<A>]
   | HistoryEndpoint<A>
-  | ([State] extends [never] ? never : ReadModelEndpoint<State>)
+  | ([State] extends [never] ? never : StateEndpoint<State>)
 
 export interface Options<
   Name extends string,
@@ -182,7 +182,7 @@ export interface Options<
   readonly name?: Name | undefined
   /** Where the endpoints start, `/<aggregate name>` by default. */
   readonly prefix?: `/${string}` | undefined
-  /** The schema of the state. Without it there is no `readModel` endpoint. */
+  /** The schema of the state. Without it there is no `state` endpoint. */
   readonly state?: State | undefined
   /**
    * Errors of the command handlers to answer with as they are. Others become
@@ -192,7 +192,7 @@ export interface Options<
   readonly errors?: Errors | undefined
 }
 
-const reserved = ["history", "readModel"]
+const reserved = ["history", "state"]
 
 const hasStatus = (schema: Schema.Top): boolean =>
   SchemaAST.resolve(schema.ast)?.httpApiStatus !== undefined ||
@@ -241,9 +241,9 @@ export const group = <
   )
   if (options?.state !== undefined) {
     endpoints.push(
-      HttpApiEndpoint.get("readModel", "/:aggregateId", {
+      HttpApiEndpoint.get("state", "/:aggregateId", {
         params,
-        query: readModelQuery,
+        query: stateQuery,
         success: options.state
       }).annotate(OpenApi.Summary, "Materializes the state of one aggregate")
     )
@@ -320,9 +320,9 @@ export const layer = <
             }).pipe(Effect.orDie))
           continue
         }
-        if (identifier === "readModel") {
+        if (identifier === "state") {
           result = result.handle(identifier, ({ params, query }: any) =>
-            aggregates.readModel(params.aggregateId, query).pipe(Effect.orDie))
+            aggregates.state(params.aggregateId, query).pipe(Effect.orDie))
           continue
         }
         if (!Object.hasOwn(aggregate.commands, identifier)) {

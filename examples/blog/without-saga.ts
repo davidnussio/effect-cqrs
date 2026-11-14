@@ -80,7 +80,7 @@ export const greedy = Effect.gen(function*() {
   yield* members.commands.borrow("bob", { loanId: "loan-2", bookId: "book-1" })
   // Both succeed: two loans of one copy.
 
-  const book = yield* books.readModel("book-1")
+  const book = yield* books.state("book-1")
   // { status: "available", loan: null, … }: the book never heard of either
   // #endregion
 
@@ -181,9 +181,9 @@ export const callingFails = Effect.gen(function*() {
   const failure = yield* Effect.flip(members.commands.borrow("carol", { loanId: "loan-3", bookId: "book-2" }))
   // failure._tag: "EventStoreError"
 
-  const book = yield* books.readModel("book-2")
+  const book = yield* books.state("book-2")
   // { status: "lent", loan: { loanId: "loan-3", memberId: "carol", … }, … }
-  const carol = yield* members.readModel("carol")
+  const carol = yield* members.state("carol")
   // { joined: true, loans: [] }
   // #endregion
 
@@ -215,9 +215,9 @@ export const withSaga = Effect.gen(function*() {
   const outcome = yield* settled("carol", "loan-3")
   // Option.some("LoanConfirmed")
 
-  const book = yield* books.readModel("book-2")
+  const book = yield* books.state("book-2")
   // { status: "lent", loan: { loanId: "loan-3", memberId: "carol", … }, … }
-  const carol = yield* members.readModel("carol")
+  const carol = yield* members.state("carol")
   // { …, loans: { "loan-3": { bookId: "book-2", status: "active" } } }
   // #endregion
 

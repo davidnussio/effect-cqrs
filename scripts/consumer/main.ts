@@ -46,7 +46,7 @@ const program = Effect.gen(function*() {
   yield* counters.commands.increment("a", { by: 2 })
   const { position } = yield* counters.commands.increment("a", { by: 3 })
   yield* viewModels.caughtUp(position)
-  const state = yield* counters.readModel("a")
+  const state = yield* counters.state("a")
   const tested = yield* Fixture.make(Counter).when("increment", { by: 1 }).expectEvent("Incremented")
   return { state, projected: total, testedVersion: tested.version }
 }).pipe(

@@ -29,7 +29,7 @@ layer(App)("CommandApi", (it) => {
       assert.strictEqual(created.events[0]?._tag, "TodoCreated")
 
       yield* todo.completeTodo({ params: { aggregateId: "a" }, payload: {} })
-      assert.deepStrictEqual(yield* todo.readModel({ params: { aggregateId: "a" }, query: {} }), {
+      assert.deepStrictEqual(yield* todo.state({ params: { aggregateId: "a" }, query: {} }), {
         status: "completed",
         title: "Buy Milk"
       })
@@ -114,6 +114,15 @@ const post = (
     )
     return { status: response.status, body: await response.text() }
   })
+
+describe("CommandApi.group", () => {
+  it("refuses a command with the name of an endpoint", () => {
+    const withState = { ...Todo, commands: { ...Todo.commands, state: Todo.commands.createTodo } }
+    assert.throws(() => CommandApi.group(withState), /command named state/)
+    const withReadModel = { ...Todo, commands: { ...Todo.commands, readModel: Todo.commands.createTodo } }
+    assert.doesNotThrow(() => CommandApi.group(withReadModel))
+  })
+})
 
 describe("CommandApi over HTTP", () => {
   it.effect("answers with status codes", () =>

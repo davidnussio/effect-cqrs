@@ -81,7 +81,7 @@ describe("AggregateService", () => {
         const result = yield* clocks.commands.cycle("clock-1", {})
 
         assert.strictEqual(result.version, 2)
-        assert.strictEqual(yield* clocks.readModel("clock-1"), 2)
+        assert.strictEqual(yield* clocks.state("clock-1"), 2)
       }).pipe(Effect.provide(EventStore.layerMemory)))
   })
 
@@ -160,7 +160,7 @@ describe("AggregateService", () => {
 
           assert.isTrue(exits.every(Exit.isSuccess))
           assert.strictEqual(yield* Ref.get(conflicts), 0)
-          assert.strictEqual(yield* counters.readModel("counter-1"), 16)
+          assert.strictEqual(yield* counters.state("counter-1"), 16)
         }).pipe(Effect.provide(storage)))
     }
 
@@ -171,7 +171,7 @@ describe("AggregateService", () => {
         const exits = yield* incrementTogether([counters, counters, counters], 1)
 
         assert.strictEqual(exits.filter(Exit.isSuccess).length, 1)
-        assert.strictEqual(yield* counters.readModel("counter-1"), 1)
+        assert.strictEqual(yield* counters.state("counter-1"), 1)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("frees the stream when a command fails", () =>
@@ -182,7 +182,7 @@ describe("AggregateService", () => {
         yield* counters.commands.increment("counter-1", { limit: 1 })
 
         assert.strictEqual(error._tag, "Limited")
-        assert.strictEqual(yield* counters.readModel("counter-1"), 1)
+        assert.strictEqual(yield* counters.state("counter-1"), 1)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("frees the stream when a command is interrupted", () =>
@@ -205,7 +205,7 @@ describe("AggregateService", () => {
         yield* Fiber.interrupt(hanging)
         yield* service.commands.increment("a", {})
 
-        assert.strictEqual(yield* service.readModel("a"), 1)
+        assert.strictEqual(yield* service.state("a"), 1)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     // Two services on one store stand in for two processes: no lock covers both.
@@ -217,7 +217,7 @@ describe("AggregateService", () => {
         const exits = yield* incrementTogether([first, second, first, second])
 
         assert.isTrue(exits.every(Exit.isSuccess))
-        assert.strictEqual(yield* first.readModel("counter-1"), 4)
+        assert.strictEqual(yield* first.state("counter-1"), 4)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.live("re-decides during a retry, so a losing command can be rejected", () =>
@@ -228,7 +228,7 @@ describe("AggregateService", () => {
         const exits = yield* incrementTogether([first, second], 1)
 
         assert.strictEqual(exits.filter(Exit.isSuccess).length, 1)
-        assert.strictEqual(yield* first.readModel("counter-1"), 1)
+        assert.strictEqual(yield* first.state("counter-1"), 1)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("surfaces the conflict once retries run out", () =>
@@ -265,7 +265,7 @@ describe("AggregateService", () => {
         yield* Effect.exit(
           counters.commands.increment("c", {}).pipe(Effect.andThen(Effect.fail("rolled back")), sql.withTransaction)
         )
-        assert.strictEqual(yield* counters.readModel("c"), 1)
+        assert.strictEqual(yield* counters.state("c"), 1)
         const next = yield* counters.commands.increment("c", {})
         assert.strictEqual(next.version, 2)
 
@@ -273,7 +273,7 @@ describe("AggregateService", () => {
         yield* Effect.all([counters.commands.increment("c", {}), counters.commands.increment("c", {})]).pipe(
           sql.withTransaction
         )
-        assert.strictEqual(yield* counters.readModel("c"), 4)
+        assert.strictEqual(yield* counters.state("c"), 4)
       }).pipe(
         Effect.provide(SqliteEventStore.layer().pipe(Layer.provideMerge(SqliteClient.layer({ filename: ":memory:" }))))
       ))
@@ -307,7 +307,7 @@ describe("AggregateService", () => {
 
         // Each command remembers the state its own events left.
         assert.deepStrictEqual(reads, [0, 1, 2])
-        assert.strictEqual(yield* counters.readModel("a"), 3)
+        assert.strictEqual(yield* counters.state("a"), 3)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("sees what another process wrote after the state it remembers", () =>
@@ -319,7 +319,7 @@ describe("AggregateService", () => {
         yield* second.commands.increment("a", {})
         yield* second.commands.increment("a", {})
 
-        assert.strictEqual(yield* first.readModel("a"), 3)
+        assert.strictEqual(yield* first.state("a"), 3)
         assert.strictEqual((yield* first.commands.increment("a", {})).version, 4)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
@@ -334,7 +334,7 @@ describe("AggregateService", () => {
 
         // Remembering "b" forgets "a", which is read again from the start.
         assert.deepStrictEqual(reads, [0, 1, 0, 0])
-        assert.strictEqual(yield* counters.readModel("a"), 3)
+        assert.strictEqual(yield* counters.state("a"), 3)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("can be turned off", () =>
@@ -459,7 +459,7 @@ describe("AggregateService", () => {
         assert.deepStrictEqual(again, first)
         assert.strictEqual(again.version, 2)
         assert.strictEqual(yield* store.head, 2)
-        assert.strictEqual(yield* accounts.readModel("a"), 9)
+        assert.strictEqual(yield* accounts.state("a"), 9)
         const stored = yield* Stream.runCollect(store.read())
         assert.deepStrictEqual(stored.map((event) => event.metadata[AggregateService.commandIdKey]), ["c1", "c1"])
       }).pipe(Effect.provide(EventStore.layerMemory)))
@@ -473,7 +473,7 @@ describe("AggregateService", () => {
         const again = yield* accounts.dispatch(envelope)
 
         assert.deepStrictEqual(again, first)
-        assert.strictEqual(yield* accounts.readModel("a"), 9)
+        assert.strictEqual(yield* accounts.state("a"), 9)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("are rebuilt from the log by another process", () =>
@@ -486,7 +486,7 @@ describe("AggregateService", () => {
         const again = yield* second.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
 
         assert.deepStrictEqual(again, written)
-        assert.strictEqual(yield* second.readModel("a"), 13)
+        assert.strictEqual(yield* second.state("a"), 13)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("belong to one aggregate", () =>
@@ -497,7 +497,7 @@ describe("AggregateService", () => {
         const other = yield* accounts.commands.deposit("b", { amount: 10 }, { commandId: "c1" })
 
         assert.strictEqual(other.aggregateId, "b")
-        assert.strictEqual(yield* accounts.readModel("b"), 9)
+        assert.strictEqual(yield* accounts.state("b"), 9)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("are remembered up to commandIdsPerStream per aggregate", () =>
@@ -509,11 +509,11 @@ describe("AggregateService", () => {
 
         yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c3" })
         yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c2" })
-        assert.strictEqual(yield* accounts.readModel("a"), 27)
+        assert.strictEqual(yield* accounts.state("a"), 27)
 
         // c1 has been forgotten, so it runs again.
         yield* accounts.commands.deposit("a", { amount: 10 }, { commandId: "c1" })
-        assert.strictEqual(yield* accounts.readModel("a"), 36)
+        assert.strictEqual(yield* accounts.state("a"), 36)
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("aren't recorded for commands that write no events", () =>
@@ -609,7 +609,7 @@ describe("AggregateService", () => {
         assert.instanceOf(error, AggregateService.WrongExpectedVersion)
         assert.deepInclude(error, { aggregateId: "d", expectedVersion: 1, actualVersion: 2 })
         assert.strictEqual(appends, 2)
-        assert.strictEqual(yield* docs.readModel("d"), "b")
+        assert.strictEqual(yield* docs.state("d"), "b")
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("is read from the dispatch envelope", () =>
@@ -640,7 +640,7 @@ describe("AggregateService", () => {
         }
         const empty = yield* Effect.flip(docs.commands.rename("d", { name: "b" }, { commandId: "" }))
         assert.strictEqual(empty._tag, "InvalidCommand")
-        assert.strictEqual(yield* docs.readModel("d"), "a")
+        assert.strictEqual(yield* docs.state("d"), "a")
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("doesn't stop a command that comes again with its id", () =>
@@ -668,11 +668,19 @@ describe("AggregateService", () => {
       Effect.provideService(Ids.IdGenerator, Ids.sequential())
     ))
 
-  describe("read models", () => {
+  describe("state", () => {
     it.effect("returns the initial state for an aggregate without events", () =>
       Effect.gen(function*() {
         const todos = yield* makeTodos
-        assert.deepStrictEqual(yield* todos.readModel("missing"), { status: "missing" })
+        assert.deepStrictEqual(yield* todos.state("missing"), { status: "missing" })
+      }).pipe(Effect.provide(EventStore.layerMemory)))
+
+    it.effect("keeps readModel as a deprecated name for state", () =>
+      Effect.gen(function*() {
+        const todos = yield* makeTodos
+        yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" })
+        assert.strictEqual(todos.readModel, todos.state)
+        assert.deepStrictEqual(yield* todos.readModel("todo-1"), { status: "open", title: "Buy Milk" })
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("materializes the state at a point in time", () =>
@@ -684,11 +692,11 @@ describe("AggregateService", () => {
         yield* TestClock.adjust(Duration.seconds(1))
         yield* todos.commands.deleteTodo("todo-1", { message: "Done" })
 
-        assert.deepStrictEqual(yield* todos.readModel("todo-1", { finishTime: before }), {
+        assert.deepStrictEqual(yield* todos.state("todo-1", { finishTime: before }), {
           status: "open",
           title: "Buy Milk"
         })
-        assert.deepStrictEqual(yield* todos.readModel("todo-1"), { status: "deleted", title: "Buy Milk" })
+        assert.deepStrictEqual(yield* todos.state("todo-1"), { status: "deleted", title: "Buy Milk" })
       }).pipe(Effect.provide(EventStore.layerMemory)))
 
     it.effect("fails with a typed error when a stored event no longer decodes", () =>
@@ -702,7 +710,7 @@ describe("AggregateService", () => {
           events: [{ type: "TodoCreated", payload: { _tag: "TodoCreated", title: 42 } }]
         })
 
-        const error = yield* Effect.flip(todos.readModel("todo-1"))
+        const error = yield* Effect.flip(todos.state("todo-1"))
 
         assert.strictEqual(error._tag, "EventDecodeError")
         assert.strictEqual(error._tag === "EventDecodeError" && error.version, 1)
@@ -795,6 +803,6 @@ describe("AggregateService", () => {
 
       yield* seen.commands.see("a", {})
 
-      assert.strictEqual(yield* seen.readModel("a"), 1)
+      assert.strictEqual(yield* seen.state("a"), 1)
     }).pipe(Effect.provide(EventStore.layerMemory)))
 })

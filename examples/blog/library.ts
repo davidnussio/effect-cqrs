@@ -145,7 +145,7 @@ export const firstSteps = Effect.gen(function*() {
   // #endregion
 
   // #region read
-  const state = yield* books.readModel("book-1")
+  const state = yield* books.state("book-1")
   // { status: "lent", title: "Dune", author: "Frank Herbert", loan: { loanId: "loan-1", … } }
 
   const history = yield* books.history("book-1")
@@ -513,7 +513,7 @@ export const borrowing = Effect.gen(function*() {
   // #region return-run
   yield* books.commands.returnBook("book-1", {})
   yield* loanReached("alice", "loan-1", "LoanClosed")
-  const alice = yield* members.readModel("alice")
+  const alice = yield* members.state("alice")
   // { joined: true, name: "Alice Rossi", loans: {} }
   // #endregion
 

@@ -85,7 +85,7 @@ for (const configuration of configurations) {
 
         assert.deepStrictEqual(handled, yield* subscribed)
         assert.strictEqual(handled.length, 3 + 1 + 60 + 3)
-        for (const id of ids) assert.strictEqual(totals.get(id), (yield* ledgers.readModel(id)).drawn)
+        for (const id of ids) assert.strictEqual(totals.get(id), (yield* ledgers.state(id)).drawn)
         assert.strictEqual((yield* status).position, last.position)
       }).pipe(running(view), Effect.provide(storage))
     })

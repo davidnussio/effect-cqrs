@@ -205,7 +205,7 @@ describe("types", () => {
       gateway.send({ aggregateName: "todo", aggregateId: "a", type: "createTodo", payload: { owner: "A" } })
       // @ts-expect-error the gateway has no aggregate order
       gateway.send({ aggregateName: "order", aggregateId: "a", type: "createTodo", payload: { title: "Milk" } })
-      gateway.services.account.readModel("a")
+      gateway.services.account.state("a")
     })
     void requirements
 

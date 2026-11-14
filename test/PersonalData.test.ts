@@ -106,7 +106,7 @@ describe("PersonalData", () => {
       assert.isTrue(stored.includes(`"currency":"CHF"`))
       assert.isTrue(stored.includes(`"amount":30`))
 
-      assert.deepStrictEqual(yield* accounts.readModel("alice"), {
+      assert.deepStrictEqual(yield* accounts.state("alice"), {
         owner: "Alice Rossi",
         balance: 70,
         beneficiaries: ["Bob Bianchi"]
@@ -123,13 +123,13 @@ describe("PersonalData", () => {
       const accounts = yield* AggregateService.make(Account)
       yield* openAlice(accounts)
       // The state is remembered with Alice's name in it.
-      assert.strictEqual((yield* accounts.readModel("alice")).owner, "Alice Rossi")
+      assert.strictEqual((yield* accounts.state("alice")).owner, "Alice Rossi")
       const before = yield* storedPayloads
 
       yield* PersonalData.forget("alice")
 
       assert.deepStrictEqual(yield* storedPayloads, before)
-      assert.deepStrictEqual(yield* accounts.readModel("alice"), {
+      assert.deepStrictEqual(yield* accounts.state("alice"), {
         owner: "[forgotten]",
         balance: 70,
         beneficiaries: ["Bob Bianchi"]
@@ -152,7 +152,7 @@ describe("PersonalData", () => {
 
       yield* PersonalData.forget("bob")
 
-      assert.deepStrictEqual(yield* accounts.readModel("alice"), {
+      assert.deepStrictEqual(yield* accounts.state("alice"), {
         owner: "Alice Rossi",
         balance: 70,
         beneficiaries: ["[forgotten]"]
@@ -320,12 +320,12 @@ describe("PersonalData", () => {
 
       // A new process starts from the snapshot.
       const second = yield* AggregateService.make(Account, { snapshots })
-      assert.strictEqual((yield* second.readModel("alice")).owner, "Alice Rossi")
+      assert.strictEqual((yield* second.state("alice")).owner, "Alice Rossi")
 
       yield* PersonalData.forget("alice")
 
       const third = yield* AggregateService.make(Account, { snapshots })
-      assert.strictEqual((yield* third.readModel("alice")).owner, "[forgotten]")
+      assert.strictEqual((yield* third.state("alice")).owner, "[forgotten]")
     }).pipe(Effect.provide(Layer.merge(Storage, KeyValueStore.layerMemory))))
 
   it.effect("let other processes use a key until their cache expires", () =>
@@ -485,7 +485,7 @@ describe("PersonalData", () => {
       assert.isTrue(JSON.stringify(event.payload).includes(keyId))
 
       const accounts = yield* AggregateService.make(Versioned)
-      assert.strictEqual((yield* accounts.readModel("alice")).owner, "Alice Rossi")
+      assert.strictEqual((yield* accounts.state("alice")).owner, "Alice Rossi")
     }).pipe(Effect.provide(Storage)))
 
   it.effect("reach view models in plaintext", () =>
@@ -713,7 +713,7 @@ describe("PersonalData ciphers", () => {
         const owners = yield* Effect.gen(function*() {
           const accounts = yield* AggregateService.make(Account, { stateCacheSize: 0 })
           assert.strictEqual((yield* PersonalData.Keys).cipher === PersonalDataNode.cipher, keys === node)
-          return [(yield* accounts.readModel("alice")).owner, (yield* accounts.readModel("bob")).owner]
+          return [(yield* accounts.state("alice")).owner, (yield* accounts.state("bob")).owner]
         }).pipe(Effect.provide(keys))
         assert.deepStrictEqual(owners, ["Alice Rossi", "Bob Bianchi"])
       }
@@ -863,7 +863,7 @@ describe("PersonalData on SQLite", () => {
       }).pipe(Effect.provide(keys))
       const nextRun = Effect.gen(function*() {
         const accounts = yield* AggregateService.make(Account)
-        return yield* accounts.readModel("alice")
+        return yield* accounts.state("alice")
       }).pipe(Effect.provide(keys))
 
       yield* firstRun
@@ -892,7 +892,7 @@ describe("PersonalData on SQLite", () => {
 
       const [rows] = yield* keyRows
       assert.strictEqual(rows?.n, 1)
-      const owner = yield* Effect.flatMap(AggregateService.make(Account), (accounts) => accounts.readModel("alice"))
+      const owner = yield* Effect.flatMap(AggregateService.make(Account), (accounts) => accounts.state("alice"))
         .pipe(
           Effect.provide(keys),
           Effect.map(({ owner }) => owner)

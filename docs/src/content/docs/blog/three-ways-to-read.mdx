@@ -33,7 +33,7 @@ The first way doesn't use a read model at all. It folds the book's own events, a
 
 <Code code={region(reading, "aggregate")} lang="ts" title={file} />
 
-`readModel` reads the store, from the state the service remembers onwards, so it sees every
+`state` reads the store, from the state the service remembers onwards, so it sees every
 event that was appended, by this process or another. It is the same state the next command
 on the book will be decided on. It can't be behind, because there is nothing in between to
 fall behind.
@@ -128,7 +128,7 @@ not on every command.
 
 | The question | Read | Up to date |
 | --- | --- | --- |
-| What is the state of this book? | `readModel(id)`, `GET /book/:id` | Always |
+| What is the state of this book? | `state(id)`, `GET /book/:id` | Always |
 | The catalog, right after I lent a book | The catalog after `caughtUp(position)`, or with `Read-After` | Includes my loan |
 | Which books are on the shelf? | The catalog as it is | A moment behind |
 

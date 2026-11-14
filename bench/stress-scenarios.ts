@@ -254,8 +254,8 @@ const ingest = (
       check((yield* positionOf("ledger")) === total, "the view model stopped short of the head")
       for (let stream = 0; stream < Math.min(streams, 100); stream++) {
         const id = `account-${stream}`
-        const { balance } = yield* accounts.readModel(id)
-        check(balance === ledger.balances.get(id), `${id}: read model and view model disagree`)
+        const { balance } = yield* accounts.state(id)
+        check(balance === ledger.balances.get(id), `${id}: state and view model disagree`)
       }
 
       const replay = yield* timed(viewModels.replay({ viewModels: ["ledger"] }))
@@ -351,7 +351,7 @@ const contention = (sizes: Sizes, backends: ReadonlyArray<Backend>) =>
             }
             yield* auditLog(acknowledged.size, check)
             const accounts = services[0]!
-            const { movements } = yield* accounts.readModel("hot")
+            const { movements } = yield* accounts.state("hot")
             check(movements === acknowledged.size, `${label}: state counts ${movements} movements`)
             const history = yield* accounts.history("hot", { payload: true })
             const stored = history.flatMap(({ payload }) => payload === undefined ? [] : [payload.reference])

@@ -112,7 +112,7 @@ const program = Effect.gen(function*() {
   const { position } = yield* todos.commands.createTodo("todo-1", { title: "Buy Milk" })
   // Untyped JSON from HTTP or RPC: the envelope and payload are validated first.
   yield* todos.dispatch({ aggregateId: "todo-2", type: "createTodo", payload: { title: "Buy Eggs" } })
-  const state = yield* todos.readModel("todo-1")
+  const state = yield* todos.state("todo-1")
   const events = yield* todos.history("todo-1", { payload: true })
 }).pipe(Effect.provide(Todos.layer.pipe(Layer.provide(EventStore.layerMemory))))
 ```

@@ -121,8 +121,8 @@ const program = Effect.gen(function*() {
   // Untyped JSON from a transport, validated before running
   yield* todos.dispatch({ aggregateId: "todo-2", type: "createTodo", payload: { title: "Buy Eggs" } })
 
-  yield* todos.readModel("todo-1")
-  yield* todos.readModel("todo-1", { finishTime }) // state as it was before finishTime
+  yield* todos.state("todo-1")
+  yield* todos.state("todo-1", { finishTime }) // as it was before finishTime
   yield* todos.history("todo-1", { payload: true })
 }).pipe(Effect.provide(EventStore.layerMemory))
 ```
@@ -331,7 +331,7 @@ checking that nothing is lost.
 | --- | --- |
 | `CQRSEventSourcing({ aggregate })` mixin | `AggregateService.make(aggregate)` |
 | `call todo.command` | `todos.commands.x(id, payload)` or `todos.dispatch(json)` |
-| `call todo.read-model` | `todos.readModel(id, { finishTime })` |
+| `call todo.read-model` | `todos.state(id, { finishTime })` |
 | `call todo.history` | `todos.history(id, { payload, startTime, finishTime })` |
 | `call todo.replay` | `viewModels.replay({ viewModels, startTime, finishTime })` |
 | view model service with `events` | `ViewModel.make({ handlers, dispose })` |
@@ -362,7 +362,7 @@ store, so `replay` is for rebuilding, not for recovery.
   needs a new snapshot `version` by hand.
 - **No inline projections.** A view model never runs in the transaction that appends
   the events, so it is always a moment behind its command. Read one aggregate with
-  `readModel`, which is always current, or wait for a command's position with `caughtUp`
+  `state`, which is always current, or wait for a command's position with `caughtUp`
   or `CommandApi.ReadAfter`.
 - **Event upcasts are pure.** Older event shapes declared with `EventVersions` are
   upcast on read, but an upcast can't read a service or fail with its own error.

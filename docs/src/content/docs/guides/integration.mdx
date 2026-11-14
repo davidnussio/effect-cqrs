@@ -48,7 +48,7 @@ example as a repository of its own, with a server and SQLite storage, to clone a
 | --- | --- |
 | `POST /todo/:aggregateId/<command>` | Runs the command with the body as payload, and answers with the `CommandResult` |
 | `GET /todo/:aggregateId/history` | `history`, with optional `payload`, `startTime`, `finishTime`, `afterVersion` and `limit` in the query |
-| `GET /todo/:aggregateId` | `readModel`, with an optional `finishTime`. Only with `state` |
+| `GET /todo/:aggregateId` | `state`, with an optional `finishTime`. Only with the `state` option |
 
 The group is an ordinary `HttpApiGroup`: `name` and `prefix` change its identifier and
 path, and middleware, OpenAPI annotations and `HttpApiClient` work as with any other.

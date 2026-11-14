@@ -228,7 +228,7 @@ export const make = <A extends Aggregate.Any>(
     Effect.orDie
   )
 
-  const state = Effect.flatMap(seeded, (service) => service.readModel(aggregateId))
+  const state = Effect.flatMap(seeded, (service) => service.state(aggregateId))
 
   const when = <K extends Aggregate.CommandName<A>>(command: K, payload: Aggregate.Payload<A, K>) =>
     new ScenarioImpl(
@@ -238,7 +238,7 @@ export const make = <A extends Aggregate.Any>(
         const result = yield* service.commands[command](aggregateId, payload)
         return {
           events: result.events,
-          state: yield* service.readModel(aggregateId),
+          state: yield* service.state(aggregateId),
           version: result.version,
           fixture: make(aggregate, { aggregateId, events: [...history, ...result.events] })
         } satisfies Outcome<A>
@@ -272,13 +272,13 @@ export const make = <A extends Aggregate.Any>(
       const holds = (sequence: ReadonlyArray<Step<A>>) =>
         Effect.gen(function*() {
           const service = yield* seeded
-          if (!options.invariant(yield* service.readModel(aggregateId))) return false
+          if (!options.invariant(yield* service.state(aggregateId))) return false
           for (const step of sequence) {
             const succeeded = yield* service.commands[step.command](aggregateId, step.payload).pipe(
               Effect.as(true),
               Effect.catch(() => Effect.succeed(false))
             )
-            if (succeeded && !options.invariant(yield* service.readModel(aggregateId))) return false
+            if (succeeded && !options.invariant(yield* service.state(aggregateId))) return false
           }
           return true
         }).pipe(Effect.orDie)

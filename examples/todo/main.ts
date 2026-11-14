@@ -28,11 +28,11 @@ const program = Effect.gen(function*() {
 
   yield* viewModels.caughtUp(last.position)
   yield* Effect.log("view model", yield* listTodos)
-  yield* Effect.log("read model", yield* todos.readModel("uuid-todo-2"))
+  yield* Effect.log("state", yield* todos.state("uuid-todo-2"))
 
   const deleted = yield* todos.commands.deleteTodo("uuid-todo-2", { message: "Already bought" })
   yield* viewModels.caughtUp(deleted.position)
-  yield* Effect.log("read model after delete", yield* todos.readModel("uuid-todo-2"))
+  yield* Effect.log("state after delete", yield* todos.state("uuid-todo-2"))
   yield* Effect.log("view model after delete", yield* listTodos)
 
   const rejected = yield* Effect.flip(todos.commands.deleteTodo("uuid-todo-2", { message: "Again" }))

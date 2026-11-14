@@ -26,7 +26,7 @@ export const inProcess = Effect.gen(function*() {
   yield* books.commands.add("book-1", { title: "Dune", author: "Frank Herbert" })
   yield* books.commands.lend("book-1", { loanId: "loan-1", memberId: "alice" })
 
-  const book = yield* books.readModel("book-1")
+  const book = yield* books.state("book-1")
   // { status: "lent", …, loan: { memberId: "alice", … } }, every time
   // #endregion
 

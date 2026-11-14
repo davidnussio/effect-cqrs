@@ -127,7 +127,7 @@ for (const configuration of configurations) {
           assert.deepStrictEqual(invalid, invalid.map(() => "InvalidCommand"))
           assert.deepStrictEqual(unknown, unknown.map(() => "UnknownCommand"))
           assert.strictEqual(yield* head, 0)
-          assert.deepStrictEqual(yield* ledgers.readModel("l"), Ledger.initial)
+          assert.deepStrictEqual(yield* ledgers.state("l"), Ledger.initial)
         }).pipe(Effect.provide(storage))
     )
 
@@ -136,7 +136,7 @@ for (const configuration of configurations) {
         const ledgers = yield* makeLedgers
         yield* ledgers.commands.open("l", { limit: 5 })
         yield* ledgers.commands.draw("l", { amount: 3, by: "nurse" })
-        const state = yield* ledgers.readModel("l")
+        const state = yield* ledgers.state("l")
 
         const exceeded = yield* Effect.flip(ledgers.commands.draw("l", { amount: 3, by: "nurse" }))
         const several = yield* Effect.flip(ledgers.commands.drawEach("l", { amounts: [1, 1, 1], by: "nurse" }))
@@ -151,7 +151,7 @@ for (const configuration of configurations) {
           "NotOpen"
         ])
         assert.strictEqual(yield* head, 2)
-        assert.deepStrictEqual(yield* ledgers.readModel("l"), state)
+        assert.deepStrictEqual(yield* ledgers.state("l"), state)
         assert.deepStrictEqual(yield* ledgerStream("unopened"), [])
       }).pipe(Effect.provide(storage)))
 
@@ -195,8 +195,8 @@ for (const configuration of configurations) {
           const restarted = yield* makeLedgers
           for (const id of ids) {
             const model = expected.get(id)!
-            assert.deepStrictEqual(yield* ledgers.readModel(id), model)
-            assert.deepStrictEqual(yield* restarted.readModel(id), model)
+            assert.deepStrictEqual(yield* ledgers.state(id), model)
+            assert.deepStrictEqual(yield* restarted.state(id), model)
             const stream = yield* ledgerStream(id)
             assert.strictEqual(stream.filter((event) => event.type === "Drawn").length, model.draws)
             assert.deepStrictEqual(stream.map((event) => event.version), range(stream.length).map((index) => index + 1))
@@ -220,7 +220,7 @@ for (const configuration of configurations) {
 
           assert.strictEqual(count(outcomes, "ok"), 20)
           assert.strictEqual(count(outcomes, "LimitExceeded"), 40)
-          assert.deepStrictEqual(yield* ledgers.readModel("l"), { status: "open", limit: 20, drawn: 20, draws: 20 })
+          assert.deepStrictEqual(yield* ledgers.state("l"), { status: "open", limit: 20, drawn: 20, draws: 20 })
           const stream = yield* ledgerStream("l")
           assert.deepStrictEqual(stream.map((event) => event.version), range(21).map((index) => index + 1))
           // Every stored draw is one a caller was told about.
@@ -251,8 +251,8 @@ for (const configuration of configurations) {
           assert.isAtMost(accepted, 15)
           if (gaveUp === 0) assert.strictEqual(accepted, 15)
           const state = { status: "open", limit: 15, drawn: accepted, draws: accepted }
-          assert.deepStrictEqual(yield* (yield* makeLedgers).readModel("l"), state)
-          for (const service of services) assert.deepStrictEqual(yield* service.readModel("l"), state)
+          assert.deepStrictEqual(yield* (yield* makeLedgers).state("l"), state)
+          for (const service of services) assert.deepStrictEqual(yield* service.state("l"), state)
         }).pipe(Effect.provide(storage), Effect.provideService(Metric.MetricRegistry, new Map())),
       { timeout: 30_000 }
     )
@@ -328,12 +328,12 @@ for (const configuration of configurations) {
         })
         assert.strictEqual(new Set(together.map((result) => result.version)).size, 1)
         assert.strictEqual(yield* head, before + 2)
-        assert.deepStrictEqual((yield* ledgers.readModel("l")).drawn, 6)
+        assert.deepStrictEqual((yield* ledgers.state("l")).drawn, 6)
 
         // The id of one command doesn't answer for another.
         const reused = yield* Effect.flip(ledgers.commands.close("l", {}, { commandId: "c-1" }))
         assert.strictEqual(reused._tag, "CommandIdReused")
-        assert.strictEqual((yield* ledgers.readModel("l")).status, "open")
+        assert.strictEqual((yield* ledgers.state("l")).status, "open")
         assert.strictEqual(yield* head, before + 2)
       }).pipe(Effect.provide(storage)))
 
@@ -410,7 +410,7 @@ for (const configuration of configurations) {
 
           for (const [id, schemaVersion] of [["damaged", 1], ["from-the-future", 4]] as const) {
             const errors = yield* Effect.all([
-              Effect.flip(ledgers.readModel(id)),
+              Effect.flip(ledgers.state(id)),
               Effect.flip(ledgers.history(id, { payload: true })),
               Effect.flip(ledgers.commands.draw(id, { amount: 1, by: "nurse" })),
               Effect.flip(ledgers.commands.close(id, {}))
@@ -449,16 +449,16 @@ for (const configuration of configurations) {
         const now = { status: "closed", limit: 10, drawn: 5, draws: 2 }
 
         for (const service of [ledgers, yield* makeLedgers]) {
-          assert.deepStrictEqual(yield* service.readModel("l", { finishTime: beforeOpening }), Ledger.initial)
-          assert.deepStrictEqual((yield* service.readModel("l", { finishTime: atSecondDraw })).drawn, 0)
-          assert.deepStrictEqual(yield* service.readModel("l", { finishTime: between }), {
+          assert.deepStrictEqual(yield* service.state("l", { finishTime: beforeOpening }), Ledger.initial)
+          assert.deepStrictEqual((yield* service.state("l", { finishTime: atSecondDraw })).drawn, 0)
+          assert.deepStrictEqual(yield* service.state("l", { finishTime: between }), {
             status: "open",
             limit: 10,
             drawn: 2,
             draws: 1
           })
           // Looking back doesn't change what the service knows about the present.
-          assert.deepStrictEqual(yield* service.readModel("l"), now)
+          assert.deepStrictEqual(yield* service.state("l"), now)
         }
       }).pipe(Effect.provide(storage)))
 
@@ -474,7 +474,7 @@ for (const configuration of configurations) {
 
           yield* readings.commands.measure("r", { value: 2, unit: "g" })
 
-          assert.deepStrictEqual(yield* readings.readModel("r"), ["5 mg", "2 g"])
+          assert.deepStrictEqual(yield* readings.state("r"), ["5 mg", "2 g"])
           const history = yield* readings.history("r", { payload: true })
           assert.deepStrictEqual(history.map((entry) => entry.payload), [
             ReadingEvent.cases.Measured.make({ value: 5, unit: "mg" }),
@@ -499,16 +499,16 @@ for (const configuration of configurations) {
           yield* ledgers.commands.open("l", { limit: 100 })
           for (const index of range(22)) yield* ledgers.commands.draw("l", { amount: 1 + (index % 3), by: "nurse" })
         }))
-        const replayed = yield* (yield* makeLedgers).readModel("l")
+        const replayed = yield* (yield* makeLedgers).state("l")
 
         const { ledgers, reads } = yield* withSnapshots
-        assert.deepStrictEqual(yield* ledgers.readModel("l"), replayed)
+        assert.deepStrictEqual(yield* ledgers.state("l"), replayed)
         // The snapshot was used: the stream was read from where it ends, not from its start.
         assert.deepStrictEqual(reads, [20])
 
         yield* ledgers.commands.draw("l", { amount: 4, by: "nurse" })
-        assert.deepStrictEqual(yield* ledgers.readModel("l"), yield* (yield* makeLedgers).readModel("l"))
-        assert.strictEqual((yield* ledgers.readModel("l")).drawn, replayed.drawn + 4)
+        assert.deepStrictEqual(yield* ledgers.state("l"), yield* (yield* makeLedgers).state("l"))
+        assert.strictEqual((yield* ledgers.state("l")).drawn, replayed.drawn + 4)
       }).pipe(Effect.provide(SnapshotStorage)))
 
     it.effect(
@@ -541,7 +541,7 @@ for (const configuration of configurations) {
           ) {
             yield* snapshots.set(snapshotKey("l"), damaged)
             const { ledgers, reads } = yield* withSnapshots
-            assert.deepStrictEqual(yield* ledgers.readModel("l"), expected)
+            assert.deepStrictEqual(yield* ledgers.state("l"), expected)
             assert.deepStrictEqual(reads, [0])
           }
         }).pipe(Effect.provide(SnapshotStorage), quiet)

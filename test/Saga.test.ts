@@ -78,8 +78,8 @@ describe("Saga", () => {
       const sent = yield* bank.commands.sendTransfer("alice", { transferId: "t1", to: "bob", amount: 30 })
       yield* next("TransferReceived")
 
-      assert.strictEqual((yield* bank.readModel("alice")).balance, 70)
-      assert.strictEqual((yield* bank.readModel("bob")).balance, 30)
+      assert.strictEqual((yield* bank.state("alice")).balance, 70)
+      assert.strictEqual((yield* bank.state("bob")).balance, 30)
 
       // The credit records the transfer as its cause, in the correlation it started.
       const received = (yield* bank.history("bob")).find((entry) => entry.type === "TransferReceived")
@@ -111,7 +111,7 @@ describe("Saga", () => {
       const refunded = yield* next("TransferRefunded")
 
       assert.strictEqual(refunded._tag === "Some" && refunded.value.aggregateId, "alice")
-      assert.strictEqual((yield* bank.readModel("alice")).balance, 100)
+      assert.strictEqual((yield* bank.state("alice")).balance, 100)
     }).pipe(Effect.provide(Background)))
 
   it.effect("joins the execution when the trigger sees an event again", () =>
@@ -132,7 +132,7 @@ describe("Saga", () => {
       const causation = { correlationId: "c", causationId: "c" }
       yield* Transfer.execute({ transferId: "t1", from: "alice", to: "bob", amount: 30, causation })
       assert.strictEqual(yield* Ref.get(runs), 1)
-      assert.strictEqual((yield* bank.readModel("bob")).balance, 30)
+      assert.strictEqual((yield* bank.state("bob")).balance, 30)
     }).pipe(Effect.provide(App)))
 
   it.effect("ends the workflow on an unexpected failure and runs its compensations", () =>
@@ -161,7 +161,7 @@ describe("Saga", () => {
 
       assert.isTrue(Exit.isFailure(exit) && Cause.hasDies(exit.cause))
       assert.deepStrictEqual(yield* Ref.get(compensated), ["deposit"])
-      assert.strictEqual((yield* Bank.use((bank) => bank.readModel("alice"))).balance, 0)
+      assert.strictEqual((yield* Bank.use((bank) => bank.state("alice"))).balance, 0)
     }).pipe(Effect.provide(App)))
 })
 
@@ -200,7 +200,7 @@ describe("Saga.layer", () => {
         const retried = yield* sagas.retryParked({ viewModel: "flaky" })
         assert.deepStrictEqual(retried.succeeded, [sent.position])
         yield* next("TransferReceived")
-        assert.strictEqual((yield* bank.readModel("bob")).balance, 30)
+        assert.strictEqual((yield* bank.state("bob")).balance, 30)
       }).pipe(
         Effect.provide(Saga.layer([Flaky]).pipe(Layer.provideMerge(Base))),
         Effect.provideService(References.MinimumLogLevel, "None")

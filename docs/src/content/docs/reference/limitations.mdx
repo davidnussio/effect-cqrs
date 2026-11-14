@@ -18,7 +18,7 @@ before using it for anything real.
 - **No code generator.** There is no equivalent of `cqrs generate`.
 - **No inline projections.** A view model never runs in the transaction that appends the
   events, so a read model is always a moment behind its command. Read one aggregate with
-  `readModel`, which is always current, or wait for a command's position with `caughtUp`
+  `state`, which is always current, or wait for a command's position with `caughtUp`
   or `CommandApi.ReadAfter`.
 - **Slow handlers don't slow writers.** There is no backpressure, so a view model with a
   slow handler falls behind and catches up when writes stop.

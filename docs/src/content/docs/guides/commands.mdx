@@ -18,8 +18,8 @@ const program = Effect.gen(function*() {
   // Untyped JSON from a transport, validated before running
   yield* todos.dispatch({ aggregateId: "todo-2", type: "createTodo", payload: { title: "Buy Eggs" } })
 
-  yield* todos.readModel("todo-1")
-  yield* todos.readModel("todo-1", { finishTime }) // state as it was before finishTime
+  yield* todos.state("todo-1")
+  yield* todos.state("todo-1", { finishTime }) // as it was before finishTime
   yield* todos.history("todo-1", { payload: true })
 }).pipe(Effect.provide(EventStore.layerMemory))
 ```
@@ -40,7 +40,7 @@ aggregate's id, the payload and optionally a `commandId` and an `expectedVersion
 | `correlationId` | The correlation its events joined, see [causation](#causation) |
 
 The result is a receipt for what was stored, not an answer to a question. A screen that
-shows the change reads it as any other screen does, from [`readModel`](#reading) or a
+shows the change reads it as any other screen does, from [`state`](#reading) or a
 [view model](../view-models/), and `position` lets that read wait for the command.
 
 `dispatch` takes the envelope a transport hands over, `{ aggregateId, type, payload }`, as
@@ -75,8 +75,9 @@ A command fails with the errors its handler declares, plus:
 
 ## Reading
 
-- `readModel(id)` folds the aggregate's events into its state. With `finishTime` it gives
-  the state as it was before that moment.
+- `state(id)` folds the aggregate's events into its state. With `finishTime` it gives
+  the state as it was before that moment. `readModel` is its former name, deprecated and
+  still there.
 - `history(id)` lists the aggregate's events as
   `{ version, timestamp, type, correlationId, causationId, metadata }`, with the decoded event as
   `payload` when you ask for it. `startTime` and `finishTime` narrow the
@@ -193,7 +194,7 @@ files, any `effect/sql` database and the browser's `localStorage`.
   last snapshot, the service starts saving one and the command carries on without waiting
   for it. The service needs a `Scope`, which `Layer.effect` provides, and closing it waits
   for the saves still running.
-- `readModel` with a `finishTime` always replays from the start.
+- `state` with a `finishTime` always replays from the start.
 - They keep the aggregate's latest [command ids](#retries-and-command-ids) beside the state,
   unsealed, as the events hold them in plain text too.
 
@@ -357,7 +358,7 @@ const todos = yield* AggregateService.make(Todo, { snapshots })
 const gateway = yield* CommandGateway.make([todos, Account])
 ```
 
-`gateway.services.todo` is the service of `todo`, for `readModel` and `history`.
+`gateway.services.todo` is the service of `todo`, for `state` and `history`.
 
 ### Interceptors
 

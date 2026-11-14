@@ -78,7 +78,7 @@ describe("metrics", () => {
       yield* increment(first, 1)
 
       yield* increment(second, 4)
-      yield* first.readModel("c")
+      yield* first.state("c")
 
       assert.strictEqual(yield* sumOf(MetricNames.eventsReplayed), 1 + 4)
     }).pipe(isolated, Effect.provide(EventStore.layerMemory)))
@@ -145,7 +145,7 @@ describe("metrics", () => {
         yield* Effect.scoped(Effect.flatMap(withSnapshots(), (counters) => increment(counters, 3)))
 
         const counters = yield* withSnapshots(Schema.Struct({ total: Schema.String }) as any)
-        yield* counters.readModel("c")
+        yield* counters.state("c")
 
         assert.strictEqual(yield* count(MetricNames.snapshotReadFailures), 1)
       }).pipe(

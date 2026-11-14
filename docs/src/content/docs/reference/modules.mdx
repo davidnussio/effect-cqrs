@@ -29,7 +29,7 @@ Runs an aggregate against the event store. <a href={sourceUrl("src/AggregateServ
 
 | Export | What it is |
 | --- | --- |
-| `make(aggregate, { maxRetries, stateCacheSize, commandIdsPerStream, snapshots })` | The service: `commands`, `dispatch`, `readModel`, `history` |
+| `make(aggregate, { maxRetries, stateCacheSize, commandIdsPerStream, snapshots })` | The service: `commands`, `dispatch`, `state`, `history` |
 | `SnapshotOptions` | `every`, `schema` and `version` of the snapshots |
 | `CommandOptions` | `commandId` and `expectedVersion`, the last argument of a typed command |
 | `CommandResult`, `HistoryEntry` | What a command and `history` return |
@@ -176,7 +176,7 @@ Serves an aggregate over HTTP, see [integration](../../guides/integration/#http)
 
 | Export | What it is |
 | --- | --- |
-| `group(aggregate, { name, prefix, state, errors })` | An `HttpApiGroup` with a `POST` endpoint per command, `history` and, with `state`, `readModel` |
+| `group(aggregate, { name, prefix, state, errors })` | An `HttpApiGroup` with a `POST` endpoint per command, `history` and, with the `state` option, `state` |
 | `layer(api, name, service)` | Implements the group with an aggregate service, or an effect that makes one |
 | `InvalidCommandError`, `ConcurrencyConflictError`, `CommandRejected` | The errors it answers with `400`, `409` and `422` |
 | `commandResult(events)`, `historyEntry(events)` | Schemas of what a command and `history` answer |

@@ -118,7 +118,7 @@ export type EventOf<A extends Aggregate.Any> = A extends Aggregate.Any ? Aggrega
 
 export interface CommandGateway<A extends Aggregate.Any, E = never, R = never> {
   /**
-   * The service of each aggregate, by name, for reading with `readModel` and
+   * The service of each aggregate, by name, for reading with `state` and
    * `history`. Commands run through a service directly skip the interceptors.
    */
   readonly services: { readonly [X in A as Aggregate.Name<X>]: AggregateService.AggregateService<X> }

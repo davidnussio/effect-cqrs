@@ -11,7 +11,7 @@ validation becomes `Schema`, and thrown errors become typed ones.
 | --- | --- |
 | `CQRSEventSourcing({ aggregate })` mixin | `AggregateService.make(aggregate)` |
 | `call todo.command` | `todos.commands.x(id, payload)` or `todos.dispatch(json)` |
-| `call todo.read-model` | `todos.readModel(id, { finishTime })` |
+| `call todo.read-model` | `todos.state(id, { finishTime })` |
 | `call todo.history` | `todos.history(id, { payload, startTime, finishTime })` |
 | `call todo.replay` | `viewModels.replay({ viewModels, startTime, finishTime })` |
 | view model service with `events` | `ViewModel.make({ handlers, dispose })` |

@@ -104,7 +104,7 @@ There are three ways to read, from the most current to the most flexible:
 
 | Read | Up to date | For |
 | --- | --- | --- |
-| [`readModel(id)`](../commands/#reading), which folds one aggregate's events | Always | One aggregate, by id |
+| [`state(id)`](../commands/#reading), which folds one aggregate's events | Always | One aggregate, by id |
 | A view model after `caughtUp(position)` | Includes the caller's own commands | The screen after a command |
 | A view model | A moment behind | Lists, searches, totals |
 

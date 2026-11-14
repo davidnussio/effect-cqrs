@@ -320,7 +320,7 @@ export const program = Effect.gen(function*() {
   )
   yield* settled("order-0")
 
-  const legacy = yield* orders.readModel("order-0")
+  const legacy = yield* orders.state("order-0")
   yield* Effect.log("order-0 is read as", legacy)
   // #endregion
 
@@ -348,7 +348,7 @@ export const program = Effect.gen(function*() {
 
   const list = yield* OrderList.use(Ref.get)
   yield* Effect.log("order list", Object.fromEntries(list))
-  const stock = yield* stocks.readModel("apple")
+  const stock = yield* stocks.state("apple")
   yield* Effect.log("apple stock", stock)
 
   // #region metrics

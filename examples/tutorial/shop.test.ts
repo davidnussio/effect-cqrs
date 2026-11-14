@@ -36,7 +36,7 @@ describe("tutorial", () => {
       yield* stocks.commands.add("apple", { quantity: 5 })
       yield* orders.commands.place("order-1", { sku: "apple", quantity: 3 })
       yield* reached("order-1", "PaymentRequested")
-      assert.deepStrictEqual(yield* stocks.readModel("apple"), { available: 2, reserved: { "order-1": 3 } })
+      assert.deepStrictEqual(yield* stocks.state("apple"), { available: 2, reserved: { "order-1": 3 } })
 
       // The saga starts its clock just after asking for the payment, so move time until it gives up.
       const done = yield* Effect.forkChild(settled("order-1"))
@@ -49,8 +49,8 @@ describe("tutorial", () => {
       assert.isAtLeast(seconds, 15)
       assert.isAtMost(seconds, 16)
 
-      assert.strictEqual((yield* orders.readModel("order-1")).status, "rejected")
-      assert.deepStrictEqual(yield* stocks.readModel("apple"), { available: 5, reserved: {} })
+      assert.strictEqual((yield* orders.state("order-1")).status, "rejected")
+      assert.deepStrictEqual(yield* stocks.state("apple"), { available: 5, reserved: {} })
       const list = yield* OrderList.use(Ref.get)
       assert.strictEqual(list.get("order-1"), "rejected: not paid in time")
 

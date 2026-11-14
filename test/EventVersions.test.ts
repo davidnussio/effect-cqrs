@@ -105,7 +105,7 @@ describe("EventVersions", () => {
         // Events without a history are at version 1.
         ["MoneyDeposited", 1]
       ])
-      assert.deepStrictEqual(yield* accounts.readModel("a"), { name: "Alice Rossi", currency: "EUR", balance: 5 })
+      assert.deepStrictEqual(yield* accounts.state("a"), { name: "Alice Rossi", currency: "EUR", balance: 5 })
     }).pipe(Effect.provide(EventStore.layerMemory)))
 
   it.effect("fails with a typed error for a version the aggregate doesn't know", () =>
@@ -120,7 +120,7 @@ describe("EventVersions", () => {
         })
       )
 
-      const error = yield* Effect.flip(accounts.readModel("a"))
+      const error = yield* Effect.flip(accounts.state("a"))
       assert.strictEqual(error._tag, "EventDecodeError")
       assert.strictEqual((error as AggregateService.EventDecodeError).schemaVersion, 4)
     }).pipe(Effect.provide(EventStore.layerMemory)))

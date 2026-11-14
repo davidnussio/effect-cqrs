@@ -53,7 +53,7 @@ describe("snapshots", () => {
       yield* runFirst(5)
 
       const second = yield* start()
-      assert.deepStrictEqual(yield* second.counters.readModel("c"), { total: 5 })
+      assert.deepStrictEqual(yield* second.counters.state("c"), { total: 5 })
       assert.deepStrictEqual(second.reads, [3])
     }).pipe(Effect.provide(Storage)))
 
@@ -62,7 +62,7 @@ describe("snapshots", () => {
       yield* runFirst(8)
 
       const second = yield* start()
-      yield* second.counters.readModel("c")
+      yield* second.counters.state("c")
       assert.deepStrictEqual(second.reads, [6])
     }).pipe(Effect.provide(Storage)))
 
@@ -71,7 +71,7 @@ describe("snapshots", () => {
       yield* runFirst(5)
 
       const second = yield* start({ version: 2 })
-      assert.deepStrictEqual(yield* second.counters.readModel("c"), { total: 5 })
+      assert.deepStrictEqual(yield* second.counters.state("c"), { total: 5 })
       assert.deepStrictEqual(second.reads, [0])
     }).pipe(Effect.provide(Storage)))
 
@@ -80,7 +80,7 @@ describe("snapshots", () => {
       yield* runFirst(5)
 
       const second = yield* start({ schema: Schema.Struct({ total: Schema.String }) as any })
-      assert.deepStrictEqual(yield* second.counters.readModel("c"), { total: 5 })
+      assert.deepStrictEqual(yield* second.counters.state("c"), { total: 5 })
       assert.deepStrictEqual(second.reads, [0])
     }).pipe(
       Effect.provide(Storage),
@@ -93,7 +93,7 @@ describe("snapshots", () => {
       yield* increment(counters, 3)
 
       assert.deepStrictEqual(reads, [0, 1, 2])
-      assert.deepStrictEqual(yield* counters.readModel("c"), { total: 3 })
+      assert.deepStrictEqual(yield* counters.state("c"), { total: 3 })
       assert.deepStrictEqual(reads, [0, 1, 2, 3])
     }).pipe(Effect.provide(Storage)))
 
@@ -119,7 +119,7 @@ describe("snapshots", () => {
       })).pipe(Effect.provideService(KeyValueStore.KeyValueStore, slow))
 
       const second = yield* start()
-      yield* second.counters.readModel("c")
+      yield* second.counters.state("c")
       assert.deepStrictEqual(second.reads, [3])
     }).pipe(Effect.provide(Storage)))
 
@@ -137,7 +137,7 @@ describe("snapshots", () => {
       const again = yield* second.counters.commands.increment("c", {}, { commandId: "x" })
       assert.deepStrictEqual(again, first)
       assert.deepStrictEqual(second.reads, [3, 0])
-      assert.deepStrictEqual(yield* second.counters.readModel("c"), { total: 3 })
+      assert.deepStrictEqual(yield* second.counters.state("c"), { total: 3 })
     }).pipe(Effect.provide(Storage)))
 
   it.effect("keep the latest command ids when they are sealed", () =>

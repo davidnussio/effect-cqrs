@@ -49,7 +49,7 @@ describe("CommandGateway", () => {
       })
       assert.strictEqual(opened.aggregateName, "account")
 
-      assert.deepStrictEqual(yield* gateway.services.todo.readModel("a"), { status: "open", title: "Buy Milk" })
+      assert.deepStrictEqual(yield* gateway.services.todo.state("a"), { status: "open", title: "Buy Milk" })
     }).pipe(Effect.provide(Store)))
 
   it.effect("passes options and the handler's errors through", () =>

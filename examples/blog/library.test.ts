@@ -171,7 +171,7 @@ describe("5. testing the library", () => {
       yield* PersonalData.forget("alice")
       yield* viewModels.caughtUp()
 
-      const alice = yield* members.readModel("alice")
+      const alice = yield* members.state("alice")
       assert.strictEqual(alice.name, "[forgotten]")
       const directory = yield* Directory.use(Ref.get)
       assert.isFalse(directory.has("alice"))

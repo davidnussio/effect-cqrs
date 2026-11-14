@@ -179,11 +179,19 @@ export interface AggregateService<A extends Aggregate.Any> {
   readonly dispatch: (
     input: unknown
   ) => Effect.Effect<CommandResult<Aggregate.Event<A>>, Aggregate.CommandError<A> | CommandFailure | UnknownCommand>
-  /** Materializes the state on the fly, optionally as it was before `finishTime`. */
-  readonly readModel: (
+  /**
+   * Folds the aggregate's events into its state, optionally as it was before
+   * `finishTime`. It is the state the next command is decided on, so it is never behind.
+   */
+  readonly state: (
     aggregateId: string,
     options?: { readonly finishTime?: DateTime.Utc | undefined }
   ) => Effect.Effect<Aggregate.State<A>, ReadError>
+  /**
+   * @deprecated Use `state`. The name came from the `read-model` action of
+   * moleculer-cqrs, and reads as the read models that view models keep.
+   */
+  readonly readModel: AggregateService<A>["state"]
   /**
    * Lists the events of one aggregate, with their decoded payload when `payload` is
    * set. Without it the events aren't decoded. `afterVersion` and `limit` read a long
@@ -1127,10 +1135,10 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
       return yield* execute(envelope.type, envelope.aggregateId, payload, envelope)
     })
 
-  const readModel: AggregateService<A>["readModel"] = (aggregateId, options) =>
+  const readState: AggregateService<A>["state"] = (aggregateId, options) =>
     load(aggregateId, options?.finishTime).pipe(
       Effect.map(({ state }) => state),
-      Effect.withSpan(`${aggregateName}.readModel`, { attributes: { "aggregate.id": aggregateId } })
+      Effect.withSpan(`${aggregateName}.state`, { attributes: { "aggregate.id": aggregateId } })
     )
 
   const entryOf = (stored: StoredEvent): HistoryEntry<Aggregate.Event<A>> => ({
@@ -1164,7 +1172,8 @@ const makeService = Effect.fnUntraced(function*<A extends Aggregate.Any>(
     aggregate,
     commands,
     dispatch,
-    readModel,
+    state: readState,
+    readModel: readState,
     history
   } as unknown as AggregateService<A>
 })

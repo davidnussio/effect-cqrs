@@ -51,11 +51,11 @@ describe("Events defined as classes", () => {
 
       const [stored] = yield* Stream.runCollect(store.read())
       assert.notInclude(JSON.stringify(stored?.payload), "Alice Rossi")
-      assert.deepStrictEqual(yield* members.readModel("m1"), { name: "Alice Rossi", plan: "pro", active: true })
+      assert.deepStrictEqual(yield* members.state("m1"), { name: "Alice Rossi", plan: "pro", active: true })
 
       yield* PersonalData.forget("m1")
       const fresh = yield* AggregateService.make(Member)
-      assert.strictEqual((yield* fresh.readModel("m1")).name, "[forgotten]")
+      assert.strictEqual((yield* fresh.state("m1")).name, "[forgotten]")
     }).pipe(Effect.provide(Storage)))
 
   it.effect("upcast an older version into the class", () =>
@@ -68,7 +68,7 @@ describe("Events defined as classes", () => {
         events: [{ type: "MemberJoined", payload: { _tag: "MemberJoined", name: "Bob" }, schemaVersion: 1 }]
       })
       const members = yield* AggregateService.make(Member, { stateCacheSize: 0 })
-      assert.deepStrictEqual(yield* members.readModel("m2"), { name: "Bob", plan: "basic", active: true })
+      assert.deepStrictEqual(yield* members.state("m2"), { name: "Bob", plan: "basic", active: true })
     }).pipe(Effect.provide(Storage)))
 
   it("are listed by the outbox and the catalog", () => {

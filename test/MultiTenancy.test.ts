@@ -70,7 +70,7 @@ const scenario = (store: Store, prefix: string) =>
 
     // A tenant built again after eviction reads its events back from its tables.
     yield* tenants.invalidate("acme")
-    const state = Todos.use((todos) => todos.readModel("a"))
+    const state = Todos.use((todos) => todos.state("a"))
     assert.deepStrictEqual(yield* inTenant(tenants, "acme", state), { status: "open", title: "Acme todo" })
 
     const refused = yield* Effect.exit(inTenant(tenants, "Robert'); DROP TABLE", titles))

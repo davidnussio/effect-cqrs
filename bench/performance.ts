@@ -154,7 +154,7 @@ const streamLength = (backend: Backend) =>
 
     for (const { length, samples, streams } of levels) {
       const id = (index: number) => `length-${length}-${index % streams}`
-      const reads = yield* sample(samples, (index) => cold.readModel(id(index)))
+      const reads = yield* sample(samples, (index) => cold.state(id(index)))
       yield* record({
         scenario: "cold load",
         backend,
@@ -166,7 +166,7 @@ const streamLength = (backend: Backend) =>
       })
       // What a running service sees: each stream was loaded once before.
       for (let stream = 0; stream < streams; stream++) {
-        yield* accounts.readModel(id(stream))
+        yield* accounts.state(id(stream))
       }
       const commands = yield* sample(
         samples,
@@ -429,9 +429,9 @@ const personalData = (backend: Backend) =>
           for (let stream = 0; stream < streams; stream++) {
             yield* accounts.commands.depositMany(`long-${stream}`, { amount: 1, reference: "r", count: 1_000 })
           }
-          yield* cold.readModel("long-0")
+          yield* cold.state("long-0")
           const samples = scaled(100)
-          const reads = yield* sample(samples, (index) => cold.readModel(`long-${index % streams}`))
+          const reads = yield* sample(samples, (index) => cold.state(`long-${index % streams}`))
           yield* record({
             scenario: "personal data",
             backend,

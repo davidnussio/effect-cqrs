@@ -54,7 +54,7 @@ And the event is in the wrong place. `BookLent` sits in Alice's stream and in Bo
 the book's events agrees with it. The library now has two versions of the truth, and the
 one in the book's stream is wrong.
 
-The usual patch is to read the book first, with `books.readModel(bookId)`, and refuse if it
+The usual patch is to read the book first, with `books.state(bookId)`, and refuse if it
 is lent. That only moves the problem: the book's stream still never gets the `BookLent`, so
 the read always says available. Even if it did, reading and then writing elsewhere is
 check-then-act: between the read and the member's append, another member can borrow the

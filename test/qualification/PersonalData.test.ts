@@ -120,8 +120,8 @@ for (const configuration of configurations) {
           assert.isTrue(stored.includes("ward-3") && stored.includes("71.5") && stored.includes("\"c9\""))
 
           for (const service of [patients, yield* makePatients, yield* AggregateService.make(Patient, { snapshots })]) {
-            assert.deepStrictEqual(yield* service.readModel("p1"), anna)
-            assert.deepStrictEqual(yield* service.readModel("p2"), luca)
+            assert.deepStrictEqual(yield* service.state("p1"), anna)
+            assert.deepStrictEqual(yield* service.state("p2"), luca)
           }
           const history = yield* patients.history("p1", { payload: true })
           assert.deepStrictEqual(history.map((entry) => entry.payload), [
@@ -140,7 +140,7 @@ for (const configuration of configurations) {
           const records = yield* KeyRecords
           const patients = yield* Effect.scoped(Effect.tap(AggregateService.make(Patient, { snapshots }), admit))
           // The state is remembered with the name in it.
-          assert.strictEqual((yield* patients.readModel("p1")).name, "Anna Bernasconi")
+          assert.strictEqual((yield* patients.state("p1")).name, "Anna Bernasconi")
           const before = yield* patientEvents
           assert.strictEqual(Option.getOrThrow(yield* records.get("p1"))._tag, "Active")
 
@@ -154,8 +154,8 @@ for (const configuration of configurations) {
           // The patient's own fields read as their replacements. The contact is another subject.
           const forgotten = { ...anna, name: erased, birthDate: "0000-00-00" }
           for (const service of [patients, yield* makePatients, yield* AggregateService.make(Patient, { snapshots })]) {
-            assert.deepStrictEqual(yield* service.readModel("p1"), forgotten)
-            assert.deepStrictEqual(yield* service.readModel("p2"), luca)
+            assert.deepStrictEqual(yield* service.state("p1"), forgotten)
+            assert.deepStrictEqual(yield* service.state("p2"), luca)
           }
           const [registered] = yield* patients.history("p1", { payload: true })
           assert.deepStrictEqual(
@@ -172,8 +172,8 @@ for (const configuration of configurations) {
 
           // Forgetting the contact erases their name from the patient's record, and nothing else.
           yield* PersonalData.forget("c9")
-          assert.deepStrictEqual(yield* patients.readModel("p1"), { ...forgotten, contacts: [erased] })
-          assert.deepStrictEqual(yield* patients.readModel("p2"), luca)
+          assert.deepStrictEqual(yield* patients.state("p1"), { ...forgotten, contacts: [erased] })
+          assert.deepStrictEqual(yield* patients.state("p2"), luca)
         }).pipe(Effect.provide(storage))
     )
 
@@ -255,7 +255,7 @@ for (const configuration of configurations) {
           const lost = yield* makePatients.pipe(Effect.provideService(PersonalData.Keys, empty))
 
           const errors = yield* Effect.all([
-            Effect.flip(lost.readModel("p1")),
+            Effect.flip(lost.state("p1")),
             Effect.flip(lost.history("p1", { payload: true })),
             Effect.flip(lost.commands.weigh("p1", { kilograms: 70 }))
           ])

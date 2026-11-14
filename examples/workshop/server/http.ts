@@ -84,7 +84,7 @@ export const AuthorizationLayer = Layer.effect(
           const user = yield* tokens.verify(Redacted.value(credential)).pipe(
             Effect.mapError(({ reason }) => new Unauthorized({ message: tokenProblems[reason] }))
           )
-          const account = yield* Effect.orDie(accounts.readModel(user.id))
+          const account = yield* Effect.orDie(accounts.state(user.id))
           if (account.status !== "open") return yield* new Unauthorized({ message: "The account is closed" })
           // Every event the request causes records who caused it.
           return yield* Effect.provideService(httpEffect, CurrentUser, user).pipe(
@@ -158,14 +158,14 @@ const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
     const forgetting = yield* Effect.context<PersonalData.Keys | EventStore.EventStore>()
     const limiter = yield* RateLimiter
 
-    const balanceOf = (id: string) => Effect.map(Effect.orDie(accounts.readModel(id)), (state) => state.balance)
+    const balanceOf = (id: string) => Effect.map(Effect.orDie(accounts.state(id)), (state) => state.balance)
 
     /**
      * Takes an order out of its product's queue and cancels it. Fails with
      * `OrderNotCancellable` when the goods reached it first.
      */
     const cancel = Effect.fnUntraced(function*(customer: string, orderId: string) {
-      const order = yield* Effect.orDie(orders.readModel(orderId))
+      const order = yield* Effect.orDie(orders.state(orderId))
       if (order.status === "none" || order.customer !== customer) return yield* new OrderNotFound({ orderId })
       if (order.status !== "backordered") {
         return yield* new OrderNotCancellable({ orderId, status: order.status })
@@ -182,7 +182,7 @@ const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
       .handle("get", () =>
         Effect.gen(function*() {
           const user = yield* CurrentUser
-          const state = yield* Effect.orDie(accounts.readModel(user.id))
+          const state = yield* Effect.orDie(accounts.state(user.id))
           return {
             id: user.id,
             nickname: state.nickname,
@@ -201,7 +201,7 @@ const MeHandlers = HttpApiBuilder.group(Api, "me", (handlers) =>
       .handle("transfer", ({ payload: { amount, to } }) =>
         Effect.gen(function*() {
           const user = yield* CurrentUser
-          const recipient = yield* Effect.orDie(accounts.readModel(to))
+          const recipient = yield* Effect.orDie(accounts.state(to))
           if (recipient.status !== "open" && to !== user.id) {
             return yield* new RecipientNotFound({ accountId: to })
           }
@@ -278,7 +278,7 @@ const ShopHandlers = HttpApiBuilder.group(Api, "shop", (handlers) =>
       .handle("order", ({ payload: { backorder, productId, quantity } }) =>
         Effect.gen(function*() {
           const user = yield* CurrentUser
-          const product = yield* Effect.orDie(products.readModel(productId))
+          const product = yield* Effect.orDie(products.state(productId))
           if (product.status !== "listed") {
             return yield* new ProductNotFound({ productId })
           }

@@ -296,14 +296,14 @@ export const makeSimulator = Effect.fnUntraced(function*(initial: SimulatorSetti
     Effect.forEach(Array.from({ length: count }, (_, index) => index), (index) =>
       Effect.gen(function*() {
         const id = shopperId(index)
-        const account = yield* accounts.readModel(id)
+        const account = yield* accounts.state(id)
         if (account.status === "none") {
           yield* accounts.commands.openAccount(id, { nickname: `🤖 ${names[index % names.length]}` })
         }
       }), { discard: true })
 
   const act = Effect.fnUntraced(function*(id: string) {
-    const account = yield* accounts.readModel(id)
+    const account = yield* accounts.state(id)
     if (account.status !== "open") return
     const nickname = account.nickname
     const roll = yield* Random.next
