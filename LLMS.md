@@ -32,6 +32,7 @@ import * as Fixture from "effect-cqrs/Fixture"
 | `Aggregate` | Define an aggregate: events, state, projection and commands |
 | `AggregateService` | Run commands against the event store, read state and history |
 | `CommandGateway` | One entry point for the commands of several aggregates, with interceptors |
+| `CommandApi` | Serve an aggregate over HTTP with `effect/http-api`, and `ReadAfter` for reads that wait for a command |
 | `EventVersions` | Declare older shapes of an event and upcast them on read |
 | `ViewModel` | Read models that follow the log from a checkpoint, `ViewModels` to replay and wait for them |
 | `Saga` | Processes that span several aggregates, as durable workflows from `effect/workflow` |
@@ -121,7 +122,7 @@ const program = Effect.gen(function*() {
 - Besides the handler's errors, a command can fail with `InvalidCommand`, `UnknownCommand`
   (`dispatch` only), `ConcurrencyConflict`, `EventStoreError` and `EventDecodeError`.
 - `dispatch` is the entry point for transports. It decodes the payload with the command's
-  JSON codec, so an ISO string becomes a `DateTime`.
+  JSON codec, so an ISO string becomes a `DateTime`. For HTTP, use `CommandApi` instead.
 - `AggregateService.make(aggregate, { maxRetries, stateCacheSize, snapshots })` tunes
   retries after lost races, the states kept in memory, and snapshots saved through a
   `KeyValueStore` from `effect/persistence`. With `snapshots` it also needs a `Scope`, which
@@ -193,6 +194,46 @@ const Live = Layer.mergeAll(Todos.layer, ViewModel.layer([TodoList])).pipe(
 - A handler that runs commands records the handled event as their cause. For a process
   that runs commands in reaction to events, write a saga instead.
 - `store.subscribe(filter)` is a stream of past and live events for anything else.
+
+## Serve over HTTP
+
+```ts
+import { HttpApi, HttpApiBuilder, HttpApiEndpoint, HttpApiGroup } from "effect/http-api"
+import { CommandApi } from "effect-cqrs"
+
+const TodoQueries = HttpApiGroup.make("todoList")
+  .add(HttpApiEndpoint.get("list", "/todos", { success: Schema.Array(TodoItem) }))
+  .middleware(CommandApi.ReadAfter)
+
+class Api extends HttpApi.make("api")
+  .add(CommandApi.group(Todo, { state: TodoStateSchema, errors: [TodoAlreadyDeleted] }))
+  .add(TodoQueries)
+{}
+
+const TodoQueryHandlers = HttpApiBuilder.group(Api, "todoList", (handlers) =>
+  Effect.gen(function*() {
+    const store = yield* TodoListStore // take services here, not inside the handler
+    return handlers.handle("list", () => listTodos(store))
+  }))
+
+const Server = HttpApiBuilder.layer(Api).pipe(
+  Layer.provide([CommandApi.layer(Api, "todo", Effect.service(Todos)), TodoQueryHandlers]),
+  Layer.provide(CommandApi.layerReadAfter({ timeout: "5 seconds" })) // needs ViewModels
+)
+```
+
+- `CommandApi.group` gives `POST /todo/:aggregateId/<command>`, `GET /todo/:aggregateId/history`
+  and, with `state`, `GET /todo/:aggregateId`, which folds the events and is always current.
+  Errors in `errors` are answered as they are, with `422` or their `httpApiStatus`.
+- `Idempotency-Key` becomes the `commandId`, and `If-Match` the `expectedVersion`.
+- A command answers with `position` in the body and an `Event-Position` header. A query
+  with `CommandApi.ReadAfter` that receives it back as `Read-After` waits until the view
+  models of this process have handled it. It answers `503` with `NotCaughtUp` after the
+  timeout, and `400` to a header that isn't a position.
+- Provide `layerReadAfter` to the groups that use the middleware, in a `Layer.provide` of its
+  own: a layer in the same array doesn't reach them.
+- A typed `HttpApiClient` sends `Read-After` only if the endpoint declares it:
+  `headers: { "read-after": Schema.optionalKey(Schema.String) }`.
 
 ## Sagas
 
@@ -360,6 +401,8 @@ it.effect("rejects deleting twice", () =>
   stale data.
 - **Changing a stored event's schema in place.** Declare the old shape with
   `EventVersions`, or old events fail with `EventDecodeError`.
-- **Reading a view model right after a command.** Wait for `caughtUp(position)` first.
-- **Expecting events to reach other processes.** New events only wake subscribers in the
-  same process; wire `dispatch` into your own HTTP or RPC layer.
+- **Reading a view model right after a command.** Wait for `caughtUp(position)` first, or
+  over HTTP send the position as `Read-After` to a query behind `CommandApi.ReadAfter`.
+- **Expecting a message broker.** View models in every process read the shared store, but
+  nothing carries commands between processes: serve them with `CommandApi`, or wire
+  `dispatch` into another transport.

@@ -10,7 +10,9 @@ It's an experiment, not a maintained library: the API may change, and
 [Limitations](#limitations) lists what the port leaves out.
 
 The documentation, with a walkthrough of the bank demo, is at
-https://davidnussio.github.io/effect-cqrs/. For coding agents, the package ships
+https://davidnussio.github.io/effect-cqrs/, and its
+[blog](https://davidnussio.github.io/effect-cqrs/blog/) builds a lending library with it
+over a series of posts, from the first event to a saga and a database. For coding agents, the package ships
 [LLMS.md](LLMS.md), a short guide to using it, and the documentation is also published as
 [llms.txt](https://davidnussio.github.io/effect-cqrs/llms.txt).
 
@@ -186,6 +188,35 @@ events are never skipped or reordered. `viewModels.status` exposes the failure.
 Anything else that reacts to events can use `store.subscribe(filter)`, a stream of
 past events followed by live ones.
 
+## Serve it over HTTP
+
+`CommandApi` turns an aggregate into an `HttpApiGroup` of `effect/http-api`, with OpenAPI:
+a `POST` for each command, and a `GET` for its history and, given a schema of the state, for
+its state.
+
+```ts
+import { HttpApi, HttpApiBuilder } from "effect/http-api"
+import { AggregateService, CommandApi } from "effect-cqrs"
+
+class Api extends HttpApi.make("api")
+  .add(CommandApi.group(Todo, { state: TodoStateSchema, errors: [TodoAlreadyDeleted] }))
+  .add(TodoQueries.middleware(CommandApi.ReadAfter)) // your own endpoints on view models
+{}
+
+const Server = HttpApiBuilder.layer(Api).pipe(
+  Layer.provide([CommandApi.layer(Api, "todo", AggregateService.make(Todo)), TodoQueryHandlers]),
+  Layer.provide(CommandApi.layerReadAfter())
+)
+```
+
+`Idempotency-Key` makes a retried command return its first result, and `If-Match` refuses
+one based on an old version. Every command answers with the position of its last event in
+an `Event-Position` header. A query behind `CommandApi.ReadAfter` that sends it back as
+`Read-After` waits until the view models have handled it, so a client reads its own writes,
+and answers `503` if they don't get there in time.
+[effect-cqrs-http-example](https://github.com/davidnussio/effect-cqrs-http-example) is a
+server to clone and run.
+
 ## Test an aggregate
 
 `Fixture` runs commands through the real service on an in-memory store, so payload
@@ -322,11 +353,16 @@ store, so `replay` is for rebuilding, not for recovery.
 
 - **No broker.** New events wake subscribers in every process, through PostgreSQL
   notifications or by polling, but there is no transport equivalent to the Moleculer
-  broker, so `dispatch` is the entry point to wire into your own HTTP or RPC layer.
+  broker. `CommandApi` serves commands over HTTP, and `dispatch` is the entry point to
+  wire into any other transport.
 - **SQLite, PostgreSQL and memory only.** There are no adapters for MongoDB or MySQL.
 - **No code generator.** There is no equivalent of `cqrs generate`.
 - **Snapshots are opt-in.** Without `snapshots`, recent state is only kept in memory, so
   after a restart each stream is replayed the first time it is used. A changed state
   needs a new snapshot `version` by hand.
+- **No inline projections.** A view model never runs in the transaction that appends
+  the events, so it is always a moment behind its command. Read one aggregate with
+  `readModel`, which is always current, or wait for a command's position with `caughtUp`
+  or `CommandApi.ReadAfter`.
 - **Event upcasts are pure.** Older event shapes declared with `EventVersions` are
   upcast on read, but an upcast can't read a service or fail with its own error.
