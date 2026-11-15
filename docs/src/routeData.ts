@@ -11,7 +11,9 @@ export const onRequest = defineRouteMiddleware((context) => {
   const name = isPost ? entry.id.slice("blog/".length) : "default"
   const base = import.meta.env.BASE_URL.replace(/\/$/, "")
   const image = new URL(`${base}/social/${name}.jpg`, context.site).href
-  const alt = isPost ? `${entry.data.title}, on the effect-cqrs blog` : "effect-cqrs: CQRS and event sourcing for Effect v4"
+  const alt = isPost
+    ? `${entry.data.title}, on the effect-cqrs blog`
+    : "effect-cqrs: CQRS and event sourcing for Effect v4"
   head.push(
     { tag: "meta", attrs: { property: "og:image", content: image } },
     { tag: "meta", attrs: { property: "og:image:width", content: "1200" } },

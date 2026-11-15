@@ -44,12 +44,12 @@ const formats = [
 ] as const
 
 const escape = (text: string) =>
-  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
+  text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;")
 
 const field = (source: string, name: string) => {
   const value = source.match(new RegExp(`^${name}: (.+)$`, "m"))?.[1]
   if (value === undefined) throw new Error(`No ${name} in the frontmatter`)
-  return value.startsWith('"') ? (JSON.parse(value) as string) : value
+  return value.startsWith("\"") ? (JSON.parse(value) as string) : value
 }
 
 const html = (card: Card, format: (typeof formats)[number]) => {
@@ -127,7 +127,13 @@ const work = mkdtempSync(join(tmpdir(), "social-images-"))
 const probe = join(work, "probe.html")
 writeFileSync(probe, "<body><script>document.body.textContent = innerHeight</script></body>")
 const measured = Number(
-  execFileSync(chrome, ["--headless", "--disable-gpu", "--window-size=1200,1000", "--dump-dom", pathToFileURL(probe).href], {
+  execFileSync(chrome, [
+    "--headless",
+    "--disable-gpu",
+    "--window-size=1200,1000",
+    "--dump-dom",
+    pathToFileURL(probe).href
+  ], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"]
   }).match(/<body>(\d+)/)?.[1]
@@ -171,7 +177,7 @@ const shoot = (page: string, png: string, width: number, height: number) =>
   })
 
 const screenshot = async (page: string, png: string, width: number, height: number) => {
-  for (let attempt = 1; ; attempt++) {
+  for (let attempt = 1;; attempt++) {
     try {
       return await shoot(page, png, width, height)
     } catch (error) {
@@ -191,10 +197,13 @@ for (const card of cards) {
     // The page is the top of the screenshot: keep it, scale it to its size, save it as JPEG.
     execFileSync("magick", [
       png,
-      "-crop", `${format.width}x${format.height}+0+0`,
+      "-crop",
+      `${format.width}x${format.height}+0+0`,
       "+repage",
-      "-resize", `${format.saveWidth}x`,
-      "-quality", "82",
+      "-resize",
+      `${format.saveWidth}x`,
+      "-quality",
+      "82",
       join(format.dir, `${card.name}.jpg`)
     ], { stdio: "ignore" })
   }
