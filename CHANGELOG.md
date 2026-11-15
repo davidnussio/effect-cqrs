@@ -1,5 +1,11 @@
 # effect-cqrs
 
+## 0.5.1
+
+### Patch Changes
+
+- 9d66af7: The documentation moved to its own domain, https://effect-cqrs.dambox.ch/. The package's `homepage`, `README.md` and `LLMS.md` point there, and the old address on GitHub Pages redirects to it.
+
 ## 0.5.0
 
 ### Minor Changes
