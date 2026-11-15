@@ -65,6 +65,8 @@ export default defineConfig({
         }
       ],
       customCss: ["./src/styles/custom.css"],
+      // The image each page shows when it is shared, from public/social.
+      routeMiddleware: "./src/routeData.ts",
       plugins: [
         // The API reference, from the TSDoc comments of every module in src/.
         starlightTypeDoc({
