@@ -15,6 +15,7 @@ export const App = () => {
   // to there instead of the read model.
   const [travel, setTravel] = useState<number | undefined>(undefined)
   const events = useSnapshot((s) => s.events)
+  const forgotten = useSnapshot((s) => s.forgotten)
   const epoch = useSnapshot((s) => s.epoch)
   // On a narrow screen, the pane in view.
   const [view, setView] = useState<View>("app")
@@ -41,8 +42,15 @@ export const App = () => {
               Docs ↗
             </a>
           )}
-          <Stat label="events" value={head(events)} />
-          <Stat label="streams" value={new Set(events.map((e) => e.aggregateId)).size} />
+          {/* The store's events and streams: the accounts', and the personal-data ones forget records. */}
+          <Stat label="events" value={Math.max(head(events), forgotten.at(-1)?.position ?? 0)} />
+          <Stat
+            label="streams"
+            value={new Set([
+              ...events.map((e) => `account/${e.aggregateId}`),
+              ...forgotten.map((f) => `personal-data/${f.subject}`)
+            ]).size}
+          />
           <Button
             tone="ghost"
             onClick={() => {

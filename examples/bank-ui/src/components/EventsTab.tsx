@@ -84,7 +84,7 @@ export const EventsTab = ({ travel }: { travel: number | undefined }) => {
                 stream === id ? "bg-white/[0.07]" : "hover:bg-white/[0.04]"
               }`}
             >
-              <span className="w-24 shrink-0 truncate font-mono text-[10px] text-white/60" title={id}>{id}</span>
+              <span className="w-32 shrink-0 truncate font-mono text-[10px] text-white/60" title={id}>{id}</span>
               <div className="flex flex-1 flex-wrap items-center gap-[3px]">
                 {own.map((event) => (
                   <motion.span
