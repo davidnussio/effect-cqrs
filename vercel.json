@@ -4,5 +4,5 @@
   "installCommand": "pnpm install --frozen-lockfile --filter effect-cqrs-examples...",
   "buildCommand": "pnpm build:workshop",
   "outputDirectory": "examples/workshop/ui/dist",
-  "ignoreCommand": "P=${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}; git cat-file -e \"$P^{commit}\" 2>/dev/null || exit 1; git diff --quiet \"$P\" HEAD -- examples/workshop examples/devtools examples/bank-ui/src/components/ui.tsx examples/package.json src package.json pnpm-lock.yaml pnpm-workspace.yaml vercel.json"
+  "ignoreCommand": "sh scripts/vercel-ignore.sh examples/workshop examples/devtools examples/bank-ui/src/components/ui.tsx examples/package.json src package.json pnpm-lock.yaml pnpm-workspace.yaml vercel.json scripts/vercel-ignore.sh"
 }
