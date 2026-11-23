@@ -165,26 +165,40 @@ const BusLayer = Layer.effect(
   })
 )
 
-/** Mirrors every stored event to the devtools, decoded with the aggregate's schema. */
+/**
+ * Mirrors every stored event to the devtools: the account's, decoded with the
+ * aggregate's schema, and the `SubjectForgotten` events `PersonalData.forget`
+ * records in a stream of its own, which have no payload to decode.
+ */
 const Bridge = Layer.effectDiscard(Effect.gen(function*() {
   const store = yield* EventStore.EventStore
   const decode = AggregateService.makeEventDecoder(Account, yield* PersonalData.Keys)
-  yield* store.subscribe({ aggregateNames: [Account.name] }).pipe(
+  yield* store.subscribe({ aggregateNames: [Account.name, PersonalData.streamName] }).pipe(
     Stream.runForEach((stored) =>
-      decode(stored).pipe(
-        Effect.map((event) =>
-          devstore.addEvent({
+      stored.aggregateName === PersonalData.streamName
+        ? Effect.sync(() =>
+          devstore.addForgotten({
             position: stored.position,
-            aggregateId: stored.aggregateId,
+            subject: stored.aggregateId,
             version: stored.version,
-            type: event._tag,
             timestamp: DateTime.toEpochMillis(stored.timestamp),
-            payload: stored.payload,
-            event,
             stored
           })
         )
-      )
+        : decode(stored).pipe(
+          Effect.map((event) =>
+            devstore.addEvent({
+              position: stored.position,
+              aggregateId: stored.aggregateId,
+              version: stored.version,
+              type: event._tag,
+              timestamp: DateTime.toEpochMillis(stored.timestamp),
+              payload: stored.payload,
+              event,
+              stored
+            })
+          )
+        )
     ),
     Effect.catchCause((cause) => Effect.logError("bridge stopped", cause)),
     Effect.forkScoped

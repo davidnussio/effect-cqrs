@@ -18,6 +18,19 @@ export interface EventEntry {
   readonly stored: StoredEvent
 }
 
+/**
+ * A `SubjectForgotten` event from the personal-data stream. It is kept apart
+ * from the account's events, which the views, the saga tab and time travel fold:
+ * only the events tab shows it.
+ */
+export interface ForgottenEntry {
+  readonly position: number
+  readonly subject: string
+  readonly version: number
+  readonly timestamp: number
+  readonly stored: StoredEvent
+}
+
 export type Stage = "queued" | "validating" | "loading" | "deciding" | "appending" | "done" | "rejected"
 export const stages: ReadonlyArray<Stage> = ["queued", "validating", "loading", "deciding", "appending"]
 
@@ -165,6 +178,7 @@ export interface TriggerStatus {
 
 export interface Snapshot {
   readonly events: ReadonlyArray<EventEntry>
+  readonly forgotten: ReadonlyArray<ForgottenEntry>
   readonly commands: ReadonlyArray<CommandEntry>
   readonly views: { readonly [K in ViewName]: ViewState<ViewData[K]> }
   readonly settings: Settings
@@ -210,6 +224,7 @@ const defaultSettings: Settings = {
 
 const initial = (settings: Settings, epoch: number): Snapshot => ({
   events: [],
+  forgotten: [],
   commands: [],
   views: { accounts: emptyView("accounts"), totals: emptyView("totals"), feed: emptyView("feed") },
   settings,
@@ -273,6 +288,10 @@ export const devstore = {
 
   addEvent: (entry: EventEntry) => {
     set((s) => ({ ...s, events: [...s.events, entry] }))
+    pulse("event")
+  },
+  addForgotten: (entry: ForgottenEntry) => {
+    set((s) => ({ ...s, forgotten: [...s.forgotten, entry] }))
     pulse("event")
   },
   /** Replaces the decoded events at these positions, as after a subject is forgotten. */

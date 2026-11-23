@@ -57,6 +57,9 @@ export const eventColor: Record<string, string> = {
   AccountClosed: "#94a3b8"
 }
 
+/** Not in `eventColor`: it isn't an account event, so the views never count it. */
+export const forgottenColor = "#f87171"
+
 export const originColor: Record<string, string> = {
   app: "#a78bfa",
   saga: "#38bdf8",

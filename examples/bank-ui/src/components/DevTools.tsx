@@ -19,7 +19,7 @@ export const DevTools = (
 ) => {
   const [tab, setTab] = useState<Tab>("Commands")
   const pending = useSnapshot((s) => s.commands.filter((c) => c.outcome === undefined).length)
-  const eventCount = useSnapshot((s) => s.events.length)
+  const eventCount = useSnapshot((s) => s.events.length + s.forgotten.length)
   const stalled = useSnapshot((s) => Object.values(s.views).some((view) => view.error !== undefined))
   const autopilot = useSnapshot((s) => s.settings.autopilot)
   const running = useSnapshot((s) => Object.values(s.transfers).filter((run) => run.status === "running").length)
