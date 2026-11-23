@@ -12,6 +12,8 @@ import views from "../../../../../examples/bank-ui/src/domain/views.ts?raw"
 import hooks from "../../../../../examples/bank-ui/src/hooks.ts?raw"
 import bankApp from "../../../../../examples/bank-ui/src/components/BankApp.tsx?raw"
 import { demoUrl, region, sourceUrl } from "../../../source.ts"
+import { Image } from "astro:assets"
+import cover from "../../../assets/blog/the-whole-thing-in-a-browser-tab.webp"
 
 export const accountFile = "examples/bank-ui/src/domain/account.ts"
 export const engineFile = "examples/bank-ui/src/engine.ts"
@@ -20,6 +22,8 @@ export const hooksFile = "examples/bank-ui/src/hooks.ts"
 export const bankAppFile = "examples/bank-ui/src/components/BankApp.tsx"
 
 *A post on the <a href={demoUrl}>bank demo</a>, which runs in your browser. November 2026.*
+
+<Image src={cover} alt="An open laptop on a library table shows the whole front desk in miniature on its screen: a librarian turns back a request card while a courier carries books between two desks. Beside it, an empty server cabinet stands unplugged" />
 
 Alice has €10 in her account and clicks "withdraw €200". Where does the page say no?
 

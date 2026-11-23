@@ -65,7 +65,9 @@ const covers: Record<string, string> = {
   "from-a-table-to-a-log":
     "At a long library desk, a librarian copies the rows of an old leather ledger, one card per row, onto the beginning of a long ribbon of stamped loan cards that continues across the desk and out of view. The old ledger lies open beside a small stack of finished cards.",
   "change-the-rules-keep-the-history":
-    "Above the library front desk, a librarian on a small step ladder swaps an old rules board for a new one, both boards shown only as simple shapes and icons with no writing. On the desk below, a ribbon of already stamped loan cards keeps its stamps unchanged, while one fresh card is being stamped with a slightly different coloured stamp."
+    "Above the library front desk, a librarian on a small step ladder swaps an old rules board for a new one, both boards shown only as simple shapes and icons with no writing. On the desk below, a ribbon of already stamped loan cards keeps its stamps unchanged, while one fresh card is being stamped with a slightly different coloured stamp.",
+  "the-whole-thing-in-a-browser-tab":
+    "An open laptop stands on a library reading table. Inside its screen, like a small diorama, the whole front desk in miniature: a librarian gently turning back one request card with a small coral mark, a tidy display board, and a tiny courier walking a dotted path between two desks. Beside the laptop, a tall server cabinet stands empty and unplugged, its cable coiled on the floor. The screen shows only the miniature scene, with no writing."
 }
 
 const args = process.argv.slice(2)
